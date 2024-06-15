@@ -277,6 +277,20 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
             data: { categoryId: targetCategory.id }
           })
         );
+        
+        // Also update any currently unpaid annual renewal invoices to the new fee amount
+        if (targetCategory.annualRenewalFee) {
+          transactions.push(
+            prisma.financialTransaction.updateMany({
+              where: {
+                memberId: apc.memberId,
+                txType: "Annual_Renewal",
+                status: "Unpaid"
+              },
+              data: { amount: targetCategory.annualRenewalFee }
+            })
+          );
+        }
       }
 
       // Create unpaid Stamp Fee invoice if applicable

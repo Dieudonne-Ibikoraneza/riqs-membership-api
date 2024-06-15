@@ -57,7 +57,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             yearsInProfession: true,
             countryOfOrigin: true,
             membershipClass: true,
-            membershipId: true
+            membershipId: true,
+            systemRole: true
           }
         }
       }
@@ -79,18 +80,26 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           yearsInProfession: true,
           countryOfOrigin: true,
           membershipClass: true,
-          membershipId: true
+          membershipId: true,
+          systemRole: true
         }
       });
       return res.status(200).json({ profile: member, application: null, message: 'No active application draft found for this member.' });
     }
 
+    let currentCategory = null;
+    if (app.member?.membershipClass) {
+      currentCategory = await prisma.membershipCategory.findFirst({
+        where: { categoryName: app.member.membershipClass }
+      });
+    }
+
     const formattedApplication = {
       ...app,
-      category_name: app.category.categoryName,
-      processing_fee: app.category.processingFee,
-      first_year_fee: app.category.firstYearFee,
-      annual_renewal_fee: app.category.annualRenewalFee,
+      category_name: currentCategory?.categoryName || app.category.categoryName,
+      processing_fee: currentCategory?.processingFee || app.category.processingFee,
+      first_year_fee: currentCategory?.firstYearFee || app.category.firstYearFee,
+      annual_renewal_fee: currentCategory?.annualRenewalFee || app.category.annualRenewalFee,
       reviewerNotes: app.status === 'Correction_Required' && app.statusHistory?.length > 0 ? app.statusHistory[0].reviewerNotes : null,
       category: undefined,
       educationRecords: undefined,
