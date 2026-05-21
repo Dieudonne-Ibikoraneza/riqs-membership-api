@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabaseAdmin } from '../config/db';
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
 // Custom Type Definition to attach authenticated user session to Express Requests
 export interface AuthenticatedRequest extends Request {
@@ -20,23 +22,22 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   const token = authHeader.split(' ')[1];
 
   try {
-    // Verify token validity directly against Supabase Auth engine
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+    // Verify token validity directly against our local JWT secret
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
     
-    if (error || !user) {
-      return res.status(401).json({ error: 'Access Denied. Session is invalid or expired.' });
-    }
-
     // Attach normalized session parameters to request. Defaults to 'member' role unless set in metadata
     req.user = {
-      id: user.id,
-      email: user.email || '',
-      role: user.user_metadata?.role || 'member'
+      id: decoded.id,
+      email: decoded.email || '',
+      role: decoded.role || 'member'
     };
 
     next();
   } catch (err: any) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Access Denied. Session has expired.' });
+    }
     console.error('[Auth Middleware] Verification error:', err.message);
-    return res.status(500).json({ error: 'Internal security validation gateway error.' });
+    return res.status(401).json({ error: 'Access Denied. Session is invalid.' });
   }
 }

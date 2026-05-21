@@ -12,8 +12,9 @@ const options: swaggerJSDoc.Options = {
 This API handles the full workflow of member registration, 7-step wizard applications, private PDF/image blob storage streaming, double-entry financial ledger clearance, and structured mentorship tracking.
 
 ### Security Gateway
-* **Bearer Authorization**: Supply your authenticated Supabase user JWT token using standard Headers: \`Authorization: Bearer [JWT]\`.
-* **Role-Based Access Control (RBAC)**: Certain endpoints require \`admin\`, \`reviewer\`, or \`finance\` roles attached to user metadata.
+* **Bearer Authorization**: Most endpoints are private. Provide the JWT token received from \`/api/v1/auth/login\` in the Authorization header: \`Authorization: Bearer [JWT]\`.
+* **Public Endpoints**: Endpoints that do not require authentication (e.g., login, register, public members directory) will not have the lock icon. They are accessible to anyone.
+* **Role-Based Access Control (RBAC)**: Certain endpoints require \`admin\`, \`reviewer\`, or \`finance\` roles attached to your token payload.
 `,
     },
     servers: [

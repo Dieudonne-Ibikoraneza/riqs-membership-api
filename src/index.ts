@@ -17,6 +17,7 @@ import progressionRoutes from './routes/progressionRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import educationRoutes from './routes/educationRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import memberRoutes from './routes/memberRoutes';
 
 // Load secure environment variables from .env.local
 dotenv.config({ path: path.resolve(__dirname, '../.env.local') });
@@ -73,6 +74,7 @@ app.use('/api/v1/progression', progressionRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/education', educationRoutes);
 app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/v1/members', memberRoutes);
 
 // 4. Fallback Route Handler (404 Page Not Found)
 app.use((req: Request, res: Response) => {
