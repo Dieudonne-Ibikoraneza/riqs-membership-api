@@ -9,7 +9,7 @@ const router = Router();
 
 /**
  * @openapi
- * /api/v1/education/education:
+ * /api/v1/education:
  *   post:
  *     summary: Add an Education Record
  *     description: Adds a qualification record (University, degree level, field, dates) to an application. Enforces audit tracking if added post-approval (Phase B).
@@ -59,11 +59,11 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post('/education', requireAuth, addEducationRecord);
+router.post('/', requireAuth, addEducationRecord);
 
 /**
  * @openapi
- * /api/v1/education/education/{applicationId}:
+ * /api/v1/education/{applicationId}:
  *   get:
  *     summary: Get all Education Records for Application
  *     description: Retrieves the repeatable list of education qualifications logged for a specific application.
@@ -83,11 +83,11 @@ router.post('/education', requireAuth, addEducationRecord);
  *       500:
  *         description: Internal server error
  */
-router.get('/education/:applicationId', requireAuth, getEducationRecords);
+router.get('/:applicationId', requireAuth, getEducationRecords);
 
 /**
  * @openapi
- * /api/v1/education/education/{id}:
+ * /api/v1/education/{id}:
  *   delete:
  *     summary: Delete an Education Record
  *     description: Deletes a specific qualification record. Locked in Phase B (Post-Approval) to maintain regulatory compliance.
@@ -111,7 +111,7 @@ router.get('/education/:applicationId', requireAuth, getEducationRecords);
  *       404:
  *         description: Record not found
  */
-router.delete('/education/:id', requireAuth, deleteEducationRecord);
+router.delete('/:id', requireAuth, deleteEducationRecord);
 
 /**
  * @openapi

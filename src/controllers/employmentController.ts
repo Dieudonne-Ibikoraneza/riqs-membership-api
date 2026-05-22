@@ -56,3 +56,19 @@ export async function deleteEmployment(req: Request, res: Response) {
     return res.status(500).json({ error: 'Internal server error while deleting employment record.' });
   }
 }
+
+export async function getEmploymentRecords(req: Request, res: Response) {
+  try {
+    const { applicationId } = req.params;
+
+    const records = await prisma.employmentRecord.findMany({
+      where: { applicationId },
+      orderBy: { startDate: 'desc' }
+    });
+
+    return res.status(200).json({ employmentRecords: records });
+  } catch (error: any) {
+    console.error('[Get Employment Records] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching employment records.' });
+  }
+}

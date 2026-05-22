@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addEmployment, deleteEmployment } from '../controllers/employmentController';
+import { addEmployment, deleteEmployment, getEmploymentRecords } from '../controllers/employmentController';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -80,5 +80,30 @@ router.post('/', requireAuth, addEmployment);
  *         description: Internal server error
  */
 router.delete('/:id', requireAuth, deleteEmployment);
+
+/**
+ * @openapi
+ * /api/v1/employment/{applicationId}:
+ *   get:
+ *     summary: Get all Employment Records for Application
+ *     description: Retrieves the list of employment records for a specific application.
+ *     tags:
+ *       - Employment & Career
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved employment list
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/:applicationId', requireAuth, getEmploymentRecords);
 
 export default router;
