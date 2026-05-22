@@ -12,6 +12,7 @@ const router = Router();
  *     description: Retrieves list of dynamic registration fees, processing fees, currency settings, and stamp criteria based on location and entity type.
  *     tags:
  *       - System Parameters
+ *     security: []
  *     parameters:
  *       - in: query
  *         name: location
@@ -41,6 +42,7 @@ router.get('/', getAllCategories);
  *     description: Retrieves the detailed pricing metrics and stamp rules for a specific category ID.
  *     tags:
  *       - System Parameters
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: id
