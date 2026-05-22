@@ -136,8 +136,7 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const {
-    applicationId, preferredMentors, mentorshipPlan,
-    isSelfAssigned, requestedInstitutionalAssignment, preferredPracticeAreas
+    applicationId, preferredMentors, mentorshipPlan
   } = req.body;
 
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
@@ -151,26 +150,65 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
     if (!app) return res.status(404).json({ error: 'Application not found.' });
     if (app.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
 
+    let filledPreferredMentors: any[] = [];
+    let topLevelMentorInfo: any = {
+      mentorRegistrationNumber: null,
+      mentorName: null,
+      mentorContact: null
+    };
+
+    if (preferredMentors && Array.isArray(preferredMentors)) {
+      filledPreferredMentors = await Promise.all(
+        preferredMentors.map(async (pm: any) => {
+          if (!pm.regNumber) return pm;
+          const member = await prisma.member.findUnique({
+            where: { membershipId: pm.regNumber }
+          });
+          if (member) {
+            return {
+              regNumber: pm.regNumber,
+              name: member.fullName,
+              contact: member.phoneNumber || member.email
+            };
+          }
+          return pm;
+        })
+      );
+
+      if (filledPreferredMentors.length > 0) {
+        topLevelMentorInfo = {
+          mentorRegistrationNumber: filledPreferredMentors[0].regNumber,
+          mentorName: filledPreferredMentors[0].name,
+          mentorContact: filledPreferredMentors[0].contact
+        };
+      }
+    }
+
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
-        isSelfAssigned: isSelfAssigned !== undefined ? isSelfAssigned : true,
-        requestedInstitutionalAssignment: requestedInstitutionalAssignment || false,
-        preferredPracticeAreas: preferredPracticeAreas || [],
-        preferredMentors: preferredMentors || [],
-        mentorshipPlan: mentorshipPlan || null
+        preferredMentors: filledPreferredMentors,
+        mentorshipPlan: mentorshipPlan || null,
+        ...topLevelMentorInfo
       },
       create: {
         applicationId,
-        isSelfAssigned: isSelfAssigned !== undefined ? isSelfAssigned : true,
-        requestedInstitutionalAssignment: requestedInstitutionalAssignment || false,
-        preferredPracticeAreas: preferredPracticeAreas || [],
-        preferredMentors: preferredMentors || [],
-        mentorshipPlan: mentorshipPlan || null
+        preferredMentors: filledPreferredMentors,
+        mentorshipPlan: mentorshipPlan || null,
+        ...topLevelMentorInfo
       }
     });
 
-    return res.status(200).json({ message: 'Mentorship assignment saved.', mentorship: newRecord });
+    // Clean up response for frontend
+    const responseData = {
+      ...newRecord,
+      preferredPracticeAreas: undefined,
+      isSelfAssigned: undefined,
+      requestedInstitutionalAssignment: undefined,
+      preferredMentors: undefined // They asked to not nest it, and use top level fields
+    };
+
+    return res.status(200).json({ message: 'Mentorship assignment saved.', mentorship: responseData });
   } catch (error: any) {
     console.error('[Upsert Mentorship] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error saving mentorship assignment.' });
