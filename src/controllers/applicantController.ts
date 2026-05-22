@@ -30,6 +30,21 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             fileName: true,
             uploadedAt: true
           }
+        },
+        member: {
+          select: {
+            fullName: true,
+            email: true,
+            phoneNumber: true,
+            dateOfBirth: true,
+            gender: true,
+            nationality: true,
+            nationalIdOrPassport: true,
+            residencyAddress: true,
+            workAddress: true,
+            yearsInProfession: true,
+            countryOfOrigin: true
+          }
         }
       }
     });
@@ -49,7 +64,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       employmentRecords: undefined,
       firmShareholders: undefined,
       mentorshipAssignment: undefined,
-      uploadedDocuments: undefined
+      uploadedDocuments: undefined,
+      member: undefined
     };
 
     let formattedMentorship = undefined;
@@ -64,7 +80,10 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    const memberProfile = app.member;
+
     return res.status(200).json({
+      profile: memberProfile,
       application: formattedApplication,
       education: app.educationRecords,
       employment: app.employmentRecords,
