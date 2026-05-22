@@ -32,7 +32,7 @@ enum MemberClass {
   Technologist
   Associate
   Visiting
-  Corporate
+  Professional
   Fellow
   Life
   Honorary

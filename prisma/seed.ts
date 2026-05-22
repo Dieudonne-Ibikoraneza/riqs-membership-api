@@ -36,7 +36,8 @@ async function main() {
       email: 'dieudonne.ibikoraneza+admin@gmail.com',
       fullName: 'Dieudonne Admin',
       systemRole: SystemRole.Admin,
-      membershipClass: MemberClass.Corporate,
+      membershipClass: MemberClass.Professional,
+      membershipId: 'RIQS-2010-PRO-0001',
       isEmailVerified: true,
       passwordHash
     },
@@ -44,7 +45,8 @@ async function main() {
       email: 'dieudonne.ibikoraneza+reviewer@gmail.com',
       fullName: 'Dieudonne Reviewer',
       systemRole: SystemRole.Reviewer,
-      membershipClass: MemberClass.Corporate,
+      membershipClass: MemberClass.Professional,
+      membershipId: 'RIQS-2015-PRO-0002',
       isEmailVerified: true,
       passwordHash
     },
@@ -52,8 +54,8 @@ async function main() {
       email: 'dieudonne.ibikoraneza+teacher@gmail.com',
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
-      membershipClass: MemberClass.Fellow,
-      membershipId: 'RIQS-TCH-001',
+      membershipClass: MemberClass.Professional,
+      membershipId: 'RIQS-2012-PRO-0003',
       isEmailVerified: true,
       passwordHash
     },
@@ -61,8 +63,8 @@ async function main() {
       email: 'dieudonne.ibikoraneza+mentor@gmail.com',
       fullName: 'Dieudonne Mentor',
       systemRole: SystemRole.Mentor,
-      membershipClass: MemberClass.Corporate,
-      membershipId: 'RIQS-MNT-001',
+      membershipClass: MemberClass.Technologist,
+      membershipId: 'RIQS-2018-TECH-0001',
       isEmailVerified: true,
       passwordHash
     }
