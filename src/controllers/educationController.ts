@@ -136,13 +136,13 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const {
-    applicationId, preferredMentors, mentorshipPlan
+    applicationId, options, mentorshipPlan
   } = req.body;
 
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
 
-  if (preferredMentors && (!Array.isArray(preferredMentors) || preferredMentors.length > 5)) {
-    return res.status(400).json({ error: 'preferredMentors must be an array of up to 5 mentor objects.' });
+  if (options && (!Array.isArray(options) || options.length > 5)) {
+    return res.status(400).json({ error: 'options must be an array of up to 5 mentor objects.' });
   }
 
   try {
@@ -150,16 +150,11 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
     if (!app) return res.status(404).json({ error: 'Application not found.' });
     if (app.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
 
-    let filledPreferredMentors: any[] = [];
-    let topLevelMentorInfo: any = {
-      mentorRegistrationNumber: null,
-      mentorName: null,
-      mentorContact: null
-    };
+    let filledOptions: any[] = [];
 
-    if (preferredMentors && Array.isArray(preferredMentors)) {
-      filledPreferredMentors = await Promise.all(
-        preferredMentors.map(async (pm: any) => {
+    if (options && Array.isArray(options)) {
+      filledOptions = await Promise.all(
+        options.map(async (pm: any) => {
           if (!pm.regNumber) return pm;
           const member = await prisma.member.findUnique({
             where: { membershipId: pm.regNumber }
@@ -174,38 +169,29 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
           return pm;
         })
       );
-
-      if (filledPreferredMentors.length > 0) {
-        topLevelMentorInfo = {
-          mentorRegistrationNumber: filledPreferredMentors[0].regNumber,
-          mentorName: filledPreferredMentors[0].name,
-          mentorContact: filledPreferredMentors[0].contact
-        };
-      }
     }
 
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
-        preferredMentors: filledPreferredMentors,
-        mentorshipPlan: mentorshipPlan || null,
-        ...topLevelMentorInfo
+        preferredMentors: filledOptions,
+        mentorshipPlan: mentorshipPlan || null
       },
       create: {
         applicationId,
-        preferredMentors: filledPreferredMentors,
-        mentorshipPlan: mentorshipPlan || null,
-        ...topLevelMentorInfo
+        preferredMentors: filledOptions,
+        mentorshipPlan: mentorshipPlan || null
       }
     });
 
     // Clean up response for frontend
     const responseData = {
       ...newRecord,
+      options: newRecord.preferredMentors || [],
       preferredPracticeAreas: undefined,
+      preferredMentors: undefined,
       isSelfAssigned: undefined,
-      requestedInstitutionalAssignment: undefined,
-      preferredMentors: undefined // They asked to not nest it, and use top level fields
+      requestedInstitutionalAssignment: undefined
     };
 
     return res.status(200).json({ message: 'Mentorship assignment saved.', mentorship: responseData });

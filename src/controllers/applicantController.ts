@@ -52,12 +52,24 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       uploadedDocuments: undefined
     };
 
+    let formattedMentorship = undefined;
+    if (app.mentorshipAssignment) {
+      formattedMentorship = {
+        ...app.mentorshipAssignment,
+        options: app.mentorshipAssignment.preferredMentors || [],
+        preferredMentors: undefined,
+        isSelfAssigned: undefined,
+        requestedInstitutionalAssignment: undefined,
+        preferredPracticeAreas: undefined
+      };
+    }
+
     return res.status(200).json({
       application: formattedApplication,
       education: app.educationRecords,
       employment: app.employmentRecords,
       shareholders: app.firmShareholders,
-      mentorship: app.mentorshipAssignment,
+      mentorship: formattedMentorship,
       documents: app.uploadedDocuments
     });
   } catch (error: any) {

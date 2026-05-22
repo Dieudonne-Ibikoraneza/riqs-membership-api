@@ -180,7 +180,7 @@ router.put('/student-association', requireAuth, upsertStudentAssociation);
  *               applicationId:
  *                 type: string
  *                 format: uuid
- *               preferredMentors:
+ *               options:
  *                 type: array
  *                 maxItems: 5
  *                 items:
