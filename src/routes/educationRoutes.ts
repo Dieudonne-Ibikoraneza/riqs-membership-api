@@ -20,7 +20,7 @@ const router = Router();
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - institution
@@ -126,7 +126,7 @@ router.delete('/education/:id', requireAuth, deleteEducationRecord);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - associationName
@@ -173,7 +173,7 @@ router.put('/student-association', requireAuth, upsertStudentAssociation);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *             properties:

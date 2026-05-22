@@ -40,7 +40,7 @@ router.get('/apc/status', requireAuth, getAPCStatus);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - assessmentDate
@@ -84,7 +84,7 @@ router.post('/apc/register', requireAuth, requireRoles(['admin']), registerAPC);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - assessmentId
  *               - status
@@ -133,7 +133,7 @@ router.post('/apc/grade', requireAuth, requireRoles(['admin']), gradeAPC);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - fullName
  *             properties:

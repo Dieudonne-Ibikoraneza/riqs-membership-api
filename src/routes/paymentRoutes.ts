@@ -18,7 +18,7 @@ const router = Router();
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - amount
  *               - currency
@@ -88,7 +88,7 @@ router.get('/history', requireAuth, getPaymentHistory);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - transactionId
  *               - action

@@ -18,7 +18,7 @@ const router = Router();
  *       content:
  *         multipart/form-data:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - file
  *               - applicationId

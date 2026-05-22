@@ -82,7 +82,7 @@ router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer'])
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - action
@@ -123,7 +123,7 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - reviewerId

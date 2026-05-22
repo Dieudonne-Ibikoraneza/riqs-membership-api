@@ -35,7 +35,7 @@ router.get('/profile', requireAuth, getApplication);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - practiceLocation
  *               - entityType
@@ -90,7 +90,7 @@ router.patch('/application', requireAuth, createOrUpdateApplication);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *               - shareholders
@@ -101,7 +101,7 @@ router.patch('/application', requireAuth, createOrUpdateApplication);
  *               shareholders:
  *                 type: array
  *                 items:
- *                   type: OBJECT
+ *                   type: object
  *                   required:
  *                     - fullName
  *                     - email
@@ -149,7 +149,7 @@ router.put('/shareholders', requireAuth, upsertShareholders);
  *       content:
  *         application/json:
  *           schema:
- *             type: OBJECT
+ *             type: object
  *             required:
  *               - applicationId
  *             properties:

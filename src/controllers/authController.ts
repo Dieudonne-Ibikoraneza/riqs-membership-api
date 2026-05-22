@@ -84,10 +84,6 @@ export async function verifyOtp(req: Request, res: Response) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    if (member.isEmailVerified) {
-      return res.status(400).json({ error: 'Email is already verified.' });
-    }
-
     if (member.otpCode !== otp) {
       return res.status(400).json({ error: 'Invalid verification code.' });
     }
@@ -95,6 +91,8 @@ export async function verifyOtp(req: Request, res: Response) {
     if (!member.otpExpiresAt || member.otpExpiresAt < new Date()) {
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
+
+    const wasUnverified = !member.isEmailVerified;
 
     // Mark as verified and clear OTP
     const updatedMember = await prisma.member.update({
@@ -106,11 +104,13 @@ export async function verifyOtp(req: Request, res: Response) {
       }
     });
 
-    // Send the welcome email since they are now fully verified
-    try {
-      await sendMail(email, mailTemplates.welcome(updatedMember.fullName));
-    } catch (mailErr: any) {
-      console.warn('[Auth Controller Verify] Welcome email failed to send:', mailErr.message);
+    // Send the welcome email ONLY if this was their first time verifying
+    if (wasUnverified) {
+      try {
+        await sendMail(email, mailTemplates.welcome(updatedMember.fullName));
+      } catch (mailErr: any) {
+        console.warn('[Auth Controller Verify] Welcome email failed to send:', mailErr.message);
+      }
     }
 
     // Create JWT — role = systemRole (what actions they can do), membershipClass = professional tier
@@ -168,34 +168,35 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
-    if (!member.isEmailVerified) {
-      return res.status(403).json({ error: 'Email is not verified. Please verify your email using the OTP sent to you.' });
-    }
+    // Generate 2FA OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
-    // Create JWT — role = systemRole (what actions they can do), membershipClass = professional tier
-    const token = jwt.sign(
-      { 
-        id: member.id, 
-        email: member.email, 
-        role: member.systemRole || 'Standard',
-        membershipClass: member.membershipClass || 'Student'
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
+    const updatedMember = await prisma.member.update({
+      where: { id: member.id },
+      data: { otpCode: otp, otpExpiresAt }
+    });
+
+    // Send OTP email
+    try {
+      await sendMail(email, mailTemplates.otpVerification(member.fullName, otp));
+    } catch (mailErr: any) {
+      console.warn('[Auth Controller Login] 2FA OTP email failed to send:', mailErr.message);
+      // We do not fail the login if email fails, but in production we probably should.
+    }
 
     // Don't send sensitive fields back to client
     const memberResponse = { 
-      ...member, 
+      ...updatedMember, 
       passwordHash: undefined,
       otpCode: undefined,
       otpExpiresAt: undefined
     };
 
     return res.status(200).json({
-      message: 'Login successful.',
-      member: memberResponse,
-      token
+      message: 'OTP sent to your email. Please verify to complete login.',
+      member: memberResponse
+      // Notice: No token returned yet! Must call /verify-otp
     });
   } catch (error: any) {
     console.error('[Auth Controller Login] Error:', error.message);
