@@ -172,8 +172,11 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const {
-    applicationId, options, mentorshipPlan
+    applicationId, mentorshipPlan
   } = req.body;
+  
+  // Accept both 'options' and 'preferredMentors' for backward compatibility
+  const options = req.body.options || req.body.preferredMentors;
 
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
 
@@ -282,66 +285,5 @@ export async function deleteMentorshipOption(req: AuthenticatedRequest, res: Res
   } catch (error: any) {
     console.error('[Delete Mentorship Option] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error deleting mentorship option.' });
-  }
-}
-
-// 7. Update a single preferred mentorship option
-export async function updateMentorshipOption(req: AuthenticatedRequest, res: Response) {
-  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
-
-  const { applicationId, oldRegNumber } = req.params;
-  const { regNumber } = req.body;
-
-  if (!regNumber) return res.status(400).json({ error: 'Missing new regNumber.' });
-
-  try {
-    const mentorship = await prisma.mentorshipAssignment.findUnique({
-      where: { applicationId },
-      include: { application: true }
-    });
-
-    if (!mentorship) return res.status(404).json({ error: 'Mentorship assignment not found.' });
-    if (mentorship.application.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
-
-    let options = (mentorship.preferredMentors as any[]) || [];
-    const index = options.findIndex(opt => opt.regNumber === oldRegNumber);
-
-    if (index === -1) {
-      return res.status(404).json({ error: 'Mentorship option not found.' });
-    }
-
-    // Lookup new member
-    const member = await prisma.member.findUnique({ where: { membershipId: regNumber } });
-    if (!member) {
-      return res.status(404).json({ error: `Member with regNumber ${regNumber} not found.` });
-    }
-
-    options[index] = {
-      regNumber: regNumber,
-      name: member.fullName,
-      contact: member.phoneNumber || member.email
-    };
-
-    const updated = await prisma.mentorshipAssignment.update({
-      where: { id: mentorship.id },
-      data: {
-        preferredMentors: options,
-        mentorRegistrationNumber: null,
-        mentorName: null,
-        mentorContact: null
-      }
-    });
-
-    const responseData = {
-      ...updated,
-      options: updated.preferredMentors || [],
-      preferredPracticeAreas: undefined,
-      preferredMentors: undefined
-    };
-
-    return res.status(200).json({ message: 'Mentorship option updated.', mentorship: responseData });
-  } catch (error: any) {
-    console.error('[Update Mentorship Option] Error:', error.message);
-    return res.status(500).json({ error: 'Internal server error updating mentorship option.' });
   }
 }

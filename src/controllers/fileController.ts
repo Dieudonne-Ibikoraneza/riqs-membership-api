@@ -35,7 +35,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
 
     // B. Stream buffer directly to Supabase private storage
     const { data: storageData, error: storageError } = await supabaseAdmin.storage
-      .from('riqs-documents')
+      .from('riqs-membership')
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         cacheControl: '3600',
@@ -120,7 +120,7 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
 
     // C. Download the raw binary stream from private bucket
     const { data, error } = await supabaseAdmin.storage
-      .from('riqs-documents')
+      .from('riqs-membership')
       .download(doc.fileUrl);
 
     if (error || !data) {

@@ -3,7 +3,7 @@ import { requireAuth } from '../middleware/auth';
 import {
   addEducationRecord, getEducationRecords, deleteEducationRecord,
   upsertStudentAssociation, upsertMentorship, updateEducationRecord,
-  deleteMentorshipOption, updateMentorshipOption
+  deleteMentorshipOption
 } from '../controllers/educationController';
 
 const router = Router();
@@ -84,7 +84,7 @@ router.post('/', requireAuth, addEducationRecord);
  *       500:
  *         description: Internal server error
  */
-router.get('/:applicationId', requireAuth, getEducationRecords);
+// Route moved below to prevent collision
 
 /**
  * @openapi
@@ -130,7 +130,7 @@ router.get('/:applicationId', requireAuth, getEducationRecords);
  *       404:
  *         description: Record not found
  */
-router.put('/:id', requireAuth, updateEducationRecord);
+// Route moved below to prevent collision
 
 /**
  * @openapi
@@ -158,7 +158,7 @@ router.put('/:id', requireAuth, updateEducationRecord);
  *       404:
  *         description: Record not found
  */
-router.delete('/:id', requireAuth, deleteEducationRecord);
+// Route moved below to prevent collision
 
 /**
  * @openapi
@@ -276,39 +276,9 @@ router.put('/mentorship', requireAuth, upsertMentorship);
  */
 router.delete('/mentorship/:applicationId/options/:regNumber', requireAuth, deleteMentorshipOption);
 
-/**
- * @openapi
- * /api/v1/education/mentorship/{applicationId}/options/{oldRegNumber}:
- *   put:
- *     summary: Update a Mentorship Option
- *     description: Replaces an existing preferred mentor with a new one.
- *     tags:
- *       - Education & Mentorship
- *     parameters:
- *       - in: path
- *         name: applicationId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: oldRegNumber
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               regNumber:
- *                 type: string
- *     responses:
- *       200:
- *         description: Mentorship option updated
- */
-router.put('/mentorship/:applicationId/options/:oldRegNumber', requireAuth, updateMentorshipOption);
+// Register dynamic routes last to prevent collisions with literal paths like /mentorship
+router.get('/:applicationId', requireAuth, getEducationRecords);
+router.put('/:id', requireAuth, updateEducationRecord);
+router.delete('/:id', requireAuth, deleteEducationRecord);
 
 export default router;
