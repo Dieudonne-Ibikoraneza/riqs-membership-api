@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, SystemRole } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -25,6 +26,51 @@ async function main() {
     skipDuplicates: true
   });
   console.log('Database seeded with membership categories.');
+
+  // Create testing users for different system roles
+  const defaultPassword = 'Password123!';
+  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+
+  const testUsers = [
+    {
+      email: 'dieudonne.ibikoraneza+admin@gmail.com',
+      fullName: 'Dieudonne Admin',
+      systemRole: SystemRole.Admin,
+      isEmailVerified: true,
+      passwordHash
+    },
+    {
+      email: 'dieudonne.ibikoraneza+reviewer@gmail.com',
+      fullName: 'Dieudonne Reviewer',
+      systemRole: SystemRole.Reviewer,
+      isEmailVerified: true,
+      passwordHash
+    },
+    {
+      email: 'dieudonne.ibikoraneza+teacher@gmail.com',
+      fullName: 'Dieudonne Teacher',
+      systemRole: SystemRole.Teacher,
+      isEmailVerified: true,
+      passwordHash
+    },
+    {
+      email: 'dieudonne.ibikoraneza+mentor@gmail.com',
+      fullName: 'Dieudonne Mentor',
+      systemRole: SystemRole.Mentor,
+      isEmailVerified: true,
+      passwordHash
+    }
+  ];
+
+  for (const user of testUsers) {
+    await prisma.member.upsert({
+      where: { email: user.email },
+      update: {},
+      create: user
+    });
+  }
+  
+  console.log('Database seeded with testing users (Admin, Reviewer, Teacher, Mentor).');
 }
 
 main()
