@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import {
   addEducationRecord, getEducationRecords, deleteEducationRecord,
-  upsertStudentAssociation, upsertMentorship
+  upsertStudentAssociation, upsertMentorship, updateEducationRecord
 } from '../controllers/educationController';
 
 const router = Router();
@@ -84,6 +84,52 @@ router.post('/', requireAuth, addEducationRecord);
  *         description: Internal server error
  */
 router.get('/:applicationId', requireAuth, getEducationRecords);
+
+/**
+ * @openapi
+ * /api/v1/education/{id}:
+ *   put:
+ *     summary: Update an Education Record
+ *     tags:
+ *       - Education & Mentorship
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: ID of the education record to update
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               institution:
+ *                 type: string
+ *               qualificationType:
+ *                 type: string
+ *               fieldOfStudy:
+ *                 type: string
+ *               startDate:
+ *                 type: string
+ *                 format: date-time
+ *               endDate:
+ *                 type: string
+ *                 format: date-time
+ *     responses:
+ *       200:
+ *         description: Education record updated
+ *       400:
+ *         description: Validation error
+ *       403:
+ *         description: Not authorized to update this record
+ *       404:
+ *         description: Record not found
+ */
+router.put('/:id', requireAuth, updateEducationRecord);
 
 /**
  * @openapi

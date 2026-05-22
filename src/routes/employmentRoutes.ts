@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { addEmployment, deleteEmployment, getEmploymentRecords } from '../controllers/employmentController';
+import { addEmployment, deleteEmployment, getEmploymentRecords, updateEmploymentRecord } from '../controllers/employmentController';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -80,6 +80,55 @@ router.post('/', requireAuth, addEmployment);
  *         description: Internal server error
  */
 router.delete('/:id', requireAuth, deleteEmployment);
+
+/**
+ * @openapi
+ * /api/v1/employment/{id}:
+ *   put:
+ *     summary: Update an Employment Record
+ *     description: Updates an existing employment entry.
+ *     tags:
+ *       - Employment & Career
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Employment Record UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               companyName:
+ *                 type: string
+ *               jobTitle:
+ *                 type: string
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *               isCurrent:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Employment record updated successfully
+ *       400:
+ *         description: Validation error
+ *       404:
+ *         description: Record not found
+ *       500:
+ *         description: Internal server error
+ */
+router.put('/:id', requireAuth, updateEmploymentRecord);
 
 /**
  * @openapi

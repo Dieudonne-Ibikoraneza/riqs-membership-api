@@ -92,6 +92,42 @@ export async function deleteEducationRecord(req: AuthenticatedRequest, res: Resp
   }
 }
 
+// 3.5 Update an education record
+export async function updateEducationRecord(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+  const { id } = req.params;
+  const { institution, qualificationType, fieldOfStudy, startDate, endDate } = req.body;
+
+  try {
+    const record = await prisma.educationRecord.findUnique({
+      where: { id },
+      include: { application: true }
+    });
+
+    if (!record) return res.status(404).json({ error: 'Education record not found.' });
+    if (record.application.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (record.application.status === 'Approved') {
+      return res.status(400).json({ error: 'Cannot edit education records post-approval. You may only add new qualifications.' });
+    }
+
+    const updatedRecord = await prisma.educationRecord.update({
+      where: { id },
+      data: {
+        institution: institution || record.institution,
+        qualificationType: qualificationType || record.qualificationType,
+        fieldOfStudy: fieldOfStudy || record.fieldOfStudy,
+        startDate: startDate ? new Date(startDate) : record.startDate,
+        endDate: endDate ? new Date(endDate) : record.endDate
+      }
+    });
+
+    return res.status(200).json({ message: 'Education record updated.', education: updatedRecord });
+  } catch (error: any) {
+    console.error('[Update Education] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error updating education record.' });
+  }
+}
+
 // 4. Upsert Student Association Record (1:1 per application)
 export async function upsertStudentAssociation(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });

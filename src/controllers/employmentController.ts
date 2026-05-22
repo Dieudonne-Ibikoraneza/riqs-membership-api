@@ -72,3 +72,38 @@ export async function getEmploymentRecords(req: Request, res: Response) {
     return res.status(500).json({ error: 'Internal server error fetching employment records.' });
   }
 }
+
+export async function updateEmploymentRecord(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { companyName, jobTitle, startDate, endDate, isCurrent } = req.body;
+
+    const record = await prisma.employmentRecord.findUnique({ where: { id } });
+    if (!record) {
+      return res.status(404).json({ error: 'Employment record not found.' });
+    }
+
+    if (isCurrent !== undefined && !isCurrent && !endDate && !record.endDate) {
+      return res.status(400).json({ error: 'End date is required if this is not a current job.' });
+    }
+
+    const updatedRecord = await prisma.employmentRecord.update({
+      where: { id },
+      data: {
+        companyName: companyName || record.companyName,
+        jobTitle: jobTitle || record.jobTitle,
+        startDate: startDate ? new Date(startDate) : record.startDate,
+        endDate: isCurrent ? null : (endDate ? new Date(endDate) : record.endDate),
+        isCurrent: isCurrent !== undefined ? isCurrent : record.isCurrent
+      }
+    });
+
+    return res.status(200).json({
+      message: 'Employment record updated successfully.',
+      employmentRecord: updatedRecord
+    });
+  } catch (error: any) {
+    console.error('[Update Employment] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error while updating employment record.' });
+  }
+}
