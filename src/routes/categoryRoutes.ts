@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { getAllCategories, getCategoryById } from '../controllers/categoryController';
+import { getAllCategories, getCategoryById, updateCategory } from '../controllers/categoryController';
+import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
@@ -57,5 +58,53 @@ router.get('/', getAllCategories);
  *         description: Internal server error
  */
 router.get('/:id', getCategoryById);
+
+/**
+ * @openapi
+ * /api/v1/categories/{id}:
+ *   put:
+ *     summary: Update Category pricing and details (Admin Only)
+ *     description: Updates the category fees (processing, first year, annual, stamp). Requires Admin role.
+ *     tags:
+ *       - System Parameters
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               category_name:
+ *                 type: string
+ *               processing_fee:
+ *                 type: number
+ *               first_year_fee:
+ *                 type: number
+ *               annual_renewal_fee:
+ *                 type: number
+ *               stamp_fee:
+ *                 type: number
+ *               currency:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Category updated successfully
+ *       403:
+ *         description: Access Denied. Required role Admin.
+ *       404:
+ *         description: Category not found
+ *       500:
+ *         description: Internal server error
+ */
+router.put('/:id', requireAuth, requireRole('Admin'), updateCategory);
 
 export default router;
