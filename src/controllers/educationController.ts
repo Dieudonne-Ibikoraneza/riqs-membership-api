@@ -175,7 +175,13 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
       where: { applicationId },
       update: {
         preferredMentors: filledOptions,
-        mentorshipPlan: mentorshipPlan || null
+        mentorshipPlan: mentorshipPlan || null,
+        mentorRegistrationNumber: null,
+        mentorName: null,
+        mentorContact: null,
+        mentorQualification: null,
+        mentorClass: null,
+        mentorEmployer: null
       },
       create: {
         applicationId,
