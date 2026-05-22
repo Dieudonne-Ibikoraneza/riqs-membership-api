@@ -195,17 +195,6 @@ router.put('/student-association', requireAuth, upsertStudentAssociation);
  *               mentorshipPlan:
  *                 type: string
  *                 example: "Detailed training schedule focusing on commercial management."
- *               isSelfAssigned:
- *                 type: boolean
- *                 default: true
- *               requestedInstitutionalAssignment:
- *                 type: boolean
- *                 default: false
- *               preferredPracticeAreas:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["Cost Planning", "Contract Administration", "Mechanical & Electrical (MEP)"]
  *     responses:
  *       200:
  *         description: Mentorship assignment config saved
