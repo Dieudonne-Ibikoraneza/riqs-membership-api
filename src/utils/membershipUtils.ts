@@ -61,7 +61,7 @@ export function deriveMemberClass(categoryCode: string): MemberClass {
   if (['PQS', 'FPQS'].includes(categoryCode))       return MemberClass.Fellow;
   if (['QST', 'FQST'].includes(categoryCode))       return MemberClass.Technologist;
   if (['GQS', 'GQST'].includes(categoryCode))       return MemberClass.Graduate;
-  if (categoryCode.startsWith('LF') || categoryCode.startsWith('FF')) return MemberClass.Corporate;
+  if (categoryCode.startsWith('LF') || categoryCode.startsWith('FF')) return MemberClass.Professional;
   return MemberClass.Graduate; // safe default
 }
 
