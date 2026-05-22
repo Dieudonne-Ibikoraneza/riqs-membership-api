@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllCategories, getCategoryById, updateCategory } from '../controllers/categoryController';
+import { getAllCategories, getCategoryById, updateCategory, createCategory, deleteCategory } from '../controllers/categoryController';
 import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -106,5 +106,95 @@ router.get('/:id', getCategoryById);
  *         description: Internal server error
  */
 router.put('/:id', requireAuth, requireRole('Admin'), updateCategory);
+
+/**
+ * @openapi
+ * /api/v1/categories:
+ *   post:
+ *     summary: Create a new Category (Admin Only)
+ *     description: Creates a new membership category with its pricing metrics.
+ *     tags:
+ *       - System Parameters
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - location
+ *               - entity_type
+ *               - category_name
+ *               - category_code
+ *               - processing_fee
+ *               - first_year_fee
+ *               - annual_renewal_fee
+ *             properties:
+ *               location:
+ *                 type: string
+ *                 enum: [Local, Foreign]
+ *               entity_type:
+ *                 type: string
+ *                 enum: [Individual, Firm]
+ *               category_name:
+ *                 type: string
+ *               category_code:
+ *                 type: string
+ *               processing_fee:
+ *                 type: number
+ *               first_year_fee:
+ *                 type: number
+ *               annual_renewal_fee:
+ *                 type: number
+ *               stamp_fee:
+ *                 type: number
+ *               currency:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Category created successfully
+ *       400:
+ *         description: Missing required fields
+ *       403:
+ *         description: Access Denied. Required role Admin.
+ *       409:
+ *         description: Category with this name already exists
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/', requireAuth, requireRole('Admin'), createCategory);
+
+/**
+ * @openapi
+ * /api/v1/categories/{id}:
+ *   delete:
+ *     summary: Delete a Category (Admin Only)
+ *     description: Deletes a category by ID. Prevents deletion if applications are already tied to it.
+ *     tags:
+ *       - System Parameters
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Category deleted successfully
+ *       400:
+ *         description: Cannot delete, applications are tied to it
+ *       403:
+ *         description: Access Denied. Required role Admin.
+ *       404:
+ *         description: Category not found
+ *       500:
+ *         description: Internal server error
+ */
+router.delete('/:id', requireAuth, requireRole('Admin'), deleteCategory);
 
 export default router;

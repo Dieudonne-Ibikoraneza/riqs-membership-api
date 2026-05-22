@@ -121,3 +121,86 @@ export async function updateCategory(req: Request, res: Response) {
     return res.status(500).json({ error: 'Internal server error updating category.' });
   }
 }
+
+// 4. Create Category (Admin Only)
+export async function createCategory(req: Request, res: Response) {
+  try {
+    const {
+      location,
+      entity_type,
+      category_name,
+      category_code,
+      processing_fee,
+      currency,
+      first_year_fee,
+      annual_renewal_fee,
+      stamp_fee
+    } = req.body;
+
+    if (!location || !entity_type || !category_name || !category_code || processing_fee === undefined || first_year_fee === undefined || annual_renewal_fee === undefined) {
+      return res.status(400).json({ error: 'Missing required fields to create a category.' });
+    }
+
+    const newCat = await prisma.membershipCategory.create({
+      data: {
+        location: location as PracticeLocation,
+        entityType: entity_type as EntityType,
+        categoryName: category_name,
+        categoryCode: category_code,
+        processingFee: processing_fee,
+        currency: currency || 'RWF',
+        firstYearFee: first_year_fee,
+        annualRenewalFee: annual_renewal_fee,
+        stampFee: stamp_fee || 0.00,
+      }
+    });
+
+    return res.status(201).json({
+      message: 'Category created successfully.',
+      category: {
+        id: newCat.id,
+        location: newCat.location,
+        entity_type: newCat.entityType,
+        category_name: newCat.categoryName,
+        category_code: newCat.categoryCode,
+        processing_fee: newCat.processingFee,
+        currency: newCat.currency,
+        first_year_fee: newCat.firstYearFee,
+        annual_renewal_fee: newCat.annualRenewalFee,
+        stamp_fee: newCat.stampFee
+      }
+    });
+  } catch (error: any) {
+    console.error('[Create Category] Error:', error.message);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'A category with this name already exists.' });
+    }
+    return res.status(500).json({ error: 'Internal server error creating category.' });
+  }
+}
+
+// 5. Delete Category (Admin Only)
+export async function deleteCategory(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+
+    // Check if category exists
+    const existingCat = await prisma.membershipCategory.findUnique({ where: { id } });
+    if (!existingCat) {
+      return res.status(404).json({ error: 'Membership category not found.' });
+    }
+
+    // Optional: Check if there are applications tied to this category before deleting
+    const appsCount = await prisma.application.count({ where: { categoryId: id } });
+    if (appsCount > 0) {
+      return res.status(400).json({ error: 'Cannot delete this category because there are applications tied to it.' });
+    }
+
+    await prisma.membershipCategory.delete({ where: { id } });
+
+    return res.status(200).json({ message: 'Category deleted successfully.' });
+  } catch (error: any) {
+    console.error('[Delete Category] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error deleting category.' });
+  }
+}
