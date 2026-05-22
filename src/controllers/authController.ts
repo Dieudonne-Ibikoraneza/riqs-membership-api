@@ -185,17 +185,10 @@ export async function login(req: Request, res: Response) {
       // We do not fail the login if email fails, but in production we probably should.
     }
 
-    // Don't send sensitive fields back to client
-    const memberResponse = { 
-      ...updatedMember, 
-      passwordHash: undefined,
-      otpCode: undefined,
-      otpExpiresAt: undefined
-    };
-
     return res.status(200).json({
       message: 'OTP sent to your email. Please verify to complete login.',
-      member: memberResponse
+      memberId: member.id,
+      email: member.email
       // Notice: No token returned yet! Must call /verify-otp
     });
   } catch (error: any) {
