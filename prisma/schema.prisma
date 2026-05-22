@@ -210,6 +210,8 @@ model MentorshipAssignment {
   mentorContact                   String?     @map("mentor_contact") @db.VarChar(255)
   isSelfAssigned                  Boolean?    @default(true) @map("is_self_assigned")
   requestedInstitutionalAssignment Boolean?    @default(false) @map("requested_institutional_assignment")
+  preferredMentors                Json?       @map("preferred_mentors")
+  mentorshipPlan                  String?     @map("mentorship_plan")
   preferredPracticeAreas          String[]    @map("preferred_practice_areas")
   completedDurationMonths         Int?        @default(0) @map("completed_duration_months")
   createdAt                       DateTime?   @default(now()) @map("created_at") @db.Timestamptz

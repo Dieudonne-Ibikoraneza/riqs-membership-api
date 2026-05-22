@@ -136,12 +136,15 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const {
-    applicationId, mentorName, mentorQualification, mentorClass,
-    mentorRegistrationNumber, mentorEmployer, mentorContact,
+    applicationId, preferredMentors, mentorshipPlan,
     isSelfAssigned, requestedInstitutionalAssignment, preferredPracticeAreas
   } = req.body;
 
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
+
+  if (preferredMentors && (!Array.isArray(preferredMentors) || preferredMentors.length > 5)) {
+    return res.status(400).json({ error: 'preferredMentors must be an array of up to 5 mentor objects.' });
+  }
 
   try {
     const app = await prisma.application.findUnique({ where: { id: applicationId } });
@@ -151,27 +154,19 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
-        mentorName: mentorName || null,
-        mentorQualification: mentorQualification || null,
-        mentorClass: mentorClass || null,
-        mentorRegistrationNumber: mentorRegistrationNumber || null,
-        mentorEmployer: mentorEmployer || null,
-        mentorContact: mentorContact || null,
         isSelfAssigned: isSelfAssigned !== undefined ? isSelfAssigned : true,
         requestedInstitutionalAssignment: requestedInstitutionalAssignment || false,
-        preferredPracticeAreas: preferredPracticeAreas || []
+        preferredPracticeAreas: preferredPracticeAreas || [],
+        preferredMentors: preferredMentors || [],
+        mentorshipPlan: mentorshipPlan || null
       },
       create: {
         applicationId,
-        mentorName: mentorName || null,
-        mentorQualification: mentorQualification || null,
-        mentorClass: mentorClass || null,
-        mentorRegistrationNumber: mentorRegistrationNumber || null,
-        mentorEmployer: mentorEmployer || null,
-        mentorContact: mentorContact || null,
         isSelfAssigned: isSelfAssigned !== undefined ? isSelfAssigned : true,
         requestedInstitutionalAssignment: requestedInstitutionalAssignment || false,
-        preferredPracticeAreas: preferredPracticeAreas || []
+        preferredPracticeAreas: preferredPracticeAreas || [],
+        preferredMentors: preferredMentors || [],
+        mentorshipPlan: mentorshipPlan || null
       }
     });
 

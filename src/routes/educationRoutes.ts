@@ -180,24 +180,21 @@ router.put('/student-association', requireAuth, upsertStudentAssociation);
  *               applicationId:
  *                 type: string
  *                 format: uuid
- *               mentorName:
+ *               preferredMentors:
+ *                 type: array
+ *                 maxItems: 5
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     regNumber:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     contact:
+ *                       type: string
+ *               mentorshipPlan:
  *                 type: string
- *                 example: John Doe
- *               mentorQualification:
- *                 type: string
- *                 example: F.RIQS
- *               mentorClass:
- *                 type: string
- *                 example: Fellow Quantity Surveyor
- *               mentorRegistrationNumber:
- *                 type: string
- *                 example: RIQS-2015-FEL-0005
- *               mentorEmployer:
- *                 type: string
- *                 example: Rwanda Builders Ltd
- *               mentorContact:
- *                 type: string
- *                 example: "+250788998877"
+ *                 example: "Detailed training schedule focusing on commercial management."
  *               isSelfAssigned:
  *                 type: boolean
  *                 default: true

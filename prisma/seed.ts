@@ -53,6 +53,7 @@ async function main() {
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
       membershipClass: MemberClass.Fellow,
+      membershipId: 'RIQS-TCH-001',
       isEmailVerified: true,
       passwordHash
     },
@@ -61,6 +62,7 @@ async function main() {
       fullName: 'Dieudonne Mentor',
       systemRole: SystemRole.Mentor,
       membershipClass: MemberClass.Corporate,
+      membershipId: 'RIQS-MNT-001',
       isEmailVerified: true,
       passwordHash
     }

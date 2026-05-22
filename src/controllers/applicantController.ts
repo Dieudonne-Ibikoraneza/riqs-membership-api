@@ -254,6 +254,67 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       return res.status(400).json({ error: 'Invalid submission request. Application is not in Draft or Correction state.' });
     }
 
+    // Mentor Auto-Assignment Logic
+    const mentorship = await prisma.mentorshipAssignment.findUnique({
+      where: { applicationId }
+    });
+
+    if (mentorship) {
+      let assignedMentor: any = null;
+
+      // 1. Check preferred mentors if provided
+      if (mentorship.preferredMentors && Array.isArray(mentorship.preferredMentors)) {
+        for (const pref of mentorship.preferredMentors as any[]) {
+          if (pref.regNumber) {
+            const currentLoad = await prisma.mentorshipAssignment.count({
+              where: { mentorRegistrationNumber: pref.regNumber }
+            });
+            if (currentLoad < 5) {
+              assignedMentor = {
+                regNumber: pref.regNumber,
+                name: pref.name || null,
+                contact: pref.contact || null
+              };
+              break;
+            }
+          }
+        }
+      }
+
+      // 2. Fallback: Auto-assign if no preferences were available
+      if (!assignedMentor) {
+        const potentialMentors = await prisma.member.findMany({
+          where: { systemRole: 'Mentor', membershipId: { not: null } }
+        });
+
+        for (const mentor of potentialMentors) {
+          const currentLoad = await prisma.mentorshipAssignment.count({
+            where: { mentorRegistrationNumber: mentor.membershipId }
+          });
+          if (currentLoad < 5) {
+            assignedMentor = {
+              regNumber: mentor.membershipId,
+              name: mentor.fullName,
+              contact: mentor.phoneNumber || mentor.email
+            };
+            break;
+          }
+        }
+      }
+
+      // Update mentorship record with final assignment
+      if (assignedMentor) {
+        await prisma.mentorshipAssignment.update({
+          where: { id: mentorship.id },
+          data: {
+            mentorRegistrationNumber: assignedMentor.regNumber,
+            mentorName: assignedMentor.name,
+            mentorContact: assignedMentor.contact
+          }
+        });
+      }
+    }
+
     const updatedApp = await prisma.application.update({
       where: { id: applicationId },
       data: {
