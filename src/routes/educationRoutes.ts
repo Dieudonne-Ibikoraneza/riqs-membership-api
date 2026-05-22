@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import {
   addEducationRecord, getEducationRecords, deleteEducationRecord,
-  upsertStudentAssociation, upsertMentorship, updateEducationRecord
+  upsertStudentAssociation, upsertMentorship, updateEducationRecord,
+  deleteMentorshipOption, updateMentorshipOption
 } from '../controllers/educationController';
 
 const router = Router();
@@ -248,5 +249,66 @@ router.put('/student-association', requireAuth, upsertStudentAssociation);
  *         description: Internal server error
  */
 router.put('/mentorship', requireAuth, upsertMentorship);
+
+/**
+ * @openapi
+ * /api/v1/education/mentorship/{applicationId}/options/{regNumber}:
+ *   delete:
+ *     summary: Delete a Mentorship Option
+ *     description: Removes a specific preferred mentor from the application's options array.
+ *     tags:
+ *       - Education & Mentorship
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: regNumber
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Mentorship option removed
+ */
+router.delete('/mentorship/:applicationId/options/:regNumber', requireAuth, deleteMentorshipOption);
+
+/**
+ * @openapi
+ * /api/v1/education/mentorship/{applicationId}/options/{oldRegNumber}:
+ *   put:
+ *     summary: Update a Mentorship Option
+ *     description: Replaces an existing preferred mentor with a new one.
+ *     tags:
+ *       - Education & Mentorship
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: oldRegNumber
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               regNumber:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Mentorship option updated
+ */
+router.put('/mentorship/:applicationId/options/:oldRegNumber', requireAuth, updateMentorshipOption);
 
 export default router;
