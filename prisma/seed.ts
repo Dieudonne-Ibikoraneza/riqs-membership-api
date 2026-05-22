@@ -1,4 +1,4 @@
-import { PrismaClient, SystemRole } from '@prisma/client';
+import { PrismaClient, SystemRole, MemberClass } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -36,6 +36,7 @@ async function main() {
       email: 'dieudonne.ibikoraneza+admin@gmail.com',
       fullName: 'Dieudonne Admin',
       systemRole: SystemRole.Admin,
+      membershipClass: MemberClass.Corporate,
       isEmailVerified: true,
       passwordHash
     },
@@ -43,6 +44,7 @@ async function main() {
       email: 'dieudonne.ibikoraneza+reviewer@gmail.com',
       fullName: 'Dieudonne Reviewer',
       systemRole: SystemRole.Reviewer,
+      membershipClass: MemberClass.Corporate,
       isEmailVerified: true,
       passwordHash
     },
@@ -50,6 +52,7 @@ async function main() {
       email: 'dieudonne.ibikoraneza+teacher@gmail.com',
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
+      membershipClass: MemberClass.Fellow,
       isEmailVerified: true,
       passwordHash
     },
@@ -57,6 +60,7 @@ async function main() {
       email: 'dieudonne.ibikoraneza+mentor@gmail.com',
       fullName: 'Dieudonne Mentor',
       systemRole: SystemRole.Mentor,
+      membershipClass: MemberClass.Corporate,
       isEmailVerified: true,
       passwordHash
     }
