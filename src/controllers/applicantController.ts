@@ -20,6 +20,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           }
         },
         educationRecords: true,
+        employmentRecords: { orderBy: { startDate: 'desc' } },
         firmShareholders: true,
         mentorshipAssignment: true,
         uploadedDocuments: {
@@ -45,6 +46,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       annual_renewal_fee: app.category.annualRenewalFee,
       category: undefined,
       educationRecords: undefined,
+      employmentRecords: undefined,
       firmShareholders: undefined,
       mentorshipAssignment: undefined,
       uploadedDocuments: undefined
@@ -53,6 +55,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
     return res.status(200).json({
       application: formattedApplication,
       education: app.educationRecords,
+      employment: app.employmentRecords,
       shareholders: app.firmShareholders,
       mentorship: app.mentorshipAssignment,
       documents: app.uploadedDocuments
@@ -71,11 +74,6 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     practiceLocation,
     entityType,
     categoryId,
-    isEmployed,
-    currentEmployer,
-    jobTitle,
-    prevEmployer,
-    prevJobTitle,
     fullName,
     phoneNumber,
     dob,
@@ -135,11 +133,6 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
             practiceLocation: practiceLocation as PracticeLocation,
             entityType: entityType as EntityType,
             categoryId,
-            isEmployed: isEmployed || false,
-            currentEmployer: currentEmployer || null,
-            jobTitle: jobTitle || null,
-            prevEmployer: prevEmployer || null,
-            prevJobTitle: prevJobTitle || null,
             updatedAt: new Date()
           }
         })
@@ -173,11 +166,6 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         practiceLocation: practiceLocation as PracticeLocation,
         entityType: entityType as EntityType,
         categoryId,
-        isEmployed: isEmployed || false,
-        currentEmployer: currentEmployer || null,
-        jobTitle: jobTitle || null,
-        prevEmployer: prevEmployer || null,
-        prevJobTitle: prevJobTitle || null,
         status: 'Draft'
       }
     });

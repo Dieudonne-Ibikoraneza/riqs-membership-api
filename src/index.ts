@@ -16,6 +16,7 @@ import fileRoutes from './routes/fileRoutes';
 import progressionRoutes from './routes/progressionRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import educationRoutes from './routes/educationRoutes';
+import employmentRoutes from './routes/employmentRoutes';
 import paymentRoutes from './routes/paymentRoutes';
 import memberRoutes from './routes/memberRoutes';
 
@@ -73,6 +74,7 @@ app.use('/api/v1/files', fileRoutes);
 app.use('/api/v1/progression', progressionRoutes);
 app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/education', educationRoutes);
+app.use('/api/v1/employment', employmentRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/members', memberRoutes);
 

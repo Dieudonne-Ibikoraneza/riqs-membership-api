@@ -52,21 +52,6 @@ router.get('/profile', requireAuth, getApplication);
  *               categoryId:
  *                 type: string
  *                 format: uuid
- *               isEmployed:
- *                 type: boolean
- *                 default: false
- *               currentEmployer:
- *                 type: string
- *                 example: Kigali Survey Ltd
- *               jobTitle:
- *                 type: string
- *                 example: Graduate QS
- *               prevEmployer:
- *                 type: string
- *                 example: N/A
- *               prevJobTitle:
- *                 type: string
- *                 example: N/A
  *     responses:
  *       200:
  *         description: Application draft successfully auto-saved

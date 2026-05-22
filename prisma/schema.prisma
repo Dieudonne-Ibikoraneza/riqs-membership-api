@@ -133,11 +133,6 @@ model Application {
   entityType            EntityType            @map("entity_type")
   categoryId            String                @map("category_id") @db.Uuid
   status                ApplicationStatus?    @default(Draft)
-  isEmployed            Boolean?              @default(false) @map("is_employed")
-  currentEmployer       String?               @map("current_employer") @db.VarChar(255)
-  jobTitle              String?               @map("job_title") @db.VarChar(100)
-  prevEmployer          String?               @map("prev_employer") @db.VarChar(255)
-  prevJobTitle          String?               @map("prev_job_title") @db.VarChar(100)
   assignedReviewerId    String?               @map("assigned_reviewer_id") @db.Uuid
   submittedAt           DateTime?             @map("submitted_at") @db.Timestamptz
   approvedAt            DateTime?             @map("approved_at") @db.Timestamptz
@@ -147,6 +142,7 @@ model Application {
   member                Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
   category              MembershipCategory    @relation(fields: [categoryId], references: [id])
   educationRecords      EducationRecord[]
+  employmentRecords     EmploymentRecord[]
   studentAssociation    StudentAssociationRecord?
   mentorshipAssignment  MentorshipAssignment?
   firmShareholders      FirmShareholder[]
@@ -172,6 +168,21 @@ model EducationRecord {
   application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("education_records")
+}
+
+model EmploymentRecord {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId   String      @map("application_id") @db.Uuid
+  companyName     String      @map("company_name") @db.VarChar(255)
+  jobTitle        String      @map("job_title") @db.VarChar(100)
+  startDate       DateTime    @map("start_date") @db.Date
+  endDate         DateTime?   @map("end_date") @db.Date
+  isCurrent       Boolean     @default(false) @map("is_current")
+  createdAt       DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("employment_records")
 }
 
 model StudentAssociationRecord {
