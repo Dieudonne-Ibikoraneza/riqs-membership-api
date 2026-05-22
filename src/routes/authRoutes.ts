@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login } from '../controllers/authController';
+import { register, login, verifyOtp } from '../controllers/authController';
 
 const router = Router();
 
@@ -8,7 +8,7 @@ const router = Router();
  * /api/v1/auth/register:
  *   post:
  *     summary: Register a new member
- *     description: Registers a new applicant or member, securely hashes their password, and initiates the membership profile. Returns a JWT token.
+ *     description: Registers a new applicant or member, securely hashes their password, and initiates the membership profile. Generates and sends a 6-digit OTP to the user's email. Does NOT return a JWT token until OTP is verified.
  *     tags:
  *       - Authentication
  *     security: []
@@ -32,26 +32,9 @@ const router = Router();
  *               fullName:
  *                 type: string
  *                 example: "John Doe"
- *               phoneNumber:
- *                 type: string
- *                 example: "+250788123456"
- *               dob:
- *                 type: string
- *                 format: date
- *                 example: "1995-10-15"
- *               gender:
- *                 type: string
- *                 enum: [Male, Female, Other]
- *                 example: Male
- *               nationality:
- *                 type: string
- *                 example: Rwandan
- *               residencyAddress:
- *                 type: string
- *                 example: Kacyiru, Kigali, Rwanda
  *     responses:
  *       201:
- *         description: Profile successfully created
+ *         description: Profile successfully created and OTP email dispatched
  *       400:
  *         description: Missing required fields
  *       409:
@@ -60,6 +43,43 @@ const router = Router();
  *         description: Internal server error
  */
 router.post('/register', register);
+
+/**
+ * @openapi
+ * /api/v1/auth/verify-otp:
+ *   post:
+ *     summary: Verify email using OTP
+ *     description: Verifies a member's email using the 6-digit OTP sent during registration. Returns the JWT token upon success.
+ *     tags:
+ *       - Authentication
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: "new.member@example.com"
+ *               otp:
+ *                 type: string
+ *                 example: "123456"
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *       400:
+ *         description: Invalid OTP or expired
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/verify-otp', verifyOtp);
 
 /**
  * @openapi

@@ -5,7 +5,7 @@ import * as path from 'path';
 import swaggerUi from 'swagger-ui-express';
 
 // Import configurations
-import { pool } from './config/db';
+import { prisma } from './config/db';
 import { swaggerSpec } from './config/swagger';
 
 // Import route systems
@@ -19,8 +19,8 @@ import educationRoutes from './routes/educationRoutes';
 import paymentRoutes from './routes/paymentRoutes';
 import memberRoutes from './routes/memberRoutes';
 
-// Load secure environment variables from .env.local
-dotenv.config({ path: path.resolve(__dirname, '../.env.local') });
+// Load secure environment variables from .env
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -48,11 +48,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // 2. Public Health Check & Dependency Ping Probe
 app.get('/health', async (req: Request, res: Response) => {
   try {
-    const dbPing = await pool.query('SELECT 1');
+    const dbPing: any[] = await prisma.$queryRaw`SELECT 1`;
     return res.status(200).json({
       status: 'healthy',
       service: 'RIQS Standalone Node.js REST API',
-      database: dbPing.rows.length > 0 ? 'online' : 'offline',
+      database: dbPing.length > 0 ? 'online' : 'offline',
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {

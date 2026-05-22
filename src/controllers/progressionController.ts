@@ -1,18 +1,19 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { pool } from '../config/db';
+import { prisma } from '../config/db';
+import { ApcStatus, MemberClass } from '@prisma/client';
 
 // 1. Fetch APC assessment tracking records
 export async function getAPCStatus(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
 
   try {
-    const apcQuery = await pool.query(
-      'SELECT * FROM apc_assessments WHERE member_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
-    );
+    const assessments = await prisma.apcAssessment.findMany({
+      where: { memberId: req.user.id },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    return res.status(200).json({ assessments: apcQuery.rows });
+    return res.status(200).json({ assessments });
   } catch (error: any) {
     console.error('[Get APC Status] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching APC progression records.' });
@@ -30,22 +31,21 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   }
 
   try {
-    const insertRes = await pool.query(
-      `INSERT INTO apc_assessments (member_id, application_id, assessment_date, panel_chair_name, examiner_1_name, examiner_2_name, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'Scheduled') RETURNING *`,
-      [
-        req.user.id,
+    const assessment = await prisma.apcAssessment.create({
+      data: {
+        memberId: req.user.id,
         applicationId,
-        assessmentDate,
-        panelChair || 'Board Chair TBD',
-        examiner1 || 'Examiner 1 TBD',
-        examiner2 || 'Examiner 2 TBD'
-      ]
-    );
+        assessmentDate: new Date(assessmentDate),
+        panelChairName: panelChair || 'Board Chair TBD',
+        examiner1Name: examiner1 || 'Examiner 1 TBD',
+        examiner2Name: examiner2 || 'Examiner 2 TBD',
+        status: 'Scheduled'
+      }
+    });
 
     return res.status(201).json({
       message: 'Assessment of Professional Competency (APC) board successfully scheduled.',
-      assessment: insertRes.rows[0]
+      assessment
     });
   } catch (error: any) {
     console.error('[Register APC] Error:', error.message);
@@ -63,69 +63,64 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     return res.status(400).json({ error: 'Missing assessmentId or status.' });
   }
 
-  const validStatuses = ['Attended', 'Passed', 'Failed', 'No Show'];
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+  const validStatuses = ['Attended', 'Passed', 'Failed', 'No_Show'];
+  let mappedStatus = status;
+  if (status === 'No Show') mappedStatus = 'No_Show';
+  
+  if (!validStatuses.includes(mappedStatus)) {
+    return res.status(400).json({ error: `Invalid status. Must be one of: Attended, Passed, Failed, No Show` });
   }
 
   try {
-    const dbClient = await pool.connect();
-    try {
-      await dbClient.query('BEGIN');
+    const apc = await prisma.apcAssessment.findUnique({
+      where: { id: assessmentId },
+      include: { application: { include: { category: true } } }
+    });
 
-      // Update APC record
-      const apcRes = await dbClient.query(
-        `UPDATE apc_assessments
-         SET status = $1, score_percentage = $2, assessment_notes = $3,
-             stamp_fee_paid = $4, license_issued = $5, updated_at = NOW()
-         WHERE id = $6 RETURNING *`,
-        [status, scorePercentage || null, assessmentNotes || null, stampFeePaid || false, licenseIssued || false, assessmentId]
-      );
+    if (!apc) return res.status(404).json({ error: 'APC assessment not found.' });
 
-      if (apcRes.rows.length === 0) {
-        await dbClient.query('ROLLBACK');
-        return res.status(404).json({ error: 'APC assessment not found.' });
-      }
+    let newClass: MemberClass | undefined = undefined;
 
-      const apc = apcRes.rows[0];
-
-      // If passed, upgrade the member's class
-      if (status === 'Passed') {
-        // Determine new class from category
-        const catQuery = await dbClient.query(
-          `SELECT cat.category_code FROM applications app
-           JOIN membership_categories cat ON app.category_id = cat.id
-           WHERE app.id = $1`,
-          [apc.application_id]
-        );
-
-        if (catQuery.rows.length > 0) {
-          const code = catQuery.rows[0].category_code;
-          let newClass = 'Technologist';
-          if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Fellow';
-
-          await dbClient.query(
-            `UPDATE members SET membership_class = $1, updated_at = NOW() WHERE id = $2`,
-            [newClass, apc.member_id]
-          );
-        }
-      }
-
-      // Audit log
-      await dbClient.query(
-        `INSERT INTO audit_logs (member_id, action_by_email, action_type, details)
-         VALUES ($1, $2, 'APC_GRADED', $3)`,
-        [apc.member_id, req.user.email, `APC ${assessmentId} graded as ${status}. Score: ${scorePercentage || 'N/A'}%`]
-      );
-
-      await dbClient.query('COMMIT');
-      return res.status(200).json({ message: `APC assessment graded: ${status}.`, assessment: apcRes.rows[0] });
-    } catch (err: any) {
-      await dbClient.query('ROLLBACK');
-      throw err;
-    } finally {
-      dbClient.release();
+    if (mappedStatus === 'Passed') {
+      const code = apc.application.category.categoryCode;
+      newClass = 'Technologist';
+      if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Fellow';
     }
+
+    const transactions: any[] = [
+      prisma.apcAssessment.update({
+        where: { id: assessmentId },
+        data: {
+          status: mappedStatus as ApcStatus,
+          scorePercentage: scorePercentage || null,
+          assessmentNotes: assessmentNotes || null,
+          stampFeePaid: stampFeePaid || false,
+          licenseIssued: licenseIssued || false,
+          updatedAt: new Date()
+        }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: apc.memberId,
+          actionByEmail: req.user.email,
+          actionType: 'APC_GRADED',
+          details: `APC ${assessmentId} graded as ${status}. Score: ${scorePercentage || 'N/A'}%`
+        }
+      })
+    ];
+
+    if (newClass) {
+      transactions.push(
+        prisma.member.update({
+          where: { id: apc.memberId },
+          data: { membershipClass: newClass, updatedAt: new Date() }
+        })
+      );
+    }
+
+    const [updatedApc, _, __] = await prisma.$transaction(transactions);
+
+    return res.status(200).json({ message: `APC assessment graded: ${status}.`, assessment: updatedApc });
   } catch (error: any) {
     console.error('[Grade APC] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error grading APC assessment.' });
@@ -143,28 +138,31 @@ export async function updateMemberProfile(req: AuthenticatedRequest, res: Respon
   }
 
   try {
-    const memberQuery = await pool.query('SELECT * FROM members WHERE id = $1', [req.user.id]);
-    if (memberQuery.rows.length === 0) return res.status(404).json({ error: 'Member profile not found.' });
+    const member = await prisma.member.findUnique({ where: { id: req.user.id } });
+    if (!member) return res.status(404).json({ error: 'Member profile not found.' });
 
-    const oldName = memberQuery.rows[0].full_name;
+    const oldName = member.fullName;
 
     if (oldName === fullName.trim()) {
-      return res.status(200).json({ message: 'No changes detected.', member: memberQuery.rows[0] });
+      return res.status(200).json({ message: 'No changes detected.', member });
     }
 
-    const result = await pool.query(
-      `UPDATE members SET full_name = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [fullName.trim(), req.user.id]
-    );
+    const [updatedMember, _] = await prisma.$transaction([
+      prisma.member.update({
+        where: { id: req.user.id },
+        data: { fullName: fullName.trim(), updatedAt: new Date() }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: req.user.id,
+          actionByEmail: req.user.email,
+          actionType: 'NAME_CHANGE',
+          details: `Name changed from "${oldName}" to "${fullName.trim()}".`
+        }
+      })
+    ]);
 
-    // Mandatory Phase B audit log for name changes
-    await pool.query(
-      `INSERT INTO audit_logs (member_id, action_by_email, action_type, details)
-       VALUES ($1, $2, 'NAME_CHANGE', $3)`,
-      [req.user.id, req.user.email, `Name changed from "${oldName}" to "${fullName.trim()}".`]
-    );
-
-    return res.status(200).json({ message: 'Profile name updated. Audit record created.', member: result.rows[0] });
+    return res.status(200).json({ message: 'Profile name updated. Audit record created.', member: updatedMember });
   } catch (error: any) {
     console.error('[Update Member Profile] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error updating profile.' });
@@ -176,20 +174,38 @@ export async function getMentorshipProgress(req: AuthenticatedRequest, res: Resp
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   try {
-    const result = await pool.query(
-      `SELECT ma.*, app.status as application_status, app.approved_at,
-              cat.category_name, cat.category_code
-       FROM mentorship_assignments ma
-       JOIN applications app ON ma.application_id = app.id
-       JOIN membership_categories cat ON app.category_id = cat.id
-       WHERE app.member_id = $1`,
-      [req.user.id]
-    );
+    const progress = await prisma.mentorshipAssignment.findFirst({
+      where: { application: { memberId: req.user.id } },
+      include: {
+        application: {
+          select: {
+            status: true,
+            approvedAt: true,
+            category: {
+              select: {
+                categoryName: true,
+                categoryCode: true
+              }
+            }
+          }
+        }
+      }
+    });
 
-    return res.status(200).json({ mentorship: result.rows[0] || null });
+    if (!progress) return res.status(200).json({ mentorship: null });
+
+    const formattedProgress = {
+      ...progress,
+      application_status: progress.application.status,
+      approved_at: progress.application.approvedAt,
+      category_name: progress.application.category.categoryName,
+      category_code: progress.application.category.categoryCode,
+      application: undefined
+    };
+
+    return res.status(200).json({ mentorship: formattedProgress });
   } catch (error: any) {
     console.error('[Get Mentorship Progress] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching mentorship progress.' });
   }
 }
-

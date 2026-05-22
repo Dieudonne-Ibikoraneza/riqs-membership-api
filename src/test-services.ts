@@ -1,13 +1,13 @@
-import { pool } from './config/db';
+import { prisma } from './config/db';
 import { sendMail, mailTemplates } from './config/mailer';
 
 async function testServices() {
   console.log("=== RIQS Core Services Verification Test ===");
   try {
     // 1. Test Database
-    console.log("[Test] Testing PostgreSQL Pool Query...");
-    const dbRes = await pool.query('SELECT NOW()');
-    console.log("[Test] Database Ping Success. Supabase Time:", dbRes.rows[0].now);
+    console.log("[Test] Testing PostgreSQL Query...");
+    const dbRes: any[] = await prisma.$queryRaw`SELECT NOW()`;
+    console.log("[Test] Database Ping Success. DB Time:", dbRes[0].now);
 
     // 2. Test SMTP Mailer
     const testRecipient = 'dieudonneibikoraneza13@gmail.com';

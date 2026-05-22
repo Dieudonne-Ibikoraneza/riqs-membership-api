@@ -8,13 +8,20 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
-    role: string; // 'admin' | 'reviewer' | 'finance' | 'member'
+    /** SystemRole — controls what actions this user can perform in the system.
+     *  Values: Admin | Reviewer | Teacher | Mentor | Standard | Student
+     */
+    role: string;
+    /** MemberClass — professional tier based on years of experience.
+     *  Values: Student | Graduate | Technologist | Associate | Visiting | Corporate | Fellow | Life | Honorary
+     */
+    membershipClass: string;
   };
 }
 
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Access Denied. Authorization token missing or malformed.' });
   }
@@ -24,12 +31,13 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   try {
     // Verify token validity directly against our local JWT secret
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    
-    // Attach normalized session parameters to request. Defaults to 'member' role unless set in metadata
+
+    // Attach normalized session parameters to request
     req.user = {
       id: decoded.id,
       email: decoded.email || '',
-      role: decoded.role || 'member'
+      role: decoded.role || 'Standard',             // systemRole
+      membershipClass: decoded.membershipClass || 'Student', // professional tier
     };
 
     next();
@@ -40,4 +48,15 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
     console.error('[Auth Middleware] Verification error:', err.message);
     return res.status(401).json({ error: 'Access Denied. Session is invalid.' });
   }
+}
+
+/** Guard: allow only specific system roles */
+export function requireRole(...roles: string[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: `Access Denied. Required role: ${roles.join(' or ')}.` });
+    }
+    next();
+  };
 }

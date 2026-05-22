@@ -57,6 +57,25 @@ export const mailTemplates = {
     `
   }),
 
+  otpVerification: (name: string, otpCode: string) => ({
+    subject: "RIQS - Verify your Email Address",
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Rwanda Institute of Quantity Surveyors (RIQS)</h2>
+        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please use the verification code below to confirm your email address and complete your registration on the RIQS Digital Membership Registry.</p>
+        <div style="background-color: #f8fafc; padding: 18px; border-left: 4px solid #3b82f6; border-radius: 6px; margin: 20px 0; text-align: center;">
+          <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Your Verification Code:</p>
+          <p style="margin: 8px 0 0 0; font-size: 32px; font-weight: 700; color: #1e3a8a; letter-spacing: 4px;">${otpCode}</p>
+        </div>
+        <p style="font-size: 15px; color: #334155; line-height: 1.6;">This code is valid for 15 minutes. If you did not request this, please ignore this email.</p>
+        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+          This is an automated notification from the RIQS Registry Portal. Please do not reply directly to this message.
+        </p>
+      </div>
+    `
+  }),
+
   correctionRequired: (name: string, reviewerNotes: string) => ({
     subject: "Action Required: RIQS Application Correction Requested",
     html: `

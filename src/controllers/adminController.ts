@@ -1,43 +1,53 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { pool } from '../config/db';
+import { prisma } from '../config/db';
 import { sendMail, mailTemplates } from '../config/mailer';
+import { ApplicationStatus } from '@prisma/client';
+import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils';
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
   const { status, page = '1', limit = '10' } = req.query;
-  const offset = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+  const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+  const take = parseInt(limit as string, 10);
 
   try {
-    let query = `
-      SELECT app.id, app.status, app.submitted_at, mem.full_name, mem.email, cat.category_name, cat.location 
-      FROM applications app
-      JOIN members mem ON app.member_id = mem.id
-      JOIN membership_categories cat ON app.category_id = cat.id
-    `;
-    const params: any[] = [];
-
+    const whereClause: any = {};
     if (status) {
-      query += ` WHERE app.status = $1`;
-      params.push(status);
+      whereClause.status = status as ApplicationStatus;
     }
 
-    query += ` ORDER BY app.submitted_at DESC NULLS LAST LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(parseInt(limit as string, 10), offset);
+    const [queue, total] = await Promise.all([
+      prisma.application.findMany({
+        where: whereClause,
+        skip,
+        take,
+        orderBy: { submittedAt: 'desc' },
+        include: {
+          member: { select: { fullName: true, email: true } },
+          category: { select: { categoryName: true, location: true } }
+        }
+      }),
+      prisma.application.count({ where: whereClause })
+    ]);
 
-    const queueRes = await pool.query(query, params);
-    
-    // Count total pending records for UI pagination indicators
-    let countQuery = `SELECT COUNT(*) FROM applications`;
-    if (status) countQuery += ` WHERE status = '${status}'`;
-    const countRes = await pool.query(countQuery);
+    // Flatten to match existing SQL output shape for UI
+    const formattedQueue = queue.map(app => ({
+      id: app.id,
+      status: app.status,
+      submitted_at: app.submittedAt,
+      full_name: app.member.fullName,
+      email: app.member.email,
+      category_name: app.category.categoryName,
+      location: app.category.location
+    }));
 
     return res.status(200).json({
-      queue: queueRes.rows,
+      queue: formattedQueue,
       pagination: {
-        total: parseInt(countRes.rows[0].count, 10),
+        total,
         page: parseInt(page as string, 10),
-        limit: parseInt(limit as string, 10)
+        limit: take
       }
     });
   } catch (error: any) {
@@ -57,161 +67,132 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
   }
 
   try {
-    // A. Fetch targeted application parameters
-    const appQuery = await pool.query(
-      `SELECT app.*, mem.full_name, mem.email, cat.category_code, cat.category_name 
-       FROM applications app
-       JOIN members mem ON app.member_id = mem.id
-       JOIN membership_categories cat ON app.category_id = cat.id
-       WHERE app.id = $1`,
-      [applicationId]
-    );
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        member: true,
+        category: true
+      }
+    });
 
-    if (appQuery.rows.length === 0) {
+    if (!app) {
       return res.status(404).json({ error: 'Application record not found.' });
     }
 
-    const app = appQuery.rows[0];
     const oldStatus = app.status;
 
-    // B. Instantiate connection block to handle transaction safety
-    const dbClient = await pool.connect();
-    try {
-      await dbClient.query('BEGIN');
+    if (action === 'Flag') {
+      if (!notes) return res.status(400).json({ error: 'Action Rejected. Reviewer correction remarks are mandatory when flagging applications.' });
 
-      if (action === 'Flag') {
-        if (!notes) {
-          dbClient.release();
-          return res.status(400).json({ error: 'Action Rejected. Reviewer correction remarks are mandatory when flagging applications.' });
+      await prisma.$transaction([
+        prisma.application.update({
+          where: { id: applicationId },
+          data: { status: 'Correction_Required', updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId,
+            changedByEmail: req.user.email,
+            oldStatus: oldStatus || 'Draft',
+            newStatus: 'Correction_Required',
+            reviewerNotes: notes
+          }
+        })
+      ]);
+
+      try { await sendMail(app.member.email, mailTemplates.correctionRequired(app.member.fullName, notes)); } catch (e) {}
+      return res.status(200).json({ message: 'Application flagged. Correction instructions sent.' });
+
+    } else if (action === 'Reject') {
+      if (!notes) return res.status(400).json({ error: 'Action Rejected. Rejection notes are mandatory.' });
+
+      await prisma.$transaction([
+        prisma.application.update({
+          where: { id: applicationId },
+          data: { status: 'Rejected', updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId,
+            changedByEmail: req.user.email,
+            oldStatus: oldStatus || 'Draft',
+            newStatus: 'Rejected',
+            reviewerNotes: notes
+          }
+        })
+      ]);
+
+      try { await sendMail(app.member.email, mailTemplates.rejected(app.member.fullName, notes)); } catch (e) {}
+      return res.status(200).json({ message: 'Application declined. Notification sent.' });
+
+    } else if (action === 'Approve') {
+      const currentYear = new Date().getFullYear();
+
+      // Derive the certificate-friendly code (e.g. PQS → PrQS, GQS → GradQS, LF-SM → LF)
+      const certCode = getCertificateCode(app.category.categoryCode);
+
+      // Count approved applications for this cert code this year (across all size variants)
+      const count = await prisma.application.count({
+        where: {
+          status: 'Approved',
+          approvedAt: { gte: new Date(`${currentYear}-01-01`), lte: new Date(`${currentYear}-12-31`),
+          },
+          category: {
+            // Match all category codes that map to the same cert code
+            categoryCode: {
+              in: Object.entries({
+                'GQS': 'GradQS', 'GQST': 'GradQS',
+                'QST': 'TechQS', 'FQST': 'TechQS',
+                'PQS': 'PrQS',  'FPQS': 'PrQS',
+                'LF-SM': 'LF', 'LF-MD': 'LF', 'LF-LG': 'LF',
+                'FF-SM': 'FF', 'FF-MD': 'FF', 'FF-LG': 'FF',
+              }).filter(([, v]) => v === certCode).map(([k]) => k)
+            }
+          }
         }
+      });
 
-        // Transition status
-        await dbClient.query(
-          `UPDATE applications SET status = 'Correction Required', updated_at = NOW() WHERE id = $1`,
-          [applicationId]
-        );
+      const sequenceNumber = count + 1;
+      const paddedSequence = String(sequenceNumber).padStart(4, '0');
+      // DB format uses dashes (safe for unique constraint); certificate displays slashes
+      const generatedMembershipId = `RIQS-${currentYear}-${certCode}-${paddedSequence}`;
 
-        // Catalog to history timeline
-        await dbClient.query(
-          `INSERT INTO application_status_history (application_id, changed_by_email, old_status, new_status, reviewer_notes)
-           VALUES ($1, $2, $3, 'Correction Required', $4)`,
-          [applicationId, req.user.email, oldStatus, notes]
-        );
+      // Derive the professional tier (MemberClass) from the category code
+      const memberClass = deriveMemberClass(app.category.categoryCode);
 
-        await dbClient.query('COMMIT');
+      await prisma.$transaction([
+        prisma.application.update({
+          where: { id: applicationId },
+          data: { status: 'Approved', approvedAt: new Date(), updatedAt: new Date() }
+        }),
+        prisma.member.update({
+          where: { id: app.memberId },
+          data: { membershipId: generatedMembershipId, membershipClass: memberClass, updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId,
+            changedByEmail: req.user.email,
+            oldStatus: oldStatus || 'Draft',
+            newStatus: 'Approved',
+            reviewerNotes: 'Application formally approved by Registrar.'
+          }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPROVE',
+            details: `Approved application. Membership ID: ${generatedMembershipId}`
+          }
+        })
+      ]);
 
-        // Email applicant asynchronously
-        try {
-          await sendMail(app.email, mailTemplates.correctionRequired(app.full_name, notes));
-        } catch (mailErr: any) {
-          console.error('[Admin Review Flag] Email dispatch failed:', mailErr.message);
-        }
-
-        return res.status(200).json({ message: 'Application flagged. Correction instructions sent.' });
-      } 
-      
-      else if (action === 'Reject') {
-        if (!notes) {
-          dbClient.release();
-          return res.status(400).json({ error: 'Action Rejected. Rejection notes are mandatory.' });
-        }
-
-        await dbClient.query(
-          `UPDATE applications SET status = 'Rejected', updated_at = NOW() WHERE id = $1`,
-          [applicationId]
-        );
-
-        await dbClient.query(
-          `INSERT INTO application_status_history (application_id, changed_by_email, old_status, new_status, reviewer_notes)
-           VALUES ($1, $2, $3, 'Rejected', $4)`,
-          [applicationId, req.user.email, oldStatus, notes]
-        );
-
-        await dbClient.query('COMMIT');
-
-        try {
-          await sendMail(app.email, mailTemplates.rejected(app.full_name, notes));
-        } catch (mailErr: any) {
-          console.error('[Admin Review Reject] Email dispatch failed:', mailErr.message);
-        }
-
-        return res.status(200).json({ message: 'Application declined. Notification sent.' });
-      } 
-      
-      else if (action === 'Approve') {
-        const currentYear = new Date().getFullYear();
-        
-        // Count existing approvals in the same category and year to calculate sequence
-        const countQuery = await dbClient.query(
-          `SELECT COUNT(*) as count 
-           FROM applications app
-           JOIN membership_categories cat ON app.category_id = cat.id
-           WHERE cat.category_code = $1 
-             AND app.status = 'Approved' 
-             AND EXTRACT(YEAR FROM app.approved_at) = $2`,
-          [app.category_code, currentYear]
-        );
-        
-        const sequenceNumber = parseInt(countQuery.rows[0].count, 10) + 1;
-        const paddedSequence = String(sequenceNumber).padStart(4, '0');
-        const generatedMembershipId = `RIQS-${currentYear}-${app.category_code}-${paddedSequence}`;
-
-        // Map Category Codes to dynamic Member Class designations
-        let memberClass = 'Graduate';
-        if (app.category_code === 'PQS' || app.category_code === 'FPQS') memberClass = 'Fellow';
-        else if (app.category_code === 'QST' || app.category_code === 'FQST') memberClass = 'Technologist';
-
-        // 1. Lock application status
-        await dbClient.query(
-          `UPDATE applications SET status = 'Approved', approved_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [applicationId]
-        );
-
-        // 2. Generate Professional Credentials in members profile
-        await dbClient.query(
-          `UPDATE members 
-           SET membership_id = $1, membership_class = $2, updated_at = NOW() 
-           WHERE id = $3`,
-          [generatedMembershipId, memberClass, app.member_id]
-        );
-
-        // 3. Write status history timeline
-        await dbClient.query(
-          `INSERT INTO application_status_history (application_id, changed_by_email, old_status, new_status, reviewer_notes)
-           VALUES ($1, $2, $3, 'Approved', 'Application formally approved by Registrar.')`,
-          [applicationId, req.user.email, oldStatus]
-        );
-
-        // 4. Record dynamic audit log
-        await dbClient.query(
-          `INSERT INTO audit_logs (member_id, action_by_email, action_type, details)
-           VALUES ($1, $2, 'APPROVE', $3)`,
-          [app.member_id, req.user.email, `Approved application. Membership ID: ${generatedMembershipId}`]
-        );
-
-        await dbClient.query('COMMIT');
-
-        // Email applicant asynchronously
-        try {
-          await sendMail(app.email, mailTemplates.approved(app.full_name, generatedMembershipId, app.category_name));
-        } catch (mailErr: any) {
-          console.error('[Admin Review Approve] Email dispatch failed:', mailErr.message);
-        }
-
-        return res.status(200).json({
-          message: 'Application successfully approved.',
-          membershipId: generatedMembershipId
-        });
-      }
-
-      dbClient.release();
-      return res.status(400).json({ error: 'Invalid action. Only Approve, Flag, or Reject allowed.' });
-    } catch (err: any) {
-      await dbClient.query('ROLLBACK');
-      throw err;
-    } finally {
-      dbClient.release();
+      try { await sendMail(app.member.email, mailTemplates.approved(app.member.fullName, generatedMembershipId, app.category.categoryName)); } catch (e) {}
+      return res.status(200).json({ message: 'Application successfully approved.', membershipId: generatedMembershipId });
     }
+
+    return res.status(400).json({ error: 'Invalid action. Only Approve, Flag, or Reject allowed.' });
   } catch (error: any) {
     console.error('[Admin Review Decision] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error resolving reviewer decision.' });
@@ -225,45 +206,58 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
   const { id } = req.params;
 
   try {
-    // Core application with member and category info
-    const appQuery = await pool.query(
-      `SELECT app.*, mem.full_name, mem.email, mem.phone_number, mem.date_of_birth, mem.gender,
-              mem.nationality, mem.national_id_or_passport, mem.residency_address, mem.work_address,
-              mem.years_in_profession, mem.country_of_origin, mem.membership_id, mem.membership_class,
-              mem.training_tracking_number,
-              cat.category_name, cat.category_code, cat.processing_fee, cat.first_year_fee,
-              cat.annual_renewal_fee, cat.stamp_fee, cat.currency, cat.location, cat.entity_type AS cat_entity_type
-       FROM applications app
-       JOIN members mem ON app.member_id = mem.id
-       JOIN membership_categories cat ON app.category_id = cat.id
-       WHERE app.id = $1`,
-      [id]
-    );
+    const app = await prisma.application.findUnique({
+      where: { id },
+      include: {
+        member: true,
+        category: true,
+        educationRecords: { orderBy: { startDate: 'desc' } },
+        firmShareholders: true,
+        mentorshipAssignment: true,
+        uploadedDocuments: true,
+        studentAssociation: true,
+        statusHistory: { orderBy: { createdAt: 'desc' } }
+      }
+    });
 
-    if (appQuery.rows.length === 0) {
-      return res.status(404).json({ error: 'Application not found.' });
-    }
+    if (!app) return res.status(404).json({ error: 'Application not found.' });
 
-    const application = appQuery.rows[0];
-
-    // Fetch all related data packets in parallel
-    const [eduRes, shareRes, mentorRes, docRes, studentRes, historyRes] = await Promise.all([
-      pool.query('SELECT * FROM education_records WHERE application_id = $1 ORDER BY start_date DESC', [id]),
-      pool.query('SELECT * FROM firm_shareholders WHERE application_id = $1', [id]),
-      pool.query('SELECT * FROM mentorship_assignments WHERE application_id = $1', [id]),
-      pool.query('SELECT id, document_type, file_name, file_size_bytes, uploaded_at FROM uploaded_documents WHERE application_id = $1', [id]),
-      pool.query('SELECT * FROM student_association_records WHERE application_id = $1', [id]),
-      pool.query('SELECT * FROM application_status_history WHERE application_id = $1 ORDER BY created_at DESC', [id])
-    ]);
+    // Format to match existing payload structure for frontend compatibility
+    const formattedApplication = {
+      ...app,
+      full_name: app.member.fullName,
+      email: app.member.email,
+      phone_number: app.member.phoneNumber,
+      date_of_birth: app.member.dateOfBirth,
+      gender: app.member.gender,
+      nationality: app.member.nationality,
+      national_id_or_passport: app.member.nationalIdOrPassport,
+      residency_address: app.member.residencyAddress,
+      work_address: app.member.workAddress,
+      years_in_profession: app.member.yearsInProfession,
+      country_of_origin: app.member.countryOfOrigin,
+      membership_id: app.member.membershipId,
+      membership_class: app.member.membershipClass,
+      training_tracking_number: app.member.trainingTrackingNumber,
+      category_name: app.category.categoryName,
+      category_code: app.category.categoryCode,
+      processing_fee: app.category.processingFee,
+      first_year_fee: app.category.firstYearFee,
+      annual_renewal_fee: app.category.annualRenewalFee,
+      stamp_fee: app.category.stampFee,
+      currency: app.category.currency,
+      location: app.category.location,
+      cat_entity_type: app.category.entityType
+    };
 
     return res.status(200).json({
-      application,
-      education: eduRes.rows,
-      shareholders: shareRes.rows,
-      mentorship: mentorRes.rows[0] || null,
-      documents: docRes.rows,
-      studentAssociation: studentRes.rows[0] || null,
-      statusHistory: historyRes.rows
+      application: formattedApplication,
+      education: app.educationRecords,
+      shareholders: app.firmShareholders,
+      mentorship: app.mentorshipAssignment,
+      documents: app.uploadedDocuments,
+      studentAssociation: app.studentAssociation,
+      statusHistory: app.statusHistory
     });
   } catch (error: any) {
     console.error('[Admin Application Detail] Error:', error.message);
@@ -277,28 +271,24 @@ export async function assignReviewer(req: AuthenticatedRequest, res: Response) {
 
   const { applicationId, reviewerId } = req.body;
 
-  if (!applicationId || !reviewerId) {
-    return res.status(400).json({ error: 'Missing applicationId or reviewerId.' });
-  }
+  if (!applicationId || !reviewerId) return res.status(400).json({ error: 'Missing applicationId or reviewerId.' });
 
   try {
-    const result = await pool.query(
-      `UPDATE applications SET assigned_reviewer_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [reviewerId, applicationId]
-    );
+    const app = await prisma.application.update({
+      where: { id: applicationId },
+      data: { assignedReviewerId: reviewerId, updatedAt: new Date() }
+    });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Application not found.' });
-    }
+    await prisma.auditLog.create({
+      data: {
+        memberId: app.memberId,
+        actionByEmail: req.user.email,
+        actionType: 'REVIEWER_ASSIGNED',
+        details: `Reviewer ${reviewerId} assigned to application ${applicationId}.`
+      }
+    });
 
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (member_id, action_by_email, action_type, details)
-       VALUES ($1, $2, 'REVIEWER_ASSIGNED', $3)`,
-      [result.rows[0].member_id, req.user.email, `Reviewer ${reviewerId} assigned to application ${applicationId}.`]
-    );
-
-    return res.status(200).json({ message: 'Reviewer assigned.', application: result.rows[0] });
+    return res.status(200).json({ message: 'Reviewer assigned.', application: app });
   } catch (error: any) {
     console.error('[Assign Reviewer] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error assigning reviewer.' });
@@ -308,15 +298,14 @@ export async function assignReviewer(req: AuthenticatedRequest, res: Response) {
 // 5. Get Application Status History (Audit Timeline)
 export async function getStatusHistory(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
-
   const { applicationId } = req.params;
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM application_status_history WHERE application_id = $1 ORDER BY created_at DESC',
-      [applicationId]
-    );
-    return res.status(200).json({ history: result.rows });
+    const history = await prisma.applicationStatusHistory.findMany({
+      where: { applicationId },
+      orderBy: { createdAt: 'desc' }
+    });
+    return res.status(200).json({ history });
   } catch (error: any) {
     console.error('[Get Status History] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching status history.' });
@@ -326,15 +315,14 @@ export async function getStatusHistory(req: AuthenticatedRequest, res: Response)
 // 6. Get Document Version History (Correction comparison audit)
 export async function getDocumentVersions(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
-
   const { applicationId } = req.params;
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM document_versions WHERE application_id = $1 ORDER BY document_type, version_number DESC',
-      [applicationId]
-    );
-    return res.status(200).json({ versions: result.rows });
+    const versions = await prisma.documentVersion.findMany({
+      where: { applicationId },
+      orderBy: [{ documentType: 'asc' }, { versionNumber: 'desc' }]
+    });
+    return res.status(200).json({ versions });
   } catch (error: any) {
     console.error('[Get Document Versions] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching document versions.' });

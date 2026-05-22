@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { pool } from '../config/db';
+import { prisma } from '../config/db';
+import { TransactionType, PaymentMethod, TransactionStatus } from '@prisma/client';
 
 // 1. Submit a payment transaction record (manual receipt reference)
 export async function submitPayment(req: AuthenticatedRequest, res: Response) {
@@ -17,22 +18,28 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
 
   try {
     // Check for duplicate transaction reference (fraud prevention)
-    const dupCheck = await pool.query(
-      'SELECT id FROM financial_transactions WHERE transaction_reference = $1',
-      [transactionReference]
-    );
-    if (dupCheck.rows.length > 0) {
+    const dupCheck = await prisma.financialTransaction.findUnique({
+      where: { transactionReference }
+    });
+    
+    if (dupCheck) {
       return res.status(409).json({ error: 'Duplicate transaction reference. This reference code has already been submitted.' });
     }
 
-    const result = await pool.query(
-      `INSERT INTO financial_transactions
-       (member_id, application_id, amount, currency, tx_type, payment_method, transaction_reference, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending_Verification') RETURNING *`,
-      [req.user.id, applicationId || null, amount, currency, txType, paymentMethod, transactionReference]
-    );
+    const transaction = await prisma.financialTransaction.create({
+      data: {
+        memberId: req.user.id,
+        applicationId: applicationId || null,
+        amount,
+        currency,
+        txType: txType as TransactionType,
+        paymentMethod: paymentMethod as PaymentMethod,
+        transactionReference,
+        status: 'Pending_Verification'
+      }
+    });
 
-    return res.status(201).json({ message: 'Payment submitted for verification.', transaction: result.rows[0] });
+    return res.status(201).json({ message: 'Payment submitted for verification.', transaction });
   } catch (error: any) {
     console.error('[Submit Payment] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error submitting payment.' });
@@ -44,11 +51,11 @@ export async function getPaymentHistory(req: AuthenticatedRequest, res: Response
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM financial_transactions WHERE member_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
-    );
-    return res.status(200).json({ transactions: result.rows });
+    const transactions = await prisma.financialTransaction.findMany({
+      where: { memberId: req.user.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    return res.status(200).json({ transactions });
   } catch (error: any) {
     console.error('[Get Payment History] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching payment history.' });
@@ -76,32 +83,37 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
   }
 
   try {
-    const result = await pool.query(
-      `UPDATE financial_transactions
-       SET status = $1, verified_by_email = $2, rejection_reason = $3, cleared_at = $4, 
-           invoice_url = NULL, receipt_url = NULL
-       WHERE id = $5 AND status = 'Pending_Verification' RETURNING *`,
-      [
-        action,
-        req.user.email,
-        rejectionReason || null,
-        action === 'Cleared' ? new Date().toISOString() : null,
-        transactionId
-      ]
-    );
+    const existingTransaction = await prisma.financialTransaction.findUnique({
+      where: { id: transactionId }
+    });
 
-    if (result.rows.length === 0) {
+    if (!existingTransaction || existingTransaction.status !== 'Pending_Verification') {
       return res.status(400).json({ error: 'Transaction not found or already verified.' });
     }
 
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (member_id, action_by_email, action_type, details)
-       VALUES ($1, $2, 'PAYMENT_VERIFICATION', $3)`,
-      [result.rows[0].member_id, req.user.email, `Transaction ${transactionId} marked as ${action}.`]
-    );
+    const [updatedTransaction, _] = await prisma.$transaction([
+      prisma.financialTransaction.update({
+        where: { id: transactionId },
+        data: {
+          status: action as TransactionStatus,
+          verifiedByEmail: req.user.email,
+          rejectionReason: rejectionReason || null,
+          clearedAt: action === 'Cleared' ? new Date() : null,
+          invoiceUrl: null,
+          receiptUrl: null
+        }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: existingTransaction.memberId,
+          actionByEmail: req.user.email,
+          actionType: 'PAYMENT_VERIFICATION',
+          details: `Transaction ${transactionId} marked as ${action}.`
+        }
+      })
+    ]);
 
-    return res.status(200).json({ message: `Payment ${action.toLowerCase()}.`, transaction: result.rows[0] });
+    return res.status(200).json({ message: `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
   } catch (error: any) {
     console.error('[Verify Payment] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error verifying payment.' });
@@ -113,29 +125,39 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const { status = 'Pending_Verification', page = '1', limit = '20' } = req.query;
-  const offset = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+  const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+  const take = parseInt(limit as string, 10);
 
   try {
-    const result = await pool.query(
-      `SELECT ft.*, m.full_name, m.email
-       FROM financial_transactions ft
-       JOIN members m ON ft.member_id = m.id
-       WHERE ft.status = $1
-       ORDER BY ft.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [status, parseInt(limit as string, 10), offset]
-    );
+    const [transactions, total] = await Promise.all([
+      prisma.financialTransaction.findMany({
+        where: { status: status as TransactionStatus },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        include: {
+          member: { select: { fullName: true, email: true } }
+        }
+      }),
+      prisma.financialTransaction.count({
+        where: { status: status as TransactionStatus }
+      })
+    ]);
 
-    const countRes = await pool.query(
-      'SELECT COUNT(*) FROM financial_transactions WHERE status = $1', [status]
-    );
+    // Flatten nested member relation for UI compatibility
+    const formattedTransactions = transactions.map(tx => ({
+      ...tx,
+      full_name: tx.member.fullName,
+      email: tx.member.email,
+      member: undefined
+    }));
 
     return res.status(200).json({
-      transactions: result.rows,
+      transactions: formattedTransactions,
       pagination: {
-        total: parseInt(countRes.rows[0].count, 10),
+        total,
         page: parseInt(page as string, 10),
-        limit: parseInt(limit as string, 10)
+        limit: take
       }
     });
   } catch (error: any) {
