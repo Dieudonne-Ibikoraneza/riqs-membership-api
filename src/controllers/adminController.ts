@@ -7,12 +7,15 @@ import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils'
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
-  const { status, page = '1', limit = '10', unassigned } = req.query;
-  const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
-  const take = parseInt(limit as string, 10);
+  const { status, page = 1, limit = 10, view } = req.query;
+
+  const skip = (Number(page) - 1) * Number(limit);
+  const take = Number(limit);
 
   try {
     const whereClause: any = {};
+    
+    // 1. Process explicit status filter from dropdown
     if (status) {
       const statusStr = String(status).toLowerCase();
       const validStatuses = ['Draft', 'Pending', 'Under_Review', 'Pending_Approval', 'Correction_Required', 'Approved', 'Rejected'];
@@ -23,13 +26,22 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       } else {
         return res.status(400).json({ error: `Invalid status parameter. Valid options: ${validStatuses.join(', ')}` });
       }
-    } else {
-      // Default queue view: only show Pending
-      whereClause.status = 'Pending';
     }
 
-    if (unassigned === 'true' || !status) {
-      // If unassigned is explicitly true, or if it's the default queue view (no status provided)
+    // 2. Process View mode (Tabs)
+    if (view === 'queue') {
+      if (!status) whereClause.status = 'Pending';
+      whereClause.assignedReviewerId = null;
+    } else if (view === 'assigned') {
+      if (!status) {
+        whereClause.status = { in: ['Under_Review', 'Correction_Required'] };
+      }
+      whereClause.assignedReviewerId = req.user?.id;
+    } else if (view === 'all') {
+      // No extra constraints
+    } else {
+      // Default fallback if view not provided (for backward compatibility)
+      if (!status) whereClause.status = 'Pending';
       whereClause.assignedReviewerId = null;
     }
 
