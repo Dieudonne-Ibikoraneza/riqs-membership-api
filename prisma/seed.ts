@@ -51,6 +51,15 @@ async function main() {
       passwordHash
     },
     {
+      email: 'dieudonne.ibikoraneza+approver@gmail.com',
+      fullName: 'Dieudonne Approver',
+      systemRole: SystemRole.Approver,
+      membershipClass: MemberClass.Professional,
+      membershipId: 'RIQS-2015-PRO-0003',
+      isEmailVerified: true,
+      passwordHash
+    },
+    {
       email: 'dieudonne.ibikoraneza+teacher@gmail.com',
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
@@ -78,7 +87,7 @@ async function main() {
     });
   }
   
-  console.log('Database seeded with testing users (Admin, Reviewer, Teacher, Mentor).');
+  console.log('Database seeded with testing users (Admin, Reviewer, Approver, Teacher, Mentor).');
 }
 
 main()

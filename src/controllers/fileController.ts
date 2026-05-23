@@ -29,7 +29,22 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     }
 
     const isOwner = app.memberId === req.user.id;
-    if (!isOwner && req.user.role !== 'admin') {
+    let isAssignedMentor = false;
+
+    if (req.user.role.toLowerCase() === 'mentor' && documentType === 'MentorRecommendation') {
+      const mentorship = await prisma.mentorshipAssignment.findUnique({
+        where: { applicationId }
+      });
+      const member = await prisma.member.findUnique({
+        where: { id: req.user.id }
+      });
+      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+        isAssignedMentor = true;
+      }
+    }
+
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isAssignedMentor;
+    if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You are not authorized to upload files for this profile.' });
     }
 
@@ -112,7 +127,21 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
 
     // B. Validate role permission mapping
     const isOwner = doc.application.memberId === req.user.id;
-    const isAuthorized = isOwner || ['admin', 'reviewer'].includes(req.user.role);
+    
+    let isAssignedMentor = false;
+    if (req.user.role.toLowerCase() === 'mentor') {
+      const mentorship = await prisma.mentorshipAssignment.findUnique({
+        where: { applicationId: doc.applicationId }
+      });
+      const member = await prisma.member.findUnique({
+        where: { id: req.user.id }
+      });
+      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+        isAssignedMentor = true;
+      }
+    }
+
+    const isAuthorized = isOwner || ['admin', 'reviewer'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
@@ -144,5 +173,61 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
   } catch (error: any) {
     console.error('[File Controller Download] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error streaming document buffer.' });
+  }
+}
+
+// 3. Delete File by Type
+export async function deleteFileByType(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Access Denied. Active session required.' });
+  }
+
+  const { applicationId, documentType } = req.params;
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { memberId: true }
+    });
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    const isOwner = app.memberId === req.user.id;
+    let isAssignedMentor = false;
+
+    if (req.user.role.toLowerCase() === 'mentor' && documentType === 'MentorRecommendation') {
+      const mentorship = await prisma.mentorshipAssignment.findUnique({
+        where: { applicationId }
+      });
+      const member = await prisma.member.findUnique({
+        where: { id: req.user.id }
+      });
+      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+        isAssignedMentor = true;
+      }
+    }
+
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isAssignedMentor;
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Access Denied.' });
+    }
+
+    const doc = await prisma.uploadedDocument.findFirst({
+      where: { applicationId, documentType }
+    });
+
+    if (doc) {
+      await supabaseAdmin.storage.from('riqs-membership').remove([doc.fileUrl]);
+      await prisma.uploadedDocument.delete({
+        where: { id: doc.id }
+      });
+    }
+
+    return res.status(200).json({ message: 'Document removed successfully.' });
+  } catch (error: any) {
+    console.error('[File Controller Delete] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error deleting document.' });
   }
 }

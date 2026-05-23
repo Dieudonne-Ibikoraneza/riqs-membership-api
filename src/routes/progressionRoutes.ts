@@ -6,7 +6,8 @@ import {
   registerAPC,
   gradeAPC,
   updateMemberProfile,
-  getMentorshipProgress
+  getMentorshipProgress,
+  getMentees
 } from '../controllers/progressionController';
 
 const router = Router();
@@ -167,5 +168,20 @@ router.patch('/profile/update', requireAuth, updateMemberProfile);
  *         description: Internal server error
  */
 router.get('/mentorship/progress', requireAuth, getMentorshipProgress);
+
+/**
+ * @openapi
+ * /api/v1/progression/mentees:
+ *   get:
+ *     summary: Retrieve list of mentees for the logged-in mentor
+ *     tags:
+ *       - Progression & APC
+ *     responses:
+ *       200:
+ *         description: List of mentees retrieved successfully
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/mentees', requireAuth, requireRoles(['mentor', 'admin']), getMentees);
 
 export default router;

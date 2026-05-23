@@ -43,14 +43,34 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             residencyAddress: true,
             workAddress: true,
             yearsInProfession: true,
-            countryOfOrigin: true
+            countryOfOrigin: true,
+            membershipClass: true,
+            membershipId: true
           }
         }
       }
     });
 
     if (!app) {
-      return res.status(200).json({ application: null, message: 'No active application draft found for this member.' });
+      const member = await prisma.member.findUnique({
+        where: { id: req.user.id },
+        select: {
+          fullName: true,
+          email: true,
+          phoneNumber: true,
+          dateOfBirth: true,
+          gender: true,
+          nationality: true,
+          nationalIdOrPassport: true,
+          residencyAddress: true,
+          workAddress: true,
+          yearsInProfession: true,
+          countryOfOrigin: true,
+          membershipClass: true,
+          membershipId: true
+        }
+      });
+      return res.status(200).json({ profile: member, application: null, message: 'No active application draft found for this member.' });
     }
 
     const formattedApplication = {
@@ -130,7 +150,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     const memberUpdateData: any = { updatedAt: new Date() };
     if (fullName) memberUpdateData.fullName = fullName;
     if (phoneNumber) memberUpdateData.phoneNumber = phoneNumber;
-    if (dob) memberUpdateData.dateOfBirth = dob;
+    if (dob) memberUpdateData.dateOfBirth = new Date(dob);
     if (gender) memberUpdateData.gender = gender;
     if (nationality) memberUpdateData.nationality = nationality;
     if (nationalIdOrPassport) memberUpdateData.nationalIdOrPassport = nationalIdOrPassport;

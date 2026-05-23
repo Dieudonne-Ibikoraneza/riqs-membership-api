@@ -209,3 +209,72 @@ export async function getMentorshipProgress(req: AuthenticatedRequest, res: Resp
     return res.status(500).json({ error: 'Internal server error fetching mentorship progress.' });
   }
 }
+
+// 6. Get assigned Mentees for the current logged-in Mentor
+export async function getMentees(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
+  if (req.user.role.toLowerCase() !== 'mentor' && req.user.role.toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Access Denied. Mentor status required.' });
+  }
+
+  try {
+    const mentor = await prisma.member.findUnique({
+      where: { id: req.user.id },
+      select: { membershipId: true }
+    });
+
+    if (!mentor || !mentor.membershipId) {
+      return res.status(400).json({ error: 'Logged-in user does not have a valid membership registration number.' });
+    }
+
+    const assignments = await prisma.mentorshipAssignment.findMany({
+      where: { mentorRegistrationNumber: mentor.membershipId },
+      include: {
+        application: {
+          include: {
+            member: {
+              select: {
+                fullName: true,
+                email: true,
+                phoneNumber: true,
+                membershipClass: true,
+                createdAt: true
+              }
+            },
+            uploadedDocuments: {
+              where: { documentType: 'MentorRecommendation' },
+              select: {
+                id: true,
+                fileName: true,
+                uploadedAt: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const formattedMentees = assignments.map(a => {
+      const mentee = a.application.member;
+      const recDoc = a.application.uploadedDocuments[0];
+      return {
+        id: a.id,
+        applicationId: a.applicationId,
+        name: mentee.fullName,
+        email: mentee.email,
+        phone: mentee.phoneNumber,
+        category: mentee.membershipClass || 'Graduate',
+        joined: mentee.createdAt ? new Date(mentee.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
+        progress: a.completedDurationMonths ? Math.min(100, Math.round((a.completedDurationMonths / 24) * 100)) : 40,
+        recommendationSent: !!recDoc,
+        recommendationDocId: recDoc ? recDoc.id : null,
+        recommendationFileName: recDoc ? recDoc.fileName : null
+      };
+    });
+
+    return res.status(200).json({ mentees: formattedMentees });
+  } catch (error: any) {
+    console.error('[Get Mentees] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching mentees list.' });
+  }
+}

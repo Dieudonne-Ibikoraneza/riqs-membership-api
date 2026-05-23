@@ -8,11 +8,12 @@ export function requireRoles(allowedRoles: string[]) {
       return res.status(401).json({ error: 'Access Denied. User session not authenticated.' });
     }
 
-    const { role } = req.user;
+    const userRole = req.user.role.toLowerCase();
+    const normalizedAllowed = allowedRoles.map(r => r.toLowerCase());
 
     // Validate role permissions
-    if (!allowedRoles.includes(role)) {
-      console.warn(`[RBAC Policy] Access denied to user ${req.user.email} (Role: ${role}) for resource requiring: [${allowedRoles.join(', ')}]`);
+    if (!normalizedAllowed.includes(userRole)) {
+      console.warn(`[RBAC Policy] Access denied to user ${req.user.email} (Role: ${req.user.role}) for resource requiring: [${allowedRoles.join(', ')}]`);
       return res.status(403).json({ error: 'Access Denied. You do not have the required administrative permissions.' });
     }
 

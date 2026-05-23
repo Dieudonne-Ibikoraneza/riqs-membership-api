@@ -21,6 +21,8 @@ enum EntityType {
 enum ApplicationStatus {
   Draft
   Pending
+  Under_Review
+  Pending_Approval
   Correction_Required @map("Correction Required")
   Approved
   Rejected
@@ -41,6 +43,7 @@ enum MemberClass {
 enum SystemRole {
   Admin
   Reviewer
+  Approver
   Teacher
   Mentor
   Standard
@@ -88,6 +91,7 @@ model MembershipCategory {
   firstYearFee       Decimal          @map("first_year_fee") @db.Decimal(12, 2)
   annualRenewalFee   Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
   stampFee           Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
+  requiredDocuments  String[]         @default([]) @map("required_documents")
   
   applications       Application[]
 
@@ -109,13 +113,15 @@ model Member {
   yearsInProfession     Int?         @default(0) @map("years_in_profession")
   countryOfOrigin       String?      @map("country_of_origin") @db.VarChar(100)
   membershipId          String?      @unique @map("membership_id") @db.VarChar(100)
-  membershipClass       MemberClass? @default(Student) @map("membership_class")
+  membershipClass       MemberClass? @default(Graduate) @map("membership_class")
   systemRole            SystemRole?  @default(Standard) @map("system_role")
   trainingTrackingNumber String?     @unique @map("training_tracking_number") @db.VarChar(100)
   isEmailVerified       Boolean?     @default(false) @map("is_email_verified")
-  otpCode               String?      @map("otp_code") @db.VarChar(10)
-  otpExpiresAt          DateTime?    @map("otp_expires_at") @db.Timestamptz
-  createdAt             DateTime?    @default(now()) @map("created_at") @db.Timestamptz
+  otpCode              String?          @map("otp_code") @db.VarChar(6)
+  otpExpiresAt         DateTime?        @map("otp_expires_at") @db.Timestamptz
+  resetPasswordOtp     String?          @map("reset_password_otp") @db.VarChar(6)
+  resetPasswordExpires DateTime?        @map("reset_password_expires") @db.Timestamptz
+  createdAt            DateTime?        @default(now()) @map("created_at") @db.Timestamptz
   updatedAt             DateTime?    @default(now()) @map("updated_at") @db.Timestamptz
 
   applications          Application[]

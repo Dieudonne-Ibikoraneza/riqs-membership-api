@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyOtp } from '../controllers/authController';
+import { register, login, verifyOtp, forgotPassword, resetPassword } from '../controllers/authController';
 
 const router = Router();
 
@@ -117,5 +117,75 @@ router.post('/verify-otp', verifyOtp);
  *         description: Internal server error
  */
 router.post('/login', login);
+
+/**
+ * @openapi
+ * /api/v1/auth/forgot-password:
+ *   post:
+ *     summary: Request a password reset
+ *     description: Generates a 6-digit OTP and sends it to the user's email if the account exists.
+ *     tags:
+ *       - Authentication
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: "member@example.com"
+ *     responses:
+ *       200:
+ *         description: Reset link dispatched (generic message for security)
+ *       400:
+ *         description: Missing required fields
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/forgot-password', forgotPassword);
+
+/**
+ * @openapi
+ * /api/v1/auth/reset-password:
+ *   post:
+ *     summary: Reset the password using OTP
+ *     description: Verifies the 6-digit OTP and updates the user's password.
+ *     tags:
+ *       - Authentication
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - otp
+ *               - newPassword
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: "member@example.com"
+ *               otp:
+ *                 type: string
+ *                 example: "123456"
+ *               newPassword:
+ *                 type: string
+ *                 example: "NewStrongPass123!"
+ *     responses:
+ *       200:
+ *         description: Password successfully reset
+ *       400:
+ *         description: Invalid OTP, expired, or missing fields
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/reset-password', resetPassword);
 
 export default router;

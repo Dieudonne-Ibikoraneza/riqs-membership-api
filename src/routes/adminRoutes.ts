@@ -3,8 +3,10 @@ import { requireAuth } from '../middleware/auth';
 import { requireRoles } from '../middleware/rbac';
 import {
   getReviewQueue, handleReviewDecision,
+  handleReviewerAction, handleApproverDecision,
   getApplicationDetail, assignReviewer,
-  getStatusHistory, getDocumentVersions
+  getStatusHistory, getDocumentVersions,
+  getAuditLogs, updateSystemCategory
 } from '../controllers/adminController';
 
 const router = Router();
@@ -114,8 +116,8 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  * @openapi
  * /api/v1/admin/assign-reviewer:
  *   post:
- *     summary: Assign Reviewer to Application (Admin only)
- *     description: Allocates a specific staff reviewer profile to balance application workloads.
+ *     summary: Assign Reviewer to Application (Admin/Reviewer only)
+ *     description: Allocates a specific staff reviewer profile. If a Reviewer calls this without a reviewerId, they "pick up" the application for themselves.
  *     tags:
  *       - Administrative Dashboard
  *     requestBody:
@@ -126,7 +128,6 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  *             type: object
  *             required:
  *               - applicationId
- *               - reviewerId
  *             properties:
  *               applicationId:
  *                 type: string
@@ -134,6 +135,7 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  *               reviewerId:
  *                 type: string
  *                 format: uuid
+ *                 description: Optional. If omitted, automatically assigns the application to the reviewer making the request.
  *     responses:
  *       200:
  *         description: Reviewer assigned
@@ -142,7 +144,7 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  *       500:
  *         description: Internal server error
  */
-router.post('/assign-reviewer', requireAuth, requireRoles(['admin']), assignReviewer);
+router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer']), assignReviewer);
 
 /**
  * @openapi
@@ -189,5 +191,132 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
  *         description: Internal server error
  */
 router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer']), getDocumentVersions);
+
+/**
+ * @openapi
+ * /api/v1/admin/reviewer-action:
+ *   post:
+ *     summary: Reviewer First-Stage Action
+ *     description: A Reviewer can StartReview (pick up), ReturnForCorrection, or ForwardToApprover.
+ *     tags:
+ *       - Administrative Dashboard
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - applicationId
+ *               - action
+ *             properties:
+ *               applicationId:
+ *                 type: string
+ *                 format: uuid
+ *               action:
+ *                 type: string
+ *                 enum: [StartReview, ReturnForCorrection, ForwardToApprover]
+ *               notes:
+ *                 type: string
+ *                 description: Required when using ReturnForCorrection. Optional for ForwardToApprover.
+ *     responses:
+ *       200:
+ *         description: Reviewer action processed
+ *       400:
+ *         description: Invalid state or missing fields
+ *       403:
+ *         description: Not a Reviewer
+ */
+router.post('/reviewer-action', requireAuth, requireRoles(['admin', 'reviewer']), handleReviewerAction);
+
+/**
+ * @openapi
+ * /api/v1/admin/approver-decision:
+ *   post:
+ *     summary: Approver Final Decision
+ *     description: Approver makes the final call — Approve (issues RIQS membership ID) or Reject. Application must be in Pending_Approval status.
+ *     tags:
+ *       - Administrative Dashboard
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - applicationId
+ *               - action
+ *             properties:
+ *               applicationId:
+ *                 type: string
+ *                 format: uuid
+ *               action:
+ *                 type: string
+ *                 enum: [Approve, Reject]
+ *               notes:
+ *                 type: string
+ *                 description: Required when rejecting.
+ *     responses:
+ *       200:
+ *         description: Approver decision committed
+ *       400:
+ *         description: Invalid state or missing fields
+ *       403:
+ *         description: Not an Approver
+ */
+router.post('/approver-decision', requireAuth, requireRoles(['admin', 'approver']), handleApproverDecision);
+
+/**
+ * @openapi
+ * /api/v1/admin/audit-logs:
+ *   get:
+ *     summary: View System Audit Logs
+ *     description: Returns a paginated list of system audit logs (Admin only).
+ *     tags:
+ *       - Administrative Dashboard
+ *     responses:
+ *       200:
+ *         description: Successfully fetched audit logs
+ */
+router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
+
+/**
+ * @openapi
+ * /api/v1/admin/system/categories/{id}:
+ *   put:
+ *     summary: Update Membership Category Parameters
+ *     description: Updates fees and required documents for a category (Admin only).
+ *     tags:
+ *       - Administrative Dashboard
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               processingFee:
+ *                 type: number
+ *               firstYearFee:
+ *                 type: number
+ *               annualRenewalFee:
+ *                 type: number
+ *               stampFee:
+ *                 type: number
+ *               requiredDocuments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Category parameters updated successfully
+ */
+router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
 export default router;

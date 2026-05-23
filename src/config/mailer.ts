@@ -76,6 +76,21 @@ export const mailTemplates = {
     `
   }),
 
+  passwordReset: (name: string, otpCode: string) => ({
+    subject: "RIQS Portal - Password Reset Request",
+    html: `
+      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">RIQS Security</h2>
+        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
+        <p style="font-size: 15px; color: #334155; line-height: 1.6;">We received a request to reset your password for the RIQS Membership Portal. Use the following 6-digit code to complete the reset process. This code will expire in 15 minutes.</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <span style="font-size: 32px; font-weight: 700; color: #1e3a8a; letter-spacing: 8px; background-color: #f8fafc; padding: 15px 30px; border-radius: 8px; border: 1px dashed #cbd5e1;">${otpCode}</span>
+        </div>
+        <p style="font-size: 14px; color: #64748b;">If you did not request a password reset, please ignore this email and your password will remain unchanged.</p>
+      </div>
+    `
+  }),
+
   correctionRequired: (name: string, reviewerNotes: string) => ({
     subject: "Action Required: RIQS Application Correction Requested",
     html: `
