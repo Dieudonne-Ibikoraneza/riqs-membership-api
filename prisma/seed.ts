@@ -33,7 +33,7 @@ async function main() {
 
   const testUsers = [
     {
-      email: 'dieudonne.ibikoraneza+admin@gmail.com',
+      email: 'admin@riqs.com',
       fullName: 'Dieudonne Admin',
       systemRole: SystemRole.Admin,
       membershipClass: MemberClass.Professional,
@@ -42,7 +42,7 @@ async function main() {
       passwordHash
     },
     {
-      email: 'dieudonne.ibikoraneza+reviewer@gmail.com',
+      email: 'reviewer@riqs.com',
       fullName: 'Dieudonne Reviewer',
       systemRole: SystemRole.Reviewer,
       membershipClass: MemberClass.Professional,
@@ -51,7 +51,7 @@ async function main() {
       passwordHash
     },
     {
-      email: 'dieudonne.ibikoraneza+approver@gmail.com',
+      email: 'approver@riqs.com',
       fullName: 'Dieudonne Approver',
       systemRole: SystemRole.Approver,
       membershipClass: MemberClass.Professional,
@@ -60,7 +60,7 @@ async function main() {
       passwordHash
     },
     {
-      email: 'dieudonne.ibikoraneza+teacher@gmail.com',
+      email: 'teacher@riqs.com',
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
       membershipClass: MemberClass.Professional,
@@ -69,7 +69,7 @@ async function main() {
       passwordHash
     },
     {
-      email: 'dieudonne.ibikoraneza+mentor@gmail.com',
+      email: 'mentor@riqs.com',
       fullName: 'Dieudonne Mentor',
       systemRole: SystemRole.Mentor,
       membershipClass: MemberClass.Technologist,

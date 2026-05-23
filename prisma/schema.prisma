@@ -128,6 +128,7 @@ model Member {
   apcAssessments        ApcAssessment[]
   financialTransactions FinancialTransaction[]
   auditLogs             AuditLog[]
+  reviewedApplications  Application[] @relation("ReviewerAssignments")
 
   @@map("members")
 }
@@ -147,6 +148,7 @@ model Application {
 
   member                Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
   category              MembershipCategory    @relation(fields: [categoryId], references: [id])
+  assignedReviewer      Member?               @relation("ReviewerAssignments", fields: [assignedReviewerId], references: [id])
   educationRecords      EducationRecord[]
   employmentRecords     EmploymentRecord[]
   studentAssociation    StudentAssociationRecord?

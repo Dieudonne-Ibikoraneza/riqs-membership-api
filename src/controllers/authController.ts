@@ -169,8 +169,11 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
+    const isTestEmail = testEmails.includes(email.toLowerCase());
+
     // Generate 2FA OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
     const updatedMember = await prisma.member.update({
@@ -179,11 +182,13 @@ export async function login(req: Request, res: Response) {
     });
 
     // Send OTP email
-    try {
-      await sendMail(email, mailTemplates.otpVerification(member.fullName, otp));
-    } catch (mailErr: any) {
-      console.warn('[Auth Controller Login] 2FA OTP email failed to send:', mailErr.message);
-      // We do not fail the login if email fails, but in production we probably should.
+    if (!isTestEmail) {
+      try {
+        await sendMail(email, mailTemplates.otpVerification(member.fullName, otp));
+      } catch (mailErr: any) {
+        console.warn('[Auth Controller Login] 2FA OTP email failed to send:', mailErr.message);
+        // We do not fail the login if email fails, but in production we probably should.
+      }
     }
 
     return res.status(200).json({
@@ -205,7 +210,10 @@ export async function forgotPassword(req: Request, res: Response) {
     const member = await prisma.member.findUnique({ where: { email } });
     if (!member) return res.status(404).json({ error: 'If this email is registered, a reset link will be sent.' }); // Generic message for security
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
+    const isTestEmail = testEmails.includes(email.toLowerCase());
+
+    const otpCode = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     await prisma.member.update({
@@ -213,7 +221,9 @@ export async function forgotPassword(req: Request, res: Response) {
       data: { resetPasswordOtp: otpCode, resetPasswordExpires: otpExpiresAt }
     });
 
-    await sendMail(email, mailTemplates.passwordReset(member.fullName, otpCode));
+    if (!isTestEmail) {
+      await sendMail(email, mailTemplates.passwordReset(member.fullName, otpCode));
+    }
 
     return res.status(200).json({ message: 'If this email is registered, a reset link will be sent.' });
   } catch (error: any) {

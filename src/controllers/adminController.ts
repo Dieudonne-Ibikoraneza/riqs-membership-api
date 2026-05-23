@@ -7,7 +7,7 @@ import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils'
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
-  const { status, page = '1', limit = '10' } = req.query;
+  const { status, page = '1', limit = '10', unassigned } = req.query;
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
 
@@ -23,6 +23,14 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       } else {
         return res.status(400).json({ error: `Invalid status parameter. Valid options: ${validStatuses.join(', ')}` });
       }
+    } else {
+      // Default queue view: only show Pending
+      whereClause.status = 'Pending';
+    }
+
+    if (unassigned === 'true' || !status) {
+      // If unassigned is explicitly true, or if it's the default queue view (no status provided)
+      whereClause.assignedReviewerId = null;
     }
 
     const [queue, total] = await Promise.all([
@@ -33,7 +41,8 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
         orderBy: { submittedAt: 'desc' },
         include: {
           member: { select: { fullName: true, email: true } },
-          category: { select: { categoryName: true, location: true } }
+          category: { select: { categoryName: true, location: true } },
+          assignedReviewer: { select: { fullName: true } }
         }
       }),
       prisma.application.count({ where: whereClause })
@@ -47,7 +56,8 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       full_name: app.member.fullName,
       email: app.member.email,
       category_name: app.category.categoryName,
-      location: app.category.location
+      location: app.category.location,
+      reviewer: app.assignedReviewer?.fullName || 'Unassigned'
     }));
 
     return res.status(200).json({
@@ -382,6 +392,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         member: true,
         category: true,
         educationRecords: { orderBy: { startDate: 'desc' } },
+        employmentRecords: { orderBy: { startDate: 'desc' } },
         firmShareholders: true,
         mentorshipAssignment: true,
         uploadedDocuments: true,
@@ -423,6 +434,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
     return res.status(200).json({
       application: formattedApplication,
       education: app.educationRecords,
+      employment: app.employmentRecords,
       shareholders: app.firmShareholders,
       mentorship: app.mentorshipAssignment,
       documents: app.uploadedDocuments,
