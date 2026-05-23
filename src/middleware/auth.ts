@@ -20,13 +20,18 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  let token = '';
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Access Denied. Authorization token missing or malformed.' });
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.query.token) {
+    token = req.query.token as string;
   }
 
-  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'Access Denied. Authorization token missing or malformed.' });
+  }
 
   try {
     // Verify token validity directly against our local JWT secret
