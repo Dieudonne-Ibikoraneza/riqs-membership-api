@@ -209,7 +209,7 @@ export async function uploadStudentDocument(req: AuthenticatedRequest, res: Resp
 
     const { supabaseAdmin } = require('../config/db');
     const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-      .from('applications_docs')
+      .from('riqs-membership')
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false
@@ -217,16 +217,12 @@ export async function uploadStudentDocument(req: AuthenticatedRequest, res: Resp
 
     if (uploadError) throw new Error(uploadError.message);
 
-    const { data: publicUrlData } = supabaseAdmin.storage
-      .from('applications_docs')
-      .getPublicUrl(filePath);
-
     const doc = await prisma.uploadedDocument.create({
       data: {
         applicationId: id,
         documentType,
         fileName: file.originalname,
-        fileUrl: publicUrlData.publicUrl,
+        fileUrl: filePath,
         fileSizeBytes: file.size || 0,
       }
     });
