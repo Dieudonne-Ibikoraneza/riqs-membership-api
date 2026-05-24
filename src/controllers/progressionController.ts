@@ -84,7 +84,7 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
       newClass = 'Technologist';
-      if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Fellow';
+      if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Professional';
     }
 
     const transactions: any[] = [

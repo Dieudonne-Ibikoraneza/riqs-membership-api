@@ -31,6 +31,12 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             uploadedAt: true
           }
         },
+        statusHistory: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          where: { newStatus: 'Correction_Required' },
+          select: { reviewerNotes: true }
+        },
         member: {
           select: {
             fullName: true,
@@ -79,12 +85,14 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       processing_fee: app.category.processingFee,
       first_year_fee: app.category.firstYearFee,
       annual_renewal_fee: app.category.annualRenewalFee,
+      reviewerNotes: app.status === 'Correction_Required' && app.statusHistory?.length > 0 ? app.statusHistory[0].reviewerNotes : null,
       category: undefined,
       educationRecords: undefined,
       employmentRecords: undefined,
       firmShareholders: undefined,
       mentorshipAssignment: undefined,
       uploadedDocuments: undefined,
+      statusHistory: undefined,
       member: undefined
     };
 
@@ -134,7 +142,9 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     residencyAddress,
     workAddress,
     yearsInProfession,
-    countryOfOrigin
+    countryOfOrigin,
+    firmName,
+    firmAddress
   } = req.body;
 
   if (!practiceLocation || !entityType || !categoryId) {
@@ -184,6 +194,8 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
             practiceLocation: practiceLocation as PracticeLocation,
             entityType: entityType as EntityType,
             categoryId,
+            firmName,
+            firmAddress,
             updatedAt: new Date()
           }
         })
@@ -217,6 +229,8 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         practiceLocation: practiceLocation as PracticeLocation,
         entityType: entityType as EntityType,
         categoryId,
+        firmName,
+        firmAddress,
         status: 'Draft'
       }
     });
@@ -250,9 +264,9 @@ export async function upsertShareholders(req: AuthenticatedRequest, res: Respons
   }
 
   const roundedSum = Math.round(totalShares * 100) / 100;
-  if (roundedSum !== 100.00) {
+  if (roundedSum < 99.9 || roundedSum > 100.1) {
     return res.status(400).json({
-      error: `Compliance Validation Violation: Total firm shareholding must sum to exactly 100.00%. Sum currently calculated: ${roundedSum}%`
+      error: `Compliance Validation Violation: Total firm shareholding must sum to around 100%. Sum currently calculated: ${roundedSum}%`
     });
   }
 

@@ -6,7 +6,7 @@ import {
   handleReviewerAction, handleApproverDecision,
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
-  getAuditLogs, updateSystemCategory
+  getAuditLogs, updateSystemCategory, getMembersRegistry
 } from '../controllers/adminController';
 
 const router = Router();
@@ -43,7 +43,18 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer']), getReviewQueue);
+router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getReviewQueue);
+
+/**
+ * @openapi
+ * /api/v1/admin/members:
+ *   get:
+ *     summary: Paginated Members Registry (Admin/Reviewer/Approver only)
+ *     description: Returns a paginated, filterable directory of all approved members.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.get('/members', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMembersRegistry);
 
 /**
  * @openapi
@@ -69,7 +80,7 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer']), getReview
  *       500:
  *         description: Internal server error
  */
-router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer']), getApplicationDetail);
+router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getApplicationDetail);
 
 /**
  * @openapi
@@ -110,7 +121,7 @@ router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer'])
  *       500:
  *         description: Internal server error
  */
-router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handleReviewDecision);
+router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), handleReviewDecision);
 
 /**
  * @openapi
@@ -144,7 +155,7 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer']), handl
  *       500:
  *         description: Internal server error
  */
-router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer']), assignReviewer);
+router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), assignReviewer);
 
 /**
  * @openapi
@@ -167,7 +178,7 @@ router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer'])
  *       500:
  *         description: Internal server error
  */
-router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'reviewer']), getStatusHistory);
+router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getStatusHistory);
 
 /**
  * @openapi
@@ -190,7 +201,7 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
  *       500:
  *         description: Internal server error
  */
-router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer']), getDocumentVersions);
+router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getDocumentVersions);
 
 /**
  * @openapi

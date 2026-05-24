@@ -28,21 +28,38 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    const userRole = req.user?.role?.toLowerCase() || '';
+    const isApprover = userRole === 'approver';
+
     // 2. Process View mode (Tabs)
     if (view === 'queue') {
-      if (!status) whereClause.status = 'Pending';
-      whereClause.assignedReviewerId = null;
-    } else if (view === 'assigned') {
-      if (!status) {
-        whereClause.status = { in: ['Under_Review', 'Correction_Required'] };
+      if (isApprover) {
+        if (!status) whereClause.status = 'Pending_Approval';
+      } else {
+        if (!status) whereClause.status = 'Pending';
+        whereClause.assignedReviewerId = null;
       }
-      whereClause.assignedReviewerId = req.user?.id;
+    } else if (view === 'assigned') {
+      if (isApprover) {
+        whereClause.assignedReviewerId = '00000000-0000-0000-0000-000000000000';
+      } else {
+        if (!status) {
+          whereClause.status = { in: ['Pending', 'Under_Review', 'Correction_Required'] };
+        }
+        whereClause.assignedReviewerId = req.user?.id;
+      }
     } else if (view === 'all') {
-      // No extra constraints
+      if (isApprover && !status) {
+        whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected'] };
+      }
     } else {
       // Default fallback if view not provided (for backward compatibility)
-      if (!status) whereClause.status = 'Pending';
-      whereClause.assignedReviewerId = null;
+      if (isApprover) {
+        if (!status) whereClause.status = 'Pending_Approval';
+      } else {
+        if (!status) whereClause.status = 'Pending';
+        whereClause.assignedReviewerId = null;
+      }
     }
 
     const [queue, total] = await Promise.all([
@@ -54,7 +71,11 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
         include: {
           member: { select: { fullName: true, email: true } },
           category: { select: { categoryName: true, location: true } },
-          assignedReviewer: { select: { fullName: true } }
+          assignedReviewer: { select: { fullName: true } },
+          uploadedDocuments: {
+            where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
+            take: 1
+          }
         }
       }),
       prisma.application.count({ where: whereClause })
@@ -69,7 +90,8 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       email: app.member.email,
       category_name: app.category.categoryName,
       location: app.category.location,
-      reviewer: app.assignedReviewer?.fullName || 'Unassigned'
+      reviewer: app.assignedReviewer?.fullName || 'Unassigned',
+      photoId: app.uploadedDocuments?.[0]?.id
     }));
 
     return res.status(200).json({
@@ -363,6 +385,18 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
         }),
         prisma.auditLog.create({
           data: { memberId: app.memberId, actionByEmail: req.user.email, actionType: 'APPROVE', details: `Final approval. Membership ID: ${generatedMembershipId}` }
+        }),
+        prisma.financialTransaction.create({
+          data: {
+            memberId: app.memberId,
+            applicationId: applicationId,
+            amount: app.category.firstYearFee,
+            currency: (app.category.currency || 'RWF') as string,
+            txType: 'First_Year_Fee',
+            paymentMethod: 'Bank_Transfer', // Default placeholder
+            transactionReference: `INV-${generatedMembershipId}-${currentYear}`,
+            status: 'Unpaid'
+          }
         })
       ]);
 
@@ -603,5 +637,109 @@ export async function updateSystemCategory(req: AuthenticatedRequest, res: Respo
   } catch (error: any) {
     console.error('[Update System Category] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error updating category parameters.' });
+  }
+}
+
+export async function getMembersRegistry(req: AuthenticatedRequest, res: Response) {
+  const { q, status, category, location, sortKey = 'name', sortDir = 'asc', page = 1, limit = 10 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+  const take = Number(limit);
+
+  try {
+    const whereClause: any = {
+      membershipId: { not: null }
+    };
+
+    if (q) {
+      const qs = String(q);
+      whereClause.OR = [
+        { fullName: { contains: qs, mode: 'insensitive' } },
+        { email: { contains: qs, mode: 'insensitive' } },
+        { membershipId: { contains: qs, mode: 'insensitive' } },
+      ];
+    }
+
+    const appFilter: any = { status: 'Approved' };
+    let hasAppFilter = false;
+
+    if (category && category !== 'all') {
+      appFilter.category = { categoryName: String(category) };
+      hasAppFilter = true;
+    }
+    if (location && location !== 'all') {
+      appFilter.practiceLocation = String(location);
+      hasAppFilter = true;
+    }
+
+    if (hasAppFilter) {
+      whereClause.applications = {
+        some: appFilter
+      };
+    }
+
+    // Status filter mock handling
+    if (status && status !== 'all') {
+      if (String(status).toLowerCase() !== 'active') {
+        return res.status(200).json({
+          members: [],
+          pagination: { total: 0, page: Number(page), limit: take }
+        });
+      }
+    }
+
+    let orderBy: any = {};
+    const dir = String(sortDir).toLowerCase() === 'desc' ? 'desc' : 'asc';
+    
+    if (sortKey === 'name') orderBy.fullName = dir;
+    else if (sortKey === 'id') orderBy.membershipId = dir;
+    else orderBy.createdAt = dir; // default/fallback
+
+    const [members, total] = await Promise.all([
+      prisma.member.findMany({
+        where: whereClause,
+        skip,
+        take,
+        orderBy,
+        include: {
+          applications: {
+            where: { status: 'Approved' },
+            orderBy: { approvedAt: 'desc' },
+            take: 1,
+            include: { 
+              category: true,
+              uploadedDocuments: {
+                where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
+                take: 1
+              }
+            }
+          }
+        }
+      }),
+      prisma.member.count({ where: whereClause })
+    ]);
+
+    const mapped = members.map(m => {
+      const app = m.applications[0];
+      return {
+        id: m.id,
+        fullName: m.fullName,
+        email: m.email,
+        membershipId: m.membershipId,
+        category: app?.category?.categoryName || m.membershipClass || 'N/A',
+        practiceLocation: app?.practiceLocation || 'Local',
+        country: m.countryOfOrigin,
+        status: 'Active',
+        expiresAt: '2026-12-31', // Placeholder for UI
+        photoId: app?.uploadedDocuments?.[0]?.id
+      };
+    });
+
+    return res.status(200).json({
+      members: mapped,
+      pagination: { total, page: Number(page), limit: take }
+    });
+  } catch (error: any) {
+    console.error('[Get Members Registry Error]:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching members registry.' });
   }
 }

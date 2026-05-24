@@ -45,7 +45,6 @@ export async function register(req: Request, res: Response) {
         gender: gender || null,
         nationality: nationality || 'Rwandan',
         residencyAddress: residencyAddress || null,
-        membershipClass: 'Graduate',
         isEmailVerified: false,
         otpCode,
         otpExpiresAt

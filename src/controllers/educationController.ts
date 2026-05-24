@@ -19,7 +19,7 @@ export async function addEducationRecord(req: AuthenticatedRequest, res: Respons
     });
 
     if (!app) return res.status(404).json({ error: 'Application not found.' });
-    if (app.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied. Not your application.' });
+    if (app.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied. Not your application.' });
 
     const newEducation = await prisma.educationRecord.create({
       data: {
@@ -79,7 +79,7 @@ export async function deleteEducationRecord(req: AuthenticatedRequest, res: Resp
     });
 
     if (!record) return res.status(404).json({ error: 'Education record not found.' });
-    if (record.application.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (record.application.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
     if (record.application.status === 'Approved') {
       return res.status(400).json({ error: 'Cannot delete education records post-approval. You may only add new qualifications.' });
     }
@@ -105,7 +105,7 @@ export async function updateEducationRecord(req: AuthenticatedRequest, res: Resp
     });
 
     if (!record) return res.status(404).json({ error: 'Education record not found.' });
-    if (record.application.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (record.application.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
     if (record.application.status === 'Approved') {
       return res.status(400).json({ error: 'Cannot edit education records post-approval. You may only add new qualifications.' });
     }
@@ -141,7 +141,7 @@ export async function upsertStudentAssociation(req: AuthenticatedRequest, res: R
   try {
     const app = await prisma.application.findUnique({ where: { id: applicationId } });
     if (!app) return res.status(404).json({ error: 'Application not found.' });
-    if (app.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (app.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
 
     const newRecord = await prisma.studentAssociationRecord.upsert({
       where: { applicationId },
@@ -187,7 +187,7 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
   try {
     const app = await prisma.application.findUnique({ where: { id: applicationId } });
     if (!app) return res.status(404).json({ error: 'Application not found.' });
-    if (app.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (app.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
 
     let filledOptions: any[] = [];
 
@@ -259,7 +259,7 @@ export async function deleteMentorshipOption(req: AuthenticatedRequest, res: Res
     });
 
     if (!mentorship) return res.status(404).json({ error: 'Mentorship assignment not found.' });
-    if (mentorship.application.memberId !== req.user.id) return res.status(403).json({ error: 'Access Denied.' });
+    if (mentorship.application.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
 
     let options = (mentorship.preferredMentors as any[]) || [];
     options = options.filter(opt => opt.regNumber !== regNumber);

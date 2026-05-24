@@ -29,15 +29,15 @@ enum ApplicationStatus {
 }
 
 enum MemberClass {
-  Student
   Graduate
   Technologist
-  Associate
-  Visiting
   Professional
-  Fellow
-  Life
-  Honorary
+  Firm_Local_Small
+  Firm_Local_Medium
+  Firm_Local_Large
+  Firm_Foreign_Small
+  Firm_Foreign_Medium
+  Firm_Foreign_Large
 }
 
 enum SystemRole {
@@ -74,6 +74,7 @@ enum PaymentMethod {
 }
 
 enum TransactionStatus {
+  Unpaid
   Pending_Verification
   Cleared
   Failed
@@ -113,7 +114,7 @@ model Member {
   yearsInProfession     Int?         @default(0) @map("years_in_profession")
   countryOfOrigin       String?      @map("country_of_origin") @db.VarChar(100)
   membershipId          String?      @unique @map("membership_id") @db.VarChar(100)
-  membershipClass       MemberClass? @default(Graduate) @map("membership_class")
+  membershipClass       MemberClass? @map("membership_class")
   systemRole            SystemRole?  @default(Standard) @map("system_role")
   trainingTrackingNumber String?     @unique @map("training_tracking_number") @db.VarChar(100)
   isEmailVerified       Boolean?     @default(false) @map("is_email_verified")
@@ -139,6 +140,8 @@ model Application {
   practiceLocation      PracticeLocation      @map("practice_location")
   entityType            EntityType            @map("entity_type")
   categoryId            String                @map("category_id") @db.Uuid
+  firmName              String?               @map("firm_name") @db.VarChar(255)
+  firmAddress           String?               @map("firm_address") @db.VarChar(255)
   status                ApplicationStatus?    @default(Draft)
   assignedReviewerId    String?               @map("assigned_reviewer_id") @db.Uuid
   submittedAt           DateTime?             @map("submitted_at") @db.Timestamptz

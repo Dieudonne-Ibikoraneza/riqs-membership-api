@@ -58,10 +58,15 @@ export function formatForDb(certificateId: string): string {
  * NOT their system role (which controls what actions they can perform).
  */
 export function deriveMemberClass(categoryCode: string): MemberClass {
-  if (['PQS', 'FPQS'].includes(categoryCode))       return MemberClass.Fellow;
+  if (['PQS', 'FPQS'].includes(categoryCode))       return MemberClass.Professional;
   if (['QST', 'FQST'].includes(categoryCode))       return MemberClass.Technologist;
   if (['GQS', 'GQST'].includes(categoryCode))       return MemberClass.Graduate;
-  if (categoryCode.startsWith('LF') || categoryCode.startsWith('FF')) return MemberClass.Professional;
+  if (categoryCode === 'LF-SM') return MemberClass.Firm_Local_Small;
+  if (categoryCode === 'LF-MD') return MemberClass.Firm_Local_Medium;
+  if (categoryCode === 'LF-LG') return MemberClass.Firm_Local_Large;
+  if (categoryCode === 'FF-SM') return MemberClass.Firm_Foreign_Small;
+  if (categoryCode === 'FF-MD') return MemberClass.Firm_Foreign_Medium;
+  if (categoryCode === 'FF-LG') return MemberClass.Firm_Foreign_Large;
   return MemberClass.Graduate; // safe default
 }
 

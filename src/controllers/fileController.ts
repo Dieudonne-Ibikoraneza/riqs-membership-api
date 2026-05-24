@@ -43,7 +43,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isAssignedMentor;
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || req.user.role.toLowerCase() === 'teacher' || isAssignedMentor;
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You are not authorized to upload files for this profile.' });
     }
@@ -69,7 +69,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     const nextVersion = count + 1;
 
     // D. Write to database using an atomic transaction
-    const [_, docRes, __] = await prisma.$transaction([
+    const transactionOperations: any[] = [
       prisma.uploadedDocument.deleteMany({
         where: { applicationId, documentType }
       }),
@@ -93,7 +93,42 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
           uploadedByEmail: req.user.email
         }
       })
-    ]);
+    ];
+
+    if (documentType === 'payment') {
+      const appWithCat = await prisma.application.findUnique({
+        where: { id: applicationId },
+        include: { category: true }
+      });
+      
+      if (appWithCat && appWithCat.category) {
+        const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
+        
+        transactionOperations.push(
+          prisma.financialTransaction.deleteMany({
+            where: { applicationId, txType: 'Processing_Fee', status: 'Pending_Verification' }
+          })
+        );
+        
+        transactionOperations.push(
+          prisma.financialTransaction.create({
+            data: {
+              memberId: appWithCat.memberId,
+              applicationId: applicationId,
+              amount: appWithCat.category.processingFee,
+              currency: (appWithCat.category.currency || 'RWF') as string,
+              txType: 'Processing_Fee',
+              paymentMethod: 'MTN_Momo',
+              transactionReference: reference,
+              status: 'Pending_Verification',
+              receiptUrl: filePath
+            }
+          })
+        );
+      }
+    }
+
+    const [_, docRes] = await prisma.$transaction(transactionOperations);
       
     return res.status(200).json({
       message: 'Document successfully processed and locked in private storage.',
@@ -141,7 +176,7 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || ['admin', 'reviewer'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
+    const isAuthorized = isOwner || ['admin', 'reviewer', 'approver'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
@@ -209,7 +244,7 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
       }
     }
 
-    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isAssignedMentor;
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || req.user.role.toLowerCase() === 'teacher' || isAssignedMentor;
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied.' });
     }
