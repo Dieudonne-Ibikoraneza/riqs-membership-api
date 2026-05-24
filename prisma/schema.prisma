@@ -55,7 +55,7 @@ enum ApcStatus {
   Attended
   Passed
   Failed
-  No_Show @map("No Show")
+  No_Show   @map("No Show")
 }
 
 enum TransactionType {
@@ -82,76 +82,76 @@ enum TransactionStatus {
 }
 
 model MembershipCategory {
-  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  location           PracticeLocation
-  entityType         EntityType       @map("entity_type")
-  categoryName       String           @unique @map("category_name") @db.VarChar(100)
-  categoryCode       String           @map("category_code") @db.VarChar(10)
-  processingFee      Decimal          @map("processing_fee") @db.Decimal(12, 2)
-  currency           String?          @default("RWF") @db.VarChar(3)
-  firstYearFee       Decimal          @map("first_year_fee") @db.Decimal(12, 2)
-  annualRenewalFee   Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
-  stampFee           Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
-  requiredDocuments  String[]         @default([]) @map("required_documents")
-  
-  applications       Application[]
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  location          PracticeLocation
+  entityType        EntityType       @map("entity_type")
+  categoryName      String           @unique @map("category_name") @db.VarChar(100)
+  categoryCode      String           @map("category_code") @db.VarChar(10)
+  processingFee     Decimal          @map("processing_fee") @db.Decimal(12, 2)
+  currency          String?          @default("RWF") @db.VarChar(3)
+  firstYearFee      Decimal          @map("first_year_fee") @db.Decimal(12, 2)
+  annualRenewalFee  Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
+  stampFee          Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
+  requiredDocuments String[]         @default([]) @map("required_documents")
+
+  applications Application[]
 
   @@map("membership_categories")
 }
 
 model Member {
-  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                 String       @unique @db.VarChar(255)
-  passwordHash          String       @map("password_hash") @db.VarChar(255)
-  fullName              String       @map("full_name") @db.VarChar(255)
-  phoneNumber           String?      @map("phone_number") @db.VarChar(50)
-  dateOfBirth           DateTime?    @map("date_of_birth") @db.Date
-  gender                String?      @db.VarChar(20)
-  nationality           String?      @db.VarChar(100)
-  nationalIdOrPassport  String?      @map("national_id_or_passport") @db.VarChar(100)
-  residencyAddress      Json?        @map("residency_address")
-  workAddress           Json?        @map("work_address")
-  yearsInProfession     Int?         @default(0) @map("years_in_profession")
-  countryOfOrigin       String?      @map("country_of_origin") @db.VarChar(100)
-  membershipId          String?      @unique @map("membership_id") @db.VarChar(100)
-  membershipClass       MemberClass? @map("membership_class")
-  systemRole            SystemRole?  @default(Standard) @map("system_role")
-  trainingTrackingNumber String?     @unique @map("training_tracking_number") @db.VarChar(100)
-  isEmailVerified       Boolean?     @default(false) @map("is_email_verified")
-  otpCode              String?          @map("otp_code") @db.VarChar(6)
-  otpExpiresAt         DateTime?        @map("otp_expires_at") @db.Timestamptz
-  resetPasswordOtp     String?          @map("reset_password_otp") @db.VarChar(6)
-  resetPasswordExpires DateTime?        @map("reset_password_expires") @db.Timestamptz
-  createdAt            DateTime?        @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime?    @default(now()) @map("updated_at") @db.Timestamptz
+  id                     String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                  String       @unique @db.VarChar(255)
+  passwordHash           String       @map("password_hash") @db.VarChar(255)
+  fullName               String       @map("full_name") @db.VarChar(255)
+  phoneNumber            String?      @map("phone_number") @db.VarChar(50)
+  dateOfBirth            DateTime?    @map("date_of_birth") @db.Date
+  gender                 String?      @db.VarChar(20)
+  nationality            String?      @db.VarChar(100)
+  nationalIdOrPassport   String?      @map("national_id_or_passport") @db.VarChar(100)
+  residencyAddress       Json?        @map("residency_address")
+  workAddress            Json?        @map("work_address")
+  yearsInProfession      Int?         @default(0) @map("years_in_profession")
+  countryOfOrigin        String?      @map("country_of_origin") @db.VarChar(100)
+  membershipId           String?      @unique @map("membership_id") @db.VarChar(100)
+  membershipClass        MemberClass? @map("membership_class")
+  systemRole             SystemRole?  @default(Standard) @map("system_role")
+  trainingTrackingNumber String?      @unique @map("training_tracking_number") @db.VarChar(100)
+  isEmailVerified        Boolean?     @default(false) @map("is_email_verified")
+  otpCode                String?      @map("otp_code") @db.VarChar(6)
+  otpExpiresAt           DateTime?    @map("otp_expires_at") @db.Timestamptz
+  resetPasswordOtp       String?      @map("reset_password_otp") @db.VarChar(6)
+  resetPasswordExpires   DateTime?    @map("reset_password_expires") @db.Timestamptz
+  createdAt              DateTime?    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime?    @default(now()) @map("updated_at") @db.Timestamptz
 
   applications          Application[]
   apcAssessments        ApcAssessment[]
   financialTransactions FinancialTransaction[]
   auditLogs             AuditLog[]
-  reviewedApplications  Application[] @relation("ReviewerAssignments")
+  reviewedApplications  Application[]          @relation("ReviewerAssignments")
 
   @@map("members")
 }
 
 model Application {
-  id                    String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId              String                @map("member_id") @db.Uuid
-  practiceLocation      PracticeLocation      @map("practice_location")
-  entityType            EntityType            @map("entity_type")
-  categoryId            String                @map("category_id") @db.Uuid
-  firmName              String?               @map("firm_name") @db.VarChar(255)
-  firmAddress           String?               @map("firm_address") @db.VarChar(255)
-  status                ApplicationStatus?    @default(Draft)
-  assignedReviewerId    String?               @map("assigned_reviewer_id") @db.Uuid
-  submittedAt           DateTime?             @map("submitted_at") @db.Timestamptz
-  approvedAt            DateTime?             @map("approved_at") @db.Timestamptz
-  createdAt             DateTime?             @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime?             @default(now()) @map("updated_at") @db.Timestamptz
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId           String             @map("member_id") @db.Uuid
+  practiceLocation   PracticeLocation   @map("practice_location")
+  entityType         EntityType         @map("entity_type")
+  categoryId         String             @map("category_id") @db.Uuid
+  firmName           String?            @map("firm_name") @db.VarChar(255)
+  firmAddress        String?            @map("firm_address") @db.VarChar(255)
+  status             ApplicationStatus? @default(Draft)
+  assignedReviewerId String?            @map("assigned_reviewer_id") @db.Uuid
+  submittedAt        DateTime?          @map("submitted_at") @db.Timestamptz
+  approvedAt         DateTime?          @map("approved_at") @db.Timestamptz
+  createdAt          DateTime?          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime?          @default(now()) @map("updated_at") @db.Timestamptz
 
-  member                Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  category              MembershipCategory    @relation(fields: [categoryId], references: [id])
-  assignedReviewer      Member?               @relation("ReviewerAssignments", fields: [assignedReviewerId], references: [id])
+  member                Member                     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  category              MembershipCategory         @relation(fields: [categoryId], references: [id])
+  assignedReviewer      Member?                    @relation("ReviewerAssignments", fields: [assignedReviewerId], references: [id])
   educationRecords      EducationRecord[]
   employmentRecords     EmploymentRecord[]
   studentAssociation    StudentAssociationRecord?
@@ -167,149 +167,149 @@ model Application {
 }
 
 model EducationRecord {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId     String      @map("application_id") @db.Uuid
-  institution       String      @db.VarChar(255)
-  qualificationType String      @map("qualification_type") @db.VarChar(100)
-  fieldOfStudy      String      @map("field_of_study") @db.VarChar(255)
-  startDate         DateTime    @map("start_date") @db.Date
-  endDate           DateTime    @map("end_date") @db.Date
-  createdAt         DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId     String    @map("application_id") @db.Uuid
+  institution       String    @db.VarChar(255)
+  qualificationType String    @map("qualification_type") @db.VarChar(100)
+  fieldOfStudy      String    @map("field_of_study") @db.VarChar(255)
+  startDate         DateTime  @map("start_date") @db.Date
+  endDate           DateTime  @map("end_date") @db.Date
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("education_records")
 }
 
 model EmploymentRecord {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId   String      @map("application_id") @db.Uuid
-  companyName     String      @map("company_name") @db.VarChar(255)
-  jobTitle        String      @map("job_title") @db.VarChar(100)
-  startDate       DateTime    @map("start_date") @db.Date
-  endDate         DateTime?   @map("end_date") @db.Date
-  isCurrent       Boolean     @default(false) @map("is_current")
-  createdAt       DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  companyName   String    @map("company_name") @db.VarChar(255)
+  jobTitle      String    @map("job_title") @db.VarChar(100)
+  startDate     DateTime  @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+  isCurrent     Boolean   @default(false) @map("is_current")
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("employment_records")
 }
 
 model StudentAssociationRecord {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId     String      @unique @map("application_id") @db.Uuid
-  associationName   String      @map("association_name") @db.VarChar(255)
-  membershipNumber  String      @map("membership_number") @db.VarChar(100)
-  registrationDate  DateTime    @map("registration_date") @db.Date
-  activeYears       Int         @map("active_years")
-  createdAt         DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId    String    @unique @map("application_id") @db.Uuid
+  associationName  String    @map("association_name") @db.VarChar(255)
+  membershipNumber String    @map("membership_number") @db.VarChar(100)
+  registrationDate DateTime  @map("registration_date") @db.Date
+  activeYears      Int       @map("active_years")
+  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("student_association_records")
 }
 
 model MentorshipAssignment {
-  id                              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId                   String      @unique @map("application_id") @db.Uuid
-  mentorName                      String?     @map("mentor_name") @db.VarChar(255)
-  mentorQualification             String?     @map("mentor_qualification") @db.VarChar(100)
-  mentorClass                     String?     @map("mentor_class") @db.VarChar(100)
-  mentorRegistrationNumber        String?     @map("mentor_registration_number") @db.VarChar(100)
-  mentorEmployer                  String?     @map("mentor_employer") @db.VarChar(255)
-  mentorContact                   String?     @map("mentor_contact") @db.VarChar(255)
-  isSelfAssigned                  Boolean?    @default(true) @map("is_self_assigned")
-  requestedInstitutionalAssignment Boolean?    @default(false) @map("requested_institutional_assignment")
-  preferredMentors                Json?       @map("preferred_mentors")
-  mentorshipPlan                  String?     @map("mentorship_plan")
-  preferredPracticeAreas          String[]    @map("preferred_practice_areas")
-  completedDurationMonths         Int?        @default(0) @map("completed_duration_months")
-  createdAt                       DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+  id                               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId                    String    @unique @map("application_id") @db.Uuid
+  mentorName                       String?   @map("mentor_name") @db.VarChar(255)
+  mentorQualification              String?   @map("mentor_qualification") @db.VarChar(100)
+  mentorClass                      String?   @map("mentor_class") @db.VarChar(100)
+  mentorRegistrationNumber         String?   @map("mentor_registration_number") @db.VarChar(100)
+  mentorEmployer                   String?   @map("mentor_employer") @db.VarChar(255)
+  mentorContact                    String?   @map("mentor_contact") @db.VarChar(255)
+  isSelfAssigned                   Boolean?  @default(true) @map("is_self_assigned")
+  requestedInstitutionalAssignment Boolean?  @default(false) @map("requested_institutional_assignment")
+  preferredMentors                 Json?     @map("preferred_mentors")
+  mentorshipPlan                   String?   @map("mentorship_plan")
+  preferredPracticeAreas           String[]  @map("preferred_practice_areas")
+  completedDurationMonths          Int?      @default(0) @map("completed_duration_months")
+  createdAt                        DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application                     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("mentorship_assignments")
 }
 
 model FirmShareholder {
-  id                     String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId          String      @map("application_id") @db.Uuid
-  fullName               String      @map("full_name") @db.VarChar(255)
-  email                  String      @db.VarChar(255)
-  phoneNumber            String      @map("phone_number") @db.VarChar(50)
-  citizenship            String?     @default("Rwandan") @db.VarChar(100)
-  shareholdingPercentage Decimal     @map("shareholding_percentage") @db.Decimal(5, 2)
-  riqsMembershipId       String?     @map("riqs_membership_id") @db.VarChar(100)
-  createdAt              DateTime?   @default(now()) @map("created_at") @db.Timestamptz
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId          String    @map("application_id") @db.Uuid
+  fullName               String    @map("full_name") @db.VarChar(255)
+  email                  String    @db.VarChar(255)
+  phoneNumber            String    @map("phone_number") @db.VarChar(50)
+  citizenship            String?   @default("Rwandan") @db.VarChar(100)
+  shareholdingPercentage Decimal   @map("shareholding_percentage") @db.Decimal(5, 2)
+  riqsMembershipId       String?   @map("riqs_membership_id") @db.VarChar(100)
+  createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application            Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("firm_shareholders")
 }
 
 model UploadedDocument {
-  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId  String      @map("application_id") @db.Uuid
-  documentType   String      @map("document_type") @db.VarChar(100)
-  fileName       String      @map("file_name") @db.VarChar(255)
-  fileUrl        String      @map("file_url")
-  fileSizeBytes  Int         @map("file_size_bytes")
-  uploadedAt     DateTime?   @default(now()) @map("uploaded_at") @db.Timestamptz
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  documentType  String    @map("document_type") @db.VarChar(100)
+  fileName      String    @map("file_name") @db.VarChar(255)
+  fileUrl       String    @map("file_url")
+  fileSizeBytes Int       @map("file_size_bytes")
+  uploadedAt    DateTime? @default(now()) @map("uploaded_at") @db.Timestamptz
 
-  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("uploaded_documents")
 }
 
 model DocumentVersion {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId   String      @map("application_id") @db.Uuid
-  documentType    String      @map("document_type") @db.VarChar(100)
-  fileName        String      @map("file_name") @db.VarChar(255)
-  fileUrl         String      @map("file_url")
-  fileSizeBytes   Int         @map("file_size_bytes")
-  versionNumber   Int         @default(1) @map("version_number")
-  uploadedByEmail String      @map("uploaded_by_email") @db.VarChar(255)
-  uploadedAt      DateTime?   @default(now()) @map("uploaded_at") @db.Timestamptz
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId   String    @map("application_id") @db.Uuid
+  documentType    String    @map("document_type") @db.VarChar(100)
+  fileName        String    @map("file_name") @db.VarChar(255)
+  fileUrl         String    @map("file_url")
+  fileSizeBytes   Int       @map("file_size_bytes")
+  versionNumber   Int       @default(1) @map("version_number")
+  uploadedByEmail String    @map("uploaded_by_email") @db.VarChar(255)
+  uploadedAt      DateTime? @default(now()) @map("uploaded_at") @db.Timestamptz
 
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("document_versions")
 }
 
 model ApcAssessment {
-  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId        String      @map("member_id") @db.Uuid
-  applicationId   String      @map("application_id") @db.Uuid
-  assessmentDate  DateTime    @map("assessment_date") @db.Date
-  panelChairName  String      @map("panel_chair_name") @db.VarChar(255)
-  examiner1Name   String      @map("examiner_1_name") @db.VarChar(255)
-  examiner2Name   String      @map("examiner_2_name") @db.VarChar(255)
-  status          ApcStatus?  @default(Scheduled)
-  scorePercentage Decimal?    @map("score_percentage") @db.Decimal(5, 2)
-  assessmentNotes String?     @map("assessment_notes")
-  stampFeePaid    Boolean?    @default(false) @map("stamp_fee_paid")
-  licenseIssued   Boolean?    @default(false) @map("license_issued")
-  createdAt       DateTime?   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime?   @default(now()) @map("updated_at") @db.Timestamptz
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId        String     @map("member_id") @db.Uuid
+  applicationId   String     @map("application_id") @db.Uuid
+  assessmentDate  DateTime   @map("assessment_date") @db.Date
+  panelChairName  String     @map("panel_chair_name") @db.VarChar(255)
+  examiner1Name   String     @map("examiner_1_name") @db.VarChar(255)
+  examiner2Name   String     @map("examiner_2_name") @db.VarChar(255)
+  status          ApcStatus? @default(Scheduled)
+  scorePercentage Decimal?   @map("score_percentage") @db.Decimal(5, 2)
+  assessmentNotes String?    @map("assessment_notes")
+  stampFeePaid    Boolean?   @default(false) @map("stamp_fee_paid")
+  licenseIssued   Boolean?   @default(false) @map("license_issued")
+  createdAt       DateTime?  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime?  @default(now()) @map("updated_at") @db.Timestamptz
 
-  member          Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  member      Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("apc_assessments")
 }
 
 model ApplicationStatusHistory {
-  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId   String             @map("application_id") @db.Uuid
-  changedByEmail  String             @map("changed_by_email") @db.VarChar(255)
-  oldStatus       ApplicationStatus? @map("old_status")
-  newStatus       ApplicationStatus  @map("new_status")
-  reviewerNotes   String?            @map("reviewer_notes")
-  createdAt       DateTime?          @default(now()) @map("created_at") @db.Timestamptz
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId  String             @map("application_id") @db.Uuid
+  changedByEmail String             @map("changed_by_email") @db.VarChar(255)
+  oldStatus      ApplicationStatus? @map("old_status")
+  newStatus      ApplicationStatus  @map("new_status")
+  reviewerNotes  String?            @map("reviewer_notes")
+  createdAt      DateTime?          @default(now()) @map("created_at") @db.Timestamptz
 
-  application     Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("application_status_history")
 }
@@ -331,8 +331,8 @@ model FinancialTransaction {
   clearedAt            DateTime?          @map("cleared_at") @db.Timestamptz
   createdAt            DateTime?          @default(now()) @map("created_at") @db.Timestamptz
 
-  member               Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  application          Application?       @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  member      Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
 
   @@map("financial_transactions")
 }
@@ -345,7 +345,7 @@ model AuditLog {
   details       String?
   createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  member        Member?   @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@map("audit_logs")
 }
