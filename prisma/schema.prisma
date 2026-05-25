@@ -349,3 +349,16 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+model EmailTemplate {
+  id          String    @id @db.VarChar(100)
+  name        String    @db.VarChar(255)
+  category    String    @db.VarChar(100)
+  subject     String    @db.VarChar(255)
+  description String?   @db.Text
+  body        String    @db.Text
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("email_templates")
+}

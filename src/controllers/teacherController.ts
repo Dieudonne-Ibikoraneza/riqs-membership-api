@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import bcrypt from 'bcrypt';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { mailTemplates, sendMail } from '../config/mailer';
+import { sendMail } from '../config/mailer';
 
 export async function registerStudent(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
@@ -148,7 +148,7 @@ export async function submitStudentApplication(req: AuthenticatedRequest, res: R
     ]);
 
     try {
-      await sendMail(app.member.email, mailTemplates.welcome(app.member.fullName));
+      await sendMail(app.member.email, "welcome", { name: app.member.fullName });
     } catch (e) {
       console.error('Failed to send confirmation email', e);
     }

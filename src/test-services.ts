@@ -1,5 +1,5 @@
 import { prisma } from './config/db';
-import { sendMail, mailTemplates } from './config/mailer';
+import { sendMail } from './config/mailer';
 
 async function testServices() {
   console.log("=== RIQS Core Services Verification Test ===");
@@ -13,10 +13,7 @@ async function testServices() {
     const testRecipient = 'dieudonneibikoraneza13@gmail.com';
     console.log(`[Test] Dispatching sample rich welcome email to ${testRecipient}...`);
     
-    const emailRes = await sendMail(
-      testRecipient,
-      mailTemplates.welcome('Dieudonne Ibikoraneza', 'RIQS-2026-TEST-0420')
-    );
+    const emailRes = await sendMail(testRecipient, 'welcome', { name: 'Test User' });
     
     console.log("[Test] Nodemailer Dispatch Success! Message ID:", emailRes.messageId);
     console.log("=== ALL CORE SERVICES VERIFIED & ONLINE ===");

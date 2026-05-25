@@ -2,7 +2,7 @@ import { Response, Request } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/db';
-import { mailTemplates, sendMail } from '../config/mailer';
+import { sendMail } from '../config/mailer';
 import { v4 as uuidv4 } from 'uuid';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
@@ -53,7 +53,7 @@ export async function register(req: Request, res: Response) {
 
     // Send OTP verification email
     try {
-      await sendMail(email, mailTemplates.otpVerification(fullName, otpCode));
+      await sendMail(email, "otpVerification", { name: fullName, otpCode });
     } catch (mailErr: any) {
       console.warn('[Auth Controller Register] OTP email failed to send:', mailErr.message);
     }
@@ -107,7 +107,7 @@ export async function verifyOtp(req: Request, res: Response) {
     // Send the welcome email ONLY if this was their first time verifying
     if (wasUnverified) {
       try {
-        await sendMail(email, mailTemplates.welcome(updatedMember.fullName));
+        await sendMail(email, "welcome", { name: updatedMember.fullName });
       } catch (mailErr: any) {
         console.warn('[Auth Controller Verify] Welcome email failed to send:', mailErr.message);
       }
@@ -183,7 +183,7 @@ export async function login(req: Request, res: Response) {
     // Send OTP email
     if (!isTestEmail) {
       try {
-        await sendMail(email, mailTemplates.otpVerification(member.fullName, otp));
+        await sendMail(email, "otpVerification", { name: member.fullName, otpCode: otp });
       } catch (mailErr: any) {
         console.warn('[Auth Controller Login] 2FA OTP email failed to send:', mailErr.message);
         // We do not fail the login if email fails, but in production we probably should.
@@ -221,7 +221,7 @@ export async function forgotPassword(req: Request, res: Response) {
     });
 
     if (!isTestEmail) {
-      await sendMail(email, mailTemplates.passwordReset(member.fullName, otpCode));
+      await sendMail(email, "passwordReset", { name: member.fullName, otpCode });
     }
 
     return res.status(200).json({ message: 'If this email is registered, a reset link will be sent.' });

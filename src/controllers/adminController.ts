@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
-import { sendMail, mailTemplates } from '../config/mailer';
+import { sendMail } from '../config/mailer';
 import { ApplicationStatus } from '@prisma/client';
 import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils';
 
@@ -152,7 +152,7 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
         })
       ]);
 
-      try { await sendMail(app.member.email, mailTemplates.correctionRequired(app.member.fullName, notes)); } catch (e) {}
+      try { await sendMail(app.member.email, "correctionRequired", { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application flagged. Correction instructions sent.' });
 
     } else if (action === 'Reject') {
@@ -174,7 +174,7 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
         })
       ]);
 
-      try { await sendMail(app.member.email, mailTemplates.rejected(app.member.fullName, notes)); } catch (e) {}
+      try { await sendMail(app.member.email, "rejected", { name: app.member.fullName, reason: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application declined. Notification sent.' });
 
     } else if (action === 'Approve') {
@@ -240,7 +240,7 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
         })
       ]);
 
-      try { await sendMail(app.member.email, mailTemplates.approved(app.member.fullName, generatedMembershipId, app.category.categoryName)); } catch (e) {}
+      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, membershipId: generatedMembershipId, category: app.category.categoryName }); } catch (e) {}
       return res.status(200).json({ message: 'Application successfully approved.', membershipId: generatedMembershipId });
     }
 
@@ -301,7 +301,7 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
           data: { applicationId, changedByEmail: req.user.email, oldStatus: 'Under_Review', newStatus: 'Correction_Required', reviewerNotes: notes }
         })
       ]);
-      try { await sendMail(app.member.email, mailTemplates.correctionRequired(app.member.fullName, notes)); } catch (e) {}
+      try { await sendMail(app.member.email, "correctionRequired", { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application returned to applicant for correction.' });
 
     } else if (action === 'ForwardToApprover') {
@@ -400,7 +400,7 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
         })
       ]);
 
-      try { await sendMail(app.member.email, mailTemplates.approved(app.member.fullName, generatedMembershipId, app.category.categoryName)); } catch (e) {}
+      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, membershipId: generatedMembershipId, category: app.category.categoryName }); } catch (e) {}
       return res.status(200).json({ message: 'Application approved. Membership ID issued.', membershipId: generatedMembershipId });
 
     } else if (action === 'Reject') {
@@ -413,7 +413,7 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
         })
       ]);
 
-      try { await sendMail(app.member.email, mailTemplates.rejected(app.member.fullName, notes)); } catch (e) {}
+      try { await sendMail(app.member.email, "rejected", { name: app.member.fullName, reason: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application rejected. Notification sent.' });
     }
 

@@ -1,6 +1,9 @@
 import * as nodemailer from 'nodemailer';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
@@ -34,130 +37,37 @@ transporter.verify((error, success) => {
   }
 });
 
-// 2. Custom Rich HTML Templates matching dynamic status warning levels
-export const mailTemplates = {
-  welcome: (name: string, trackingNumber?: string) => ({
-    subject: "Welcome to RIQS - Digital Membership Account Created",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Rwanda Institute of Quantity Surveyors (RIQS)</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your professional registration portal account has been successfully created on the RIQS Digital Membership Registry.</p>
-        ${trackingNumber ? `
-          <div style="background-color: #f8fafc; padding: 18px; border-left: 4px solid #3b82f6; border-radius: 6px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Your Mentor Structured Training ID:</p>
-            <p style="margin: 8px 0 0 0; font-size: 20px; font-weight: 700; color: #1e3a8a; letter-spacing: 1px;">${trackingNumber}</p>
-          </div>
-        ` : ''}
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please log in to your dashboard to complete your 7-step profile form, upload required notarized documents, and submit your initial processing fee.</p>
-        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-          This is an automated notification from the RIQS Registry Portal. Please do not reply directly to this message.
-        </p>
-      </div>
-    `
-  }),
-
-  otpVerification: (name: string, otpCode: string) => ({
-    subject: "RIQS - Verify your Email Address",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Rwanda Institute of Quantity Surveyors (RIQS)</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please use the verification code below to confirm your email address and complete your registration on the RIQS Digital Membership Registry.</p>
-        <div style="background-color: #f8fafc; padding: 18px; border-left: 4px solid #3b82f6; border-radius: 6px; margin: 20px 0; text-align: center;">
-          <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Your Verification Code:</p>
-          <p style="margin: 8px 0 0 0; font-size: 32px; font-weight: 700; color: #1e3a8a; letter-spacing: 4px;">${otpCode}</p>
-        </div>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">This code is valid for 15 minutes. If you did not request this, please ignore this email.</p>
-        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-          This is an automated notification from the RIQS Registry Portal. Please do not reply directly to this message.
-        </p>
-      </div>
-    `
-  }),
-
-  passwordReset: (name: string, otpCode: string) => ({
-    subject: "RIQS Portal - Password Reset Request",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">RIQS Security</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">We received a request to reset your password for the RIQS Membership Portal. Use the following 6-digit code to complete the reset process. This code will expire in 15 minutes.</p>
-        <div style="text-align: center; margin: 30px 0;">
-          <span style="font-size: 32px; font-weight: 700; color: #1e3a8a; letter-spacing: 8px; background-color: #f8fafc; padding: 15px 30px; border-radius: 8px; border: 1px dashed #cbd5e1;">${otpCode}</span>
-        </div>
-        <p style="font-size: 14px; color: #64748b;">If you did not request a password reset, please ignore this email and your password will remain unchanged.</p>
-      </div>
-    `
-  }),
-
-  correctionRequired: (name: string, reviewerNotes: string) => ({
-    subject: "Action Required: RIQS Application Correction Requested",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #d97706; border-bottom: 2px solid #ea580c; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Action Required: Correction Needed</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">During the administrative review of your RIQS membership application, some discrepancies were identified that require your correction before we can proceed.</p>
-        <div style="background-color: #fffbeb; border-left: 4px solid #d97706; padding: 18px; margin: 20px 0; border-radius: 6px;">
-          <h4 style="margin: 0 0 10px 0; color: #b45309; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Reviewer Action Instructions:</h4>
-          <p style="margin: 0; font-size: 14px; color: #78350f; line-height: 1.6; white-space: pre-line;">${reviewerNotes}</p>
-        </div>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please log in to the RIQS Portal, navigate to your form, correct the flagged details/documents, and re-submit your form for review.</p>
-        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-          Office of the Registrar, Rwanda Institute of Quantity Surveyors (RIQS).
-        </p>
-      </div>
-    `
-  }),
-
-  approved: (name: string, membershipId: string, category: string) => ({
-    subject: "CONGRATULATIONS! Your RIQS Membership is Approved",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #16a34a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Congratulations! Membership Approved</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are pleased to inform you that the board has officially approved your application for admission to the **${category}** category of the Rwanda Institute of Quantity Surveyors (RIQS).</p>
-        <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 18px; margin: 20px 0; border-radius: 6px;">
-          <p style="margin: 0; font-size: 13px; font-weight: 500; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">Your Assigned Professional RIQS ID:</p>
-          <p style="margin: 8px 0 0 0; font-size: 20px; font-weight: 700; color: #14532d; letter-spacing: 1px;">${membershipId}</p>
-        </div>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your portal profile has transitioned to Phase B (Locked Registry Status). You can now log in to generate invoices for your annual subscription fees, download your e-certificate, or manage APC progressions.</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Welcome to the institute!</p>
-        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-          Office of the Board, Rwanda Institute of Quantity Surveyors (RIQS).
-        </p>
-      </div>
-    `
-  }),
-
-  rejected: (name: string, reason: string) => ({
-    subject: "RIQS Registry - Application Decision Notification",
-    html: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-        <h2 style="color: #dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Application Status Update</h2>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>${name}</strong>,</p>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are writing to notify you that after a formal review by the administrative board, your application for RIQS membership has been declined.</p>
-        <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 18px; margin: 20px 0; border-radius: 6px;">
-          <h4 style="margin: 0 0 10px 0; color: #991b1b; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Rejection Rationale:</h4>
-          <p style="margin: 0; font-size: 14px; color: #7f1d1d; line-height: 1.6; white-space: pre-line;">${reason}</p>
-        </div>
-        <p style="font-size: 15px; color: #334155; line-height: 1.6;">If you have any questions or wish to request an appeal, please reach out to the board secretary office directly.</p>
-        <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-          Board of Quantity Surveyors, Rwanda.
-        </p>
-      </div>
-    `
-  })
-};
+/**
+ * Interpolates variables into a template string
+ * e.g., interpolate("Hello {{name}}", { name: "John" }) -> "Hello John"
+ */
+function interpolate(template: string, variables: Record<string, any>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    return variables[key] !== undefined ? String(variables[key]) : match;
+  });
+}
 
 // Mail Send Dispatcher
-export async function sendMail(to: string, template: { subject: string; html: string }) {
+export async function sendMail(to: string, templateId: string, payload: Record<string, any>) {
   try {
+    // Fetch template from database
+    const template = await prisma.emailTemplate.findUnique({
+      where: { id: templateId }
+    });
+
+    if (!template) {
+      throw new Error(`Email template with ID '${templateId}' not found in database.`);
+    }
+
+    // Interpolate variables
+    const subject = interpolate(template.subject, payload);
+    const html = interpolate(template.body, payload);
+
     const info = await transporter.sendMail({
       from: `"RIQS Registry Portal" <${smtpUser}>`,
       to,
-      subject: template.subject,
-      html: template.html
+      subject,
+      html
     });
     console.log(`[SMTP Mailer] Dispatch Success to ${to}. MessageId: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
