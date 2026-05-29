@@ -77,7 +77,7 @@ export async function registerStudent(req: AuthenticatedRequest, res: Response) 
     // Log the action
     await prisma.auditLog.create({
       data: {
-        memberId: req.user.id,
+        memberId: student.id,
         actionByEmail: req.user.email,
         actionType: 'Teacher_Registered_Student',
         details: `Teacher registered student ${fullName} (${email}) and initiated application ${application.id}`

@@ -6,7 +6,8 @@ import {
   handleReviewerAction, handleApproverDecision,
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
-  getAuditLogs, updateSystemCategory, getMembersRegistry
+  getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication,
+  getStaffMembers, createStaffMember, deleteStaffMember
 } from '../controllers/adminController';
 
 const router = Router();
@@ -182,6 +183,29 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
 
 /**
  * @openapi
+ * /api/v1/admin/apc/{applicationId}:
+ *   get:
+ *     summary: Fetch APC Assessment history for an application (Admin only)
+ *     description: Returns all APC assessments scheduled or graded for this application's member.
+ *     tags:
+ *       - Administrative Dashboard
+ *     parameters:
+ *       - in: path
+ *         name: applicationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Successfully fetched APC history
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getApcForApplication);
+
+/**
+ * @openapi
  * /api/v1/admin/document-versions/{applicationId}:
  *   get:
  *     summary: Fetch document upload history for comparisons (Admin/Reviewer only)
@@ -329,5 +353,40 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  *         description: Category parameters updated successfully
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
+
+router.post('/email/send', requireAuth, requireRoles(['admin']), sendAdminEmail);
+
+/**
+ * @openapi
+ * /api/v1/admin/staff:
+ *   get:
+ *     summary: Fetch Admin Staff Registry
+ *     description: Returns a list of all internal staff (Admin, Reviewer, Approver, Teacher).
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.get('/staff', requireAuth, requireRoles(['admin']), getStaffMembers);
+
+/**
+ * @openapi
+ * /api/v1/admin/staff:
+ *   post:
+ *     summary: Create New Admin Staff
+ *     description: Creates a new internal staff member. Auto-generates and returns a temporary password.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.post('/staff', requireAuth, requireRoles(['admin']), createStaffMember);
+
+/**
+ * @openapi
+ * /api/v1/admin/staff/{id}:
+ *   delete:
+ *     summary: Delete Admin Staff
+ *     description: Deletes an internal staff member account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.delete('/staff/:id', requireAuth, requireRoles(['admin']), deleteStaffMember);
 
 export default router;

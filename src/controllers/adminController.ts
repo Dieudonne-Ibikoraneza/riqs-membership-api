@@ -4,6 +4,8 @@ import { prisma } from '../config/db';
 import { sendMail } from '../config/mailer';
 import { ApplicationStatus } from '@prisma/client';
 import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils';
+import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
@@ -598,7 +600,38 @@ export async function getAuditLogs(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// 8. Update System Membership Category Parameters (Admin Only)
+// 8. Get APC Assessment History for a Specific Application (Admin Only)
+export async function getApcForApplication(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId } = req.params;
+
+  try {
+    const assessments = await prisma.apcAssessment.findMany({
+      where: { applicationId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        application: {
+          select: {
+            member: {
+              select: {
+                fullName: true,
+                email: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return res.status(200).json({ assessments });
+  } catch (error: any) {
+    console.error('[Get Admin APC] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching APC progression records.' });
+  }
+}
+
+// 9. Update System Membership Category Parameters (Admin Only)
 export async function updateSystemCategory(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
@@ -726,7 +759,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         email: m.email,
         membershipId: m.membershipId,
         category: app?.category?.categoryName || m.membershipClass || 'N/A',
-        practiceLocation: app?.practiceLocation || 'Local',
+        practiceLocation: app?.practiceLocation || 'Rwandan',
         country: m.countryOfOrigin,
         status: 'Active',
         expiresAt: '2026-12-31', // Placeholder for UI
@@ -741,5 +774,224 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
   } catch (error: any) {
     console.error('[Get Members Registry Error]:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching members registry.' });
+  }
+}
+
+// 9. Send Admin Custom/Bulk Email via SMTP
+export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const userRole = req.user.role.toLowerCase();
+  if (userRole !== 'admin') {
+    return res.status(403).json({ error: 'Access Denied. Only Admins can send broadcast/custom emails.' });
+  }
+
+  const { recipientType, recipientEmail, groupFilter, subject, body } = req.body;
+
+  if (!recipientType || !subject || !body) {
+    return res.status(400).json({ error: 'Missing required fields: recipientType, subject, or body.' });
+  }
+
+  try {
+    const smtpUser = process.env.SMTP_USER;
+    const { transporter } = await import('../config/mailer');
+
+    if (recipientType === 'single') {
+      if (!recipientEmail) {
+        return res.status(400).json({ error: 'Recipient email is required for single mode.' });
+      }
+
+      await transporter.sendMail({
+        from: `"RIQS Registry Portal" <${smtpUser}>`,
+        to: recipientEmail,
+        subject,
+        html: body
+      });
+
+      // Log audit
+      await prisma.auditLog.create({
+        data: {
+          actionByEmail: req.user.email,
+          actionType: 'ADMIN_EMAIL_SEND',
+          details: `Sent custom email to ${recipientEmail} with subject: "${subject}"`
+        }
+      });
+
+      return res.status(200).json({ message: 'Email sent successfully.' });
+
+    } else if (recipientType === 'bulk') {
+      if (!groupFilter) {
+        return res.status(400).json({ error: 'Group filter is required for bulk mode.' });
+      }
+
+      const whereClause: any = {
+        membershipId: { not: null }
+      };
+
+      if (groupFilter === 'active') {
+        // Active members in db (all approved)
+      } else if (groupFilter === 'mentorship') {
+        whereClause.mentorshipAssignment = { some: {} };
+      } else if (groupFilter === 'expired') {
+        whereClause.yearsInProfession = { gt: 10 }; // Simulation for expired
+      }
+
+      const members = await prisma.member.findMany({
+        where: whereClause,
+        select: { email: true, fullName: true }
+      });
+
+      if (members.length === 0) {
+        return res.status(400).json({ error: 'No recipients found matching the filter.' });
+      }
+
+      // Send to all matching members
+      const sendPromises = members.map(member => 
+        transporter.sendMail({
+          from: `"RIQS Registry Portal" <${smtpUser}>`,
+          to: member.email,
+          subject,
+          html: body.replace(/\{\{name\}\}/g, member.fullName)
+        }).catch(err => {
+          console.error(`Failed to send email to ${member.email}:`, err.message);
+        })
+      );
+
+      await Promise.all(sendPromises);
+
+      // Log audit
+      await prisma.auditLog.create({
+        data: {
+          actionByEmail: req.user.email,
+          actionType: 'ADMIN_EMAIL_BULK_SEND',
+          details: `Sent bulk email to ${members.length} members with subject: "${subject}"`
+        }
+      });
+
+      return res.status(200).json({ message: `Bulk email sent successfully to ${members.length} recipients.` });
+    }
+
+    return res.status(400).json({ error: 'Invalid recipientType.' });
+  } catch (error: any) {
+    console.error('[Send Admin Email Error]:', error.message);
+    return res.status(500).json({ error: 'Internal server error while sending email.' });
+  }
+}
+
+// Fetch internal staff members (Admin, Reviewer, Approver, Teacher)
+export async function getStaffMembers(req: AuthenticatedRequest, res: Response) {
+  try {
+    const staff = await prisma.member.findMany({
+      where: {
+        systemRole: {
+          in: ['Admin', 'Reviewer', 'Approver', 'Teacher']
+        }
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        systemRole: true,
+        createdAt: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    return res.status(200).json({ staff });
+  } catch (error: any) {
+    console.error('[Get Staff Members Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while fetching staff members.' });
+  }
+}
+
+// Create a new staff member account
+export async function createStaffMember(req: AuthenticatedRequest, res: Response) {
+  const { fullName, email, systemRole } = req.body;
+  
+  if (!fullName || !email || !systemRole) {
+    return res.status(400).json({ error: 'Missing required fields: fullName, email, systemRole' });
+  }
+
+  const validRoles = ['Admin', 'Reviewer', 'Approver', 'Teacher'];
+  if (!validRoles.includes(systemRole)) {
+    return res.status(400).json({ error: 'Invalid system role provided for staff creation.' });
+  }
+
+  try {
+    const existing = await prisma.member.findUnique({ where: { email } });
+    if (existing) {
+      return res.status(400).json({ error: 'A member with this email already exists.' });
+    }
+
+    // Generate a temporary 8-character password
+    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    let temporaryPassword = '';
+    for (let i = 0; i < 10; i++) {
+      temporaryPassword += charset[Math.floor(Math.random() * charset.length)];
+    }
+
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+    const id = uuidv4();
+
+    const newStaff = await prisma.member.create({
+      data: {
+        id,
+        email,
+        passwordHash,
+        fullName,
+        systemRole: systemRole as any,
+        isEmailVerified: true, // Pre-verify internal staff
+        resetPasswordOtp: 'CHANGE',
+        resetPasswordExpires: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        systemRole: true,
+        createdAt: true
+      }
+    });
+
+    return res.status(201).json({
+      message: 'Staff account created successfully.',
+      staff: newStaff,
+      temporaryPassword // We return it so the UI can display it
+    });
+  } catch (error: any) {
+    console.error('[Create Staff Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while creating staff member.' });
+  }
+}
+
+// Delete a staff member account
+export async function deleteStaffMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+
+  try {
+    const staff = await prisma.member.findUnique({ where: { id } });
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found.' });
+    }
+
+    const validRoles = ['Admin', 'Reviewer', 'Approver', 'Teacher'];
+    if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
+      return res.status(400).json({ error: 'Cannot delete a non-staff member through this endpoint.' });
+    }
+
+    // Prevent deleting the currently logged-in admin (self-deletion)
+    if (req.user?.id === id) {
+      return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+
+    await prisma.member.delete({
+      where: { id }
+    });
+
+    return res.status(200).json({ message: 'Staff member deleted successfully.' });
+  } catch (error: any) {
+    console.error('[Delete Staff Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while deleting staff member. They may have dependent records.' });
   }
 }

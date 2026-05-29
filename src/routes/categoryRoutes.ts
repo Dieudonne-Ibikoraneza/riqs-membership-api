@@ -18,8 +18,8 @@ const router = Router();
  *         name: location
  *         schema:
  *           type: string
- *           enum: [Local, Foreign]
- *         description: Filter categories by local/foreign practice location
+ *           enum: [Rwandan, Non_Rwandan]
+ *         description: Filter categories by Rwandan or Non-Rwandan practice location
  *       - in: query
  *         name: entityType
  *         schema:
@@ -136,7 +136,7 @@ router.put('/:id', requireAuth, requireRole('Admin'), updateCategory);
  *             properties:
  *               location:
  *                 type: string
- *                 enum: [Local, Foreign]
+ *                 enum: [Rwandan, Non_Rwandan]
  *               entity_type:
  *                 type: string
  *                 enum: [Individual, Firm]

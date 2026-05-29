@@ -31,7 +31,8 @@ export async function getAllCategories(req: Request, res: Response) {
       currency: cat.currency,
       first_year_fee: cat.firstYearFee,
       annual_renewal_fee: cat.annualRenewalFee,
-      stamp_fee: cat.stampFee
+      stamp_fee: cat.stampFee,
+      required_documents: cat.requiredDocuments
     }));
 
     return res.status(200).json({ categories: formattedCategories });
@@ -61,7 +62,8 @@ export async function getCategoryById(req: Request, res: Response) {
       currency: cat.currency,
       first_year_fee: cat.firstYearFee,
       annual_renewal_fee: cat.annualRenewalFee,
-      stamp_fee: cat.stampFee
+      stamp_fee: cat.stampFee,
+      required_documents: cat.requiredDocuments
     };
 
     return res.status(200).json({ category: formattedCategory });
@@ -81,7 +83,8 @@ export async function updateCategory(req: Request, res: Response) {
       currency,
       first_year_fee,
       annual_renewal_fee,
-      stamp_fee
+      stamp_fee,
+      required_documents
     } = req.body;
 
     const existingCat = await prisma.membershipCategory.findUnique({ where: { id } });
@@ -98,6 +101,7 @@ export async function updateCategory(req: Request, res: Response) {
         firstYearFee: first_year_fee !== undefined ? first_year_fee : existingCat.firstYearFee,
         annualRenewalFee: annual_renewal_fee !== undefined ? annual_renewal_fee : existingCat.annualRenewalFee,
         stampFee: stamp_fee !== undefined ? stamp_fee : existingCat.stampFee,
+        requiredDocuments: required_documents !== undefined && Array.isArray(required_documents) ? required_documents : existingCat.requiredDocuments,
       }
     });
 
@@ -113,7 +117,8 @@ export async function updateCategory(req: Request, res: Response) {
         currency: updatedCat.currency,
         first_year_fee: updatedCat.firstYearFee,
         annual_renewal_fee: updatedCat.annualRenewalFee,
-        stamp_fee: updatedCat.stampFee
+        stamp_fee: updatedCat.stampFee,
+        required_documents: updatedCat.requiredDocuments
       }
     });
   } catch (error: any) {
@@ -134,7 +139,8 @@ export async function createCategory(req: Request, res: Response) {
       currency,
       first_year_fee,
       annual_renewal_fee,
-      stamp_fee
+      stamp_fee,
+      required_documents
     } = req.body;
 
     if (!location || !entity_type || !category_name || !category_code || processing_fee === undefined || first_year_fee === undefined || annual_renewal_fee === undefined) {
@@ -152,6 +158,7 @@ export async function createCategory(req: Request, res: Response) {
         firstYearFee: first_year_fee,
         annualRenewalFee: annual_renewal_fee,
         stampFee: stamp_fee || 0.00,
+        requiredDocuments: required_documents || [],
       }
     });
 
@@ -167,7 +174,8 @@ export async function createCategory(req: Request, res: Response) {
         currency: newCat.currency,
         first_year_fee: newCat.firstYearFee,
         annual_renewal_fee: newCat.annualRenewalFee,
-        stamp_fee: newCat.stampFee
+        stamp_fee: newCat.stampFee,
+        required_documents: newCat.requiredDocuments
       }
     });
   } catch (error: any) {

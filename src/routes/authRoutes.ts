@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, verifyOtp, forgotPassword, resetPassword } from '../controllers/authController';
+import { register, login, verifyOtp, forgotPassword, resetPassword, resendOtp } from '../controllers/authController';
 
 const router = Router();
 
@@ -187,5 +187,42 @@ router.post('/forgot-password', forgotPassword);
  *         description: Internal server error
  */
 router.post('/reset-password', resetPassword);
+/**
+ * @openapi
+ * /api/v1/auth/resend-otp:
+ *   post:
+ *     summary: Resend OTP Code
+ *     description: Resends the OTP verification or password reset code to the user's email.
+ *     tags:
+ *       - Authentication
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - type
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: "member@example.com"
+ *               type:
+ *                 type: string
+ *                 enum: [verification, reset]
+ *                 example: "verification"
+ *     responses:
+ *       200:
+ *         description: A new OTP has been sent
+ *       400:
+ *         description: Missing fields or invalid type
+ *       404:
+ *         description: User not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/resend-otp', resendOtp);
 
 export default router;

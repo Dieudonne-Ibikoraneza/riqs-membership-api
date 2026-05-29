@@ -168,6 +168,14 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    if (member.resetPasswordOtp === 'CHANGE') {
+      return res.status(200).json({
+        requirePasswordChange: true,
+        email: member.email,
+        message: 'You must change your password before logging in.'
+      });
+    }
+
     const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
     const isTestEmail = testEmails.includes(email.toLowerCase());
 
@@ -267,5 +275,61 @@ export async function resetPassword(req: Request, res: Response) {
   } catch (error: any) {
     console.error('[Reset Password Error]', error.message);
     return res.status(500).json({ error: 'Failed to reset password.' });
+  }
+}
+
+// Resend OTP for Verification (Login/Signup) or Password Reset
+export async function resendOtp(req: Request, res: Response) {
+  const { email, type } = req.body;
+  
+  if (!email || !type) {
+    return res.status(400).json({ error: 'Email and type (verification or reset) are required.' });
+  }
+
+  try {
+    const member = await prisma.member.findUnique({ where: { email } });
+    if (!member) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
+    const isTestEmail = testEmails.includes(email.toLowerCase());
+    const newOtpCode = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
+    if (type === 'verification') {
+      await prisma.member.update({
+        where: { id: member.id },
+        data: { otpCode: newOtpCode, otpExpiresAt: expiresAt }
+      });
+
+      if (!isTestEmail) {
+        try {
+          await sendMail(email, "otpVerification", { name: member.fullName, otpCode: newOtpCode });
+        } catch (mailErr: any) {
+          console.warn('[Resend OTP Verification] Email failed:', mailErr.message);
+        }
+      }
+    } else if (type === 'reset') {
+      await prisma.member.update({
+        where: { id: member.id },
+        data: { resetPasswordOtp: newOtpCode, resetPasswordExpires: expiresAt }
+      });
+
+      if (!isTestEmail) {
+        try {
+          await sendMail(email, "passwordReset", { name: member.fullName, otpCode: newOtpCode });
+        } catch (mailErr: any) {
+          console.warn('[Resend OTP Reset] Email failed:', mailErr.message);
+        }
+      }
+    } else {
+      return res.status(400).json({ error: 'Invalid type. Must be verification or reset.' });
+    }
+
+    return res.status(200).json({ message: 'A new OTP has been sent to your email.' });
+  } catch (error: any) {
+    console.error('[Resend OTP Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while resending OTP.' });
   }
 }

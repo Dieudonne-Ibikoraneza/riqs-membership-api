@@ -9,8 +9,8 @@ datasource db {
 }
 
 enum PracticeLocation {
-  Local
-  Foreign
+  Rwandan
+  Non_Rwandan
 }
 
 enum EntityType {

@@ -43,8 +43,8 @@ router.get('/profile', requireAuth, getApplication);
  *             properties:
  *               practiceLocation:
  *                 type: string
- *                 enum: [Local, Foreign]
- *                 example: Local
+ *                 enum: [Rwandan, Non_Rwandan]
+ *                 example: Rwandan
  *               entityType:
  *                 type: string
  *                 enum: [Individual, Firm]
