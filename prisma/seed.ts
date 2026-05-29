@@ -231,6 +231,7 @@ async function main() {
       membershipClass: MemberClass.Technologist,
       membershipId: 'RIQS-2018-TECH-0001',
       isEmailVerified: true,
+      phoneNumber: '+250788123456',
       passwordHash
     }
   ];

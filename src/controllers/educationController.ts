@@ -210,14 +210,26 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
       );
     }
 
+    let mentorData = {
+      mentorRegistrationNumber: null as string | null,
+      mentorName: null as string | null,
+      mentorContact: null as string | null,
+    };
+
+    if (filledOptions && filledOptions.length > 0) {
+      mentorData.mentorRegistrationNumber = filledOptions[0].regNumber || null;
+      mentorData.mentorName = filledOptions[0].name || null;
+      mentorData.mentorContact = filledOptions[0].contact || null;
+    }
+
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
         preferredMentors: filledOptions,
         mentorshipPlan: mentorshipPlan || null,
-        mentorRegistrationNumber: null,
-        mentorName: null,
-        mentorContact: null,
+        mentorRegistrationNumber: mentorData.mentorRegistrationNumber,
+        mentorName: mentorData.mentorName,
+        mentorContact: mentorData.mentorContact,
         mentorQualification: null,
         mentorClass: null,
         mentorEmployer: null
@@ -225,7 +237,10 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
       create: {
         applicationId,
         preferredMentors: filledOptions,
-        mentorshipPlan: mentorshipPlan || null
+        mentorshipPlan: mentorshipPlan || null,
+        mentorRegistrationNumber: mentorData.mentorRegistrationNumber,
+        mentorName: mentorData.mentorName,
+        mentorContact: mentorData.mentorContact,
       }
     });
 
