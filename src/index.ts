@@ -21,6 +21,7 @@ import paymentRoutes from './routes/paymentRoutes';
 import memberRoutes from './routes/memberRoutes';
 import teacherRoutes from './routes/teacherRoutes';
 import templateRoutes from './routes/templateRoutes';
+import { startCronJobs } from './utils/cronJobs';
 
 // Load secure environment variables from .env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
@@ -96,6 +97,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // 6. Bootstrap Server listener
+startCronJobs();
 app.listen(PORT, () => {
   console.log(`=================================================`);
   console.log(`[RIQS REST API] Standalone Backend Active.`);

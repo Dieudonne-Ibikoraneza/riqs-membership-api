@@ -892,6 +892,8 @@ export async function getStaffMembers(req: AuthenticatedRequest, res: Response) 
         fullName: true,
         email: true,
         systemRole: true,
+        isLocked: true,
+        lockedUntil: true,
         createdAt: true
       },
       orderBy: {
@@ -965,9 +967,10 @@ export async function createStaffMember(req: AuthenticatedRequest, res: Response
   }
 }
 
-// Delete a staff member account
-export async function deleteStaffMember(req: AuthenticatedRequest, res: Response) {
+// Lock a staff member account instead of deleting
+export async function lockStaffMember(req: AuthenticatedRequest, res: Response) {
   const { id } = req.params;
+  const { durationDays } = req.body;
 
   try {
     const staff = await prisma.member.findUnique({ where: { id } });
@@ -977,21 +980,75 @@ export async function deleteStaffMember(req: AuthenticatedRequest, res: Response
 
     const validRoles = ['Admin', 'Reviewer', 'Approver', 'Teacher'];
     if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
-      return res.status(400).json({ error: 'Cannot delete a non-staff member through this endpoint.' });
+      return res.status(400).json({ error: 'Cannot lock a non-staff member through this endpoint.' });
     }
 
-    // Prevent deleting the currently logged-in admin (self-deletion)
+    // Prevent locking the currently logged-in admin
     if (req.user?.id === id) {
-      return res.status(400).json({ error: 'You cannot delete your own account.' });
+      return res.status(400).json({ error: 'You cannot lock your own account.' });
     }
 
-    await prisma.member.delete({
-      where: { id }
+    const days = parseInt(durationDays, 10);
+    if (isNaN(days) || days <= 0) {
+      return res.status(400).json({ error: 'Valid durationDays is required.' });
+    }
+
+    const lockedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+    await prisma.member.update({
+      where: { id },
+      data: { 
+        isLocked: true,
+        lockedUntil 
+      }
     });
 
-    return res.status(200).json({ message: 'Staff member deleted successfully.' });
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'STAFF_LOCKED',
+        details: `Staff member locked for ${days} days until ${lockedUntil.toISOString()}`
+      }
+    });
+
+    return res.status(200).json({ message: `Staff member locked successfully for ${days} days.` });
   } catch (error: any) {
-    console.error('[Delete Staff Member Error]', error.message);
-    return res.status(500).json({ error: 'Internal server error while deleting staff member. They may have dependent records.' });
+    console.error('[Lock Staff Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while locking staff member.' });
+  }
+}
+
+// Unlock a staff member account
+export async function unlockStaffMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+
+  try {
+    const staff = await prisma.member.findUnique({ where: { id } });
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found.' });
+    }
+
+    await prisma.member.update({
+      where: { id },
+      data: { 
+        isLocked: false,
+        lockedUntil: null 
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'STAFF_UNLOCKED',
+        details: `Staff member account unlocked.`
+      }
+    });
+
+    return res.status(200).json({ message: 'Staff member unlocked successfully.' });
+  } catch (error: any) {
+    console.error('[Unlock Staff Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while unlocking staff member.' });
   }
 }

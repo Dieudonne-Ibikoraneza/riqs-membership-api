@@ -7,7 +7,7 @@ import {
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication,
-  getStaffMembers, createStaffMember, deleteStaffMember
+  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember
 } from '../controllers/adminController';
 
 const router = Router();
@@ -380,13 +380,24 @@ router.post('/staff', requireAuth, requireRoles(['admin']), createStaffMember);
 
 /**
  * @openapi
- * /api/v1/admin/staff/{id}:
- *   delete:
- *     summary: Delete Admin Staff
- *     description: Deletes an internal staff member account.
+ * /api/v1/admin/staff/{id}/lock:
+ *   patch:
+ *     summary: Lock Admin Staff
+ *     description: Locks an internal staff member account for a specified duration.
  *     tags:
  *       - Administrative Dashboard
  */
-router.delete('/staff/:id', requireAuth, requireRoles(['admin']), deleteStaffMember);
+router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffMember);
+
+/**
+ * @openapi
+ * /api/v1/admin/staff/{id}/unlock:
+ *   patch:
+ *     summary: Unlock Admin Staff
+ *     description: Unlocks a previously locked internal staff member account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
 
 export default router;

@@ -118,6 +118,8 @@ model Member {
   systemRole             SystemRole?  @default(Standard) @map("system_role")
   trainingTrackingNumber String?      @unique @map("training_tracking_number") @db.VarChar(100)
   isEmailVerified        Boolean?     @default(false) @map("is_email_verified")
+  isLocked               Boolean?     @default(false) @map("is_locked")
+  lockedUntil            DateTime?    @map("locked_until") @db.Timestamptz
   otpCode                String?      @map("otp_code") @db.VarChar(6)
   otpExpiresAt           DateTime?    @map("otp_expires_at") @db.Timestamptz
   resetPasswordOtp       String?      @map("reset_password_otp") @db.VarChar(6)

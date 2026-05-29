@@ -157,6 +157,10 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
+    if (member.isLocked) {
+      return res.status(403).json({ error: 'Your account has been locked. Please contact the administrator.' });
+    }
+
     // Some existing users might have 'SUPABASE_AUTH_MANAGED' as password if they migrated.
     // We should handle this gracefully if they try to login locally.
     if (member.passwordHash === 'SUPABASE_AUTH_MANAGED') {
