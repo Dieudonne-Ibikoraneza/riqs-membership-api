@@ -37,6 +37,9 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           where: { newStatus: 'Correction_Required' },
           select: { reviewerNotes: true }
         },
+        financialTransactions: {
+          orderBy: { createdAt: 'desc' }
+        },
         member: {
           select: {
             fullName: true,
@@ -93,6 +96,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       mentorshipAssignment: undefined,
       uploadedDocuments: undefined,
       statusHistory: undefined,
+      financialTransactions: undefined,
       member: undefined
     };
 
@@ -117,7 +121,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       employment: app.employmentRecords,
       shareholders: app.firmShareholders,
       mentorship: formattedMentorship,
-      documents: app.uploadedDocuments
+      documents: app.uploadedDocuments,
+      financialTransactions: app.financialTransactions
     });
   } catch (error: any) {
     console.error('[Get Application] Error:', error.message);
@@ -312,7 +317,8 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
         id: applicationId,
         memberId: req.user.id,
         status: { in: ['Draft', 'Correction_Required'] }
-      }
+      },
+      include: { category: true }
     });
 
     if (!existingApp) {
@@ -320,9 +326,17 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
     }
 
     // Mentor Auto-Assignment Logic
-    const mentorship = await prisma.mentorshipAssignment.findUnique({
+    let mentorship = await prisma.mentorshipAssignment.findUnique({
       where: { applicationId }
     });
+
+    // If it's a Graduate application and they didn't provide a mentorship plan, create an empty one
+    const isGraduate = existingApp.category && existingApp.entityType === 'Individual' && existingApp.category.categoryName.toLowerCase().includes('graduate');
+    if (!mentorship && isGraduate) {
+      mentorship = await prisma.mentorshipAssignment.create({
+        data: { applicationId, preferredMentors: [] }
+      });
+    }
 
     if (mentorship) {
       let assignedMentor: any = null;

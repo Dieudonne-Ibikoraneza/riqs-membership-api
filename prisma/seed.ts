@@ -159,26 +159,106 @@ const templates = [
   }
 ];
 
+const getDefaultDocuments = (draft: { entityType: string, location: string, categoryName: string }) => {
+  const list: string[] = [];
+  const catName = draft.categoryName || "";
+  
+  if (draft.entityType === "Individual") {
+    if (draft.location === "Rwandan") {
+      if (catName.includes("Graduate")) {
+        list.push("Notarized Degree/Diploma (HEC equivalency if foreign)");
+        list.push("Notarized Academic Transcripts showing subjects (Optional)");
+        list.push("Certificate of RQSSA (or equivalent student membership proof)");
+        list.push("Application Letter");
+        list.push("Copy of ID / Passport");
+        list.push("Curriculum Vitae (CV) (Optional)");
+        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+      } else if (catName.includes("Technologist")) {
+        list.push("Diploma Certificate (HEC equivalency if foreign)");
+        list.push("Notarized Academic Transcripts showing subjects");
+        list.push("At least 2 CPD Activities certificate copies (Optional)");
+        list.push("Logbook of records (Optional)");
+        list.push("Application Letter");
+        list.push("Copy of ID / Passport");
+        list.push("Curriculum Vitae (CV) (Optional)");
+        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+      } else {
+        list.push("Notarized Degree Certificate (HEC equivalent if foreign)");
+        list.push("Notarized Academic Transcripts showing subjects");
+        list.push("At least 2 CPD Activities certificate copies (Optional)");
+        list.push("Logbook of records (Optional)");
+        list.push("Application Letter");
+        list.push("Copy of ID / Passport");
+        list.push("Curriculum Vitae (CV) (Optional)");
+        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+      }
+    } else {
+      const isProf = catName.includes("Professional");
+      list.push(isProf ? "Notarized Degree Certificate" : "Notarized Diploma Certificate");
+      list.push("Valid Membership Certificate from country of origin");
+      list.push("Visa & Work Permit (PDF)");
+      list.push("CV & References (PDF) (Optional)");
+      list.push(`Proof of Payment (${isProf ? "50 USD" : "30 USD"} Application Fee)`);
+    }
+  } else {
+    const isLocal = draft.location === "Rwandan";
+    list.push(isLocal ? "Firm Business Registration Certificate by RDB" : "Firm Business Registration Certificate");
+    list.push("Tax Clearance Certificate");
+    list.push("Identity documents of beneficial owners / shareholders");
+    list.push("Share certificates or company registry extract");
+    list.push(isLocal ? "RSSB Tax Clearance Certificate (Optional)" : "Social Security Clearance Certificate (Optional)");
+    if (isLocal) list.push("RIQS Members working in the firm (Certificates) (Optional)");
+    const fee = catName.includes("Small") ? (isLocal ? "50,000 RWF" : "100 USD")
+      : catName.includes("Medium") ? (isLocal ? "100,000 RWF" : "200 USD")
+      : isLocal ? "200,000 RWF" : "400 USD";
+    list.push(isLocal ? `Proof of Momo Payment (${fee} via Momo Code: 604516)` : `Proof of Payment (${fee} Application Fee)`);
+  }
+  
+  const requiredDocuments: string[] = [];
+  const optionalDocuments: string[] = [];
+  
+  for (const doc of list) {
+    if (doc.endsWith(" (Optional)")) {
+      optionalDocuments.push(doc.replace(" (Optional)", ""));
+    } else {
+      requiredDocuments.push(doc);
+    }
+  }
+
+  return { requiredDocuments, optionalDocuments };
+};
+
 async function main() {
+  const categoriesData = [
+    // Rwandan Individuals (Rwandan)
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist (Route 1)', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor (Route 2)', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist (Route 3)', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor (Route 4)', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
+    // Non-Rwandan Individuals (Non_Rwandan)
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'FQST', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'FPQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
+    // Rwandan Firms (Rwandan)
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Small Firm (<50M Rwf)', categoryCode: 'LF-SM', processingFee: 50000.00, currency: 'RWF', firstYearFee: 300000.00, annualRenewalFee: 300000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Medium Firm (50-100M Rwf)', categoryCode: 'LF-MD', processingFee: 100000.00, currency: 'RWF', firstYearFee: 500000.00, annualRenewalFee: 500000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Large Firm (>100M Rwf)', categoryCode: 'LF-LG', processingFee: 200000.00, currency: 'RWF', firstYearFee: 1000000.00, annualRenewalFee: 1000000.00, stampFee: 0.00 },
+    // Non-Rwandan Firms (Non_Rwandan)
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Small Firm (<100K USD)', categoryCode: 'FF-SM', processingFee: 100.00, currency: 'USD', firstYearFee: 1000.00, annualRenewalFee: 1000.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Medium Firm (100-500K USD)', categoryCode: 'FF-MD', processingFee: 200.00, currency: 'USD', firstYearFee: 2000.00, annualRenewalFee: 2000.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Large Firm (>500K USD)', categoryCode: 'FF-LG', processingFee: 400.00, currency: 'USD', firstYearFee: 3000.00, annualRenewalFee: 3000.00, stampFee: 0.00 },
+  ];
+
   await prisma.membershipCategory.createMany({
-    data: [
-      // Rwandan Individuals (Rwandan)
-      { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist (Route 1)', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
-      { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor (Route 2)', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
-      { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist (Route 3)', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-      { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor (Route 4)', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
-      // Non-Rwandan Individuals (Non_Rwandan)
-      { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'FQST', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
-      { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'FPQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
-      // Rwandan Firms (Rwandan)
-      { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Small Firm (<50M Rwf)', categoryCode: 'LF-SM', processingFee: 50000.00, currency: 'RWF', firstYearFee: 300000.00, annualRenewalFee: 300000.00, stampFee: 0.00 },
-      { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Medium Firm (50-100M Rwf)', categoryCode: 'LF-MD', processingFee: 100000.00, currency: 'RWF', firstYearFee: 500000.00, annualRenewalFee: 500000.00, stampFee: 0.00 },
-      { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Large Firm (>100M Rwf)', categoryCode: 'LF-LG', processingFee: 200000.00, currency: 'RWF', firstYearFee: 1000000.00, annualRenewalFee: 1000000.00, stampFee: 0.00 },
-      // Non-Rwandan Firms (Non_Rwandan)
-      { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Small Firm (<100K USD)', categoryCode: 'FF-SM', processingFee: 100.00, currency: 'USD', firstYearFee: 1000.00, annualRenewalFee: 1000.00, stampFee: 0.00 },
-      { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Medium Firm (100-500K USD)', categoryCode: 'FF-MD', processingFee: 200.00, currency: 'USD', firstYearFee: 2000.00, annualRenewalFee: 2000.00, stampFee: 0.00 },
-      { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Large Firm (>500K USD)', categoryCode: 'FF-LG', processingFee: 400.00, currency: 'USD', firstYearFee: 3000.00, annualRenewalFee: 3000.00, stampFee: 0.00 },
-    ],
+    data: categoriesData.map(cat => {
+      const docs = getDefaultDocuments(cat);
+      return {
+        ...cat,
+        location: cat.location as any,
+        entityType: cat.entityType as any,
+        requiredDocuments: docs.requiredDocuments,
+        optionalDocuments: docs.optionalDocuments,
+      };
+    }),
     skipDuplicates: true
   });
   console.log('Database seeded with membership categories.');

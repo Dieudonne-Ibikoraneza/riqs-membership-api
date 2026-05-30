@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { supabaseAdmin, prisma } from '../config/db';
+import { v4 as uuidv4 } from 'uuid';
 
 // 1. Secure Binary Upload - Streams raw file buffer straight to private Supabase Storage
 export async function uploadFile(req: AuthenticatedRequest, res: Response) {
@@ -68,6 +69,8 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     });
     const nextVersion = count + 1;
 
+    const documentId = uuidv4();
+
     // D. Write to database using an atomic transaction
     const transactionOperations: any[] = [
       prisma.uploadedDocument.deleteMany({
@@ -75,6 +78,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       }),
       prisma.uploadedDocument.create({
         data: {
+          id: documentId,
           applicationId,
           documentType,
           fileName: file.originalname,
@@ -121,7 +125,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
               paymentMethod: 'MTN_Momo',
               transactionReference: reference,
               status: 'Pending_Verification',
-              receiptUrl: filePath
+              receiptUrl: documentId
             }
           })
         );
@@ -176,7 +180,7 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || ['admin', 'reviewer', 'approver', 'teacher'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
+    const isAuthorized = isOwner || ['admin', 'reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });

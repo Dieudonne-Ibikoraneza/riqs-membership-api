@@ -93,6 +93,7 @@ model MembershipCategory {
   annualRenewalFee  Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
   stampFee          Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
   requiredDocuments String[]         @default([]) @map("required_documents")
+  optionalDocuments String[]         @default([]) @map("optional_documents")
 
   applications Application[]
 

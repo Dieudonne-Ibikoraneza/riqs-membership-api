@@ -98,9 +98,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
           status: action as TransactionStatus,
           verifiedByEmail: req.user.email,
           rejectionReason: rejectionReason || null,
-          clearedAt: action === 'Cleared' ? new Date() : null,
-          invoiceUrl: null,
-          receiptUrl: null
+          clearedAt: action === 'Cleared' ? new Date() : null
         }
       }),
       prisma.auditLog.create({
