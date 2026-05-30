@@ -344,7 +344,15 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
   try {
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      include: { member: true, category: true }
+      include: { 
+        member: true, 
+        category: true,
+        financialTransactions: {
+          where: { txType: 'Processing_Fee' },
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
+      }
     });
 
     if (!app) return res.status(404).json({ error: 'Application record not found.' });
@@ -356,6 +364,11 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
     const oldStatus = app.status;
 
     if (action === 'Approve') {
+      const processingFeeTx = app.financialTransactions?.[0];
+      if (!processingFeeTx || processingFeeTx.status !== 'Cleared') {
+        return res.status(400).json({ error: 'Cannot approve application. The registration fee has not been cleared by Admin.' });
+      }
+
       const currentYear = new Date().getFullYear();
       const certCode = getCertificateCode(app.category.categoryCode);
 
@@ -745,6 +758,11 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
                 take: 1
               }
             }
+          },
+          financialTransactions: {
+            where: { txType: 'Processing_Fee' },
+            orderBy: { createdAt: 'desc' },
+            take: 1
           }
         }
       }),
@@ -753,6 +771,9 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
 
     const mapped = members.map(m => {
       const app = m.applications[0];
+      const processingFeeTx = m.financialTransactions?.[0];
+      const memberStatus = processingFeeTx?.status === 'Cleared' ? 'Active' : 'Pending Payment';
+
       return {
         id: m.id,
         fullName: m.fullName,
@@ -761,7 +782,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         category: app?.category?.categoryName || m.membershipClass || 'N/A',
         practiceLocation: app?.practiceLocation || 'Rwandan',
         country: m.countryOfOrigin,
-        status: 'Active',
+        status: memberStatus,
         expiresAt: '2026-12-31', // Placeholder for UI
         photoId: app?.uploadedDocuments?.[0]?.id
       };
