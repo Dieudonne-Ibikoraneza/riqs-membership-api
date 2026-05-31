@@ -160,66 +160,66 @@ const templates = [
 ];
 
 const getDefaultDocuments = (draft: { entityType: string, location: string, categoryName: string }) => {
-  const list: string[] = [];
+  const list: {name: string, typeCode: string}[] = [];
   const catName = draft.categoryName || "";
   
   if (draft.entityType === "Individual") {
     if (draft.location === "Rwandan") {
       if (catName.includes("Graduate")) {
-        list.push("Notarized Degree/Diploma (HEC equivalency if foreign)");
-        list.push("Notarized Academic Transcripts showing subjects (Optional)");
-        list.push("Certificate of RQSSA (or equivalent student membership proof)");
-        list.push("Application Letter");
-        list.push("Copy of ID / Passport");
-        list.push("Curriculum Vitae (CV) (Optional)");
-        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+        list.push({ name: "Notarized Degree/Diploma (HEC equivalency if foreign)", typeCode: "certificate" });
+        list.push({ name: "Notarized Academic Transcripts showing subjects (Optional)", typeCode: "transcript" });
+        list.push({ name: "Certificate of RQSSA (or equivalent student membership proof)", typeCode: "certificate" });
+        list.push({ name: "Application Letter", typeCode: "application_letter" });
+        list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
+        list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       } else if (catName.includes("Technologist")) {
-        list.push("Diploma Certificate (HEC equivalency if foreign)");
-        list.push("Notarized Academic Transcripts showing subjects");
-        list.push("At least 2 CPD Activities certificate copies (Optional)");
-        list.push("Logbook of records (Optional)");
-        list.push("Application Letter");
-        list.push("Copy of ID / Passport");
-        list.push("Curriculum Vitae (CV) (Optional)");
-        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+        list.push({ name: "Diploma Certificate (HEC equivalency if foreign)", typeCode: "certificate" });
+        list.push({ name: "Notarized Academic Transcripts showing subjects", typeCode: "transcript" });
+        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "certificate" });
+        list.push({ name: "Logbook of records (Optional)", typeCode: "logbook" });
+        list.push({ name: "Application Letter", typeCode: "application_letter" });
+        list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
+        list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       } else {
-        list.push("Notarized Degree Certificate (HEC equivalent if foreign)");
-        list.push("Notarized Academic Transcripts showing subjects");
-        list.push("At least 2 CPD Activities certificate copies (Optional)");
-        list.push("Logbook of records (Optional)");
-        list.push("Application Letter");
-        list.push("Copy of ID / Passport");
-        list.push("Curriculum Vitae (CV) (Optional)");
-        list.push("Proof of Momo Payment (10,000 RWF via Momo Code: 604516)");
+        list.push({ name: "Notarized Degree Certificate (HEC equivalent if foreign)", typeCode: "certificate" });
+        list.push({ name: "Notarized Academic Transcripts showing subjects", typeCode: "transcript" });
+        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "certificate" });
+        list.push({ name: "Logbook of records (Optional)", typeCode: "logbook" });
+        list.push({ name: "Application Letter", typeCode: "application_letter" });
+        list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
+        list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       }
     } else {
       const isProf = catName.includes("Professional");
-      list.push(isProf ? "Notarized Degree Certificate" : "Notarized Diploma Certificate");
-      list.push("Valid Membership Certificate from country of origin");
-      list.push("Visa & Work Permit (PDF)");
-      list.push("CV & References (PDF) (Optional)");
-      list.push(`Proof of Payment (${isProf ? "50 USD" : "30 USD"} Application Fee)`);
+      list.push({ name: isProf ? "Notarized Degree Certificate" : "Notarized Diploma Certificate", typeCode: "certificate" });
+      list.push({ name: "Valid Membership Certificate from country of origin", typeCode: "certificate" });
+      list.push({ name: "Visa & Work Permit (PDF)", typeCode: "permit" });
+      list.push({ name: "CV & References (PDF) (Optional)", typeCode: "cv" });
+      list.push({ name: `Proof of Payment (${isProf ? "50 USD" : "30 USD"} Application Fee)`, typeCode: "payment" });
     }
   } else {
     const isLocal = draft.location === "Rwandan";
-    list.push(isLocal ? "Firm Business Registration Certificate by RDB" : "Firm Business Registration Certificate");
-    list.push("Tax Clearance Certificate");
-    list.push("Identity documents of beneficial owners / shareholders");
-    list.push("Share certificates or company registry extract");
-    list.push(isLocal ? "RSSB Tax Clearance Certificate (Optional)" : "Social Security Clearance Certificate (Optional)");
-    if (isLocal) list.push("RIQS Members working in the firm (Certificates) (Optional)");
+    list.push({ name: isLocal ? "Firm Business Registration Certificate by RDB" : "Firm Business Registration Certificate", typeCode: "business_registration" });
+    list.push({ name: "Tax Clearance Certificate", typeCode: "tax_clearance" });
+    list.push({ name: "Identity documents of beneficial owners / shareholders", typeCode: "id_passport" });
+    list.push({ name: "Share certificates or company registry extract", typeCode: "certificate" });
+    list.push({ name: isLocal ? "RSSB Tax Clearance Certificate (Optional)" : "Social Security Clearance Certificate (Optional)", typeCode: "tax_clearance" });
+    if (isLocal) list.push({ name: "RIQS Members working in the firm (Certificates) (Optional)", typeCode: "certificate" });
     const fee = catName.includes("Small") ? (isLocal ? "50,000 RWF" : "100 USD")
       : catName.includes("Medium") ? (isLocal ? "100,000 RWF" : "200 USD")
       : isLocal ? "200,000 RWF" : "400 USD";
-    list.push(isLocal ? `Proof of Momo Payment (${fee} via Momo Code: 604516)` : `Proof of Payment (${fee} Application Fee)`);
+    list.push({ name: isLocal ? `Proof of Momo Payment (${fee} via Momo Code: 604516)` : `Proof of Payment (${fee} Application Fee)`, typeCode: "payment" });
   }
   
-  const requiredDocuments: string[] = [];
-  const optionalDocuments: string[] = [];
+  const requiredDocuments: {name: string, typeCode: string}[] = [];
+  const optionalDocuments: {name: string, typeCode: string}[] = [];
   
   for (const doc of list) {
-    if (doc.endsWith(" (Optional)")) {
-      optionalDocuments.push(doc.replace(" (Optional)", ""));
+    if (doc.name.endsWith(" (Optional)")) {
+      optionalDocuments.push({ name: doc.name.replace(" (Optional)", ""), typeCode: doc.typeCode });
     } else {
       requiredDocuments.push(doc);
     }

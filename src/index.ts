@@ -21,6 +21,7 @@ import paymentRoutes from './routes/paymentRoutes';
 import memberRoutes from './routes/memberRoutes';
 import teacherRoutes from './routes/teacherRoutes';
 import templateRoutes from './routes/templateRoutes';
+import documentTypeRoutes from './routes/documentTypeRoutes';
 import { startCronJobs } from './utils/cronJobs';
 
 // Load secure environment variables from .env
@@ -82,6 +83,7 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/members', memberRoutes);
 app.use('/api/v1/teacher', teacherRoutes);
 app.use('/api/v1/templates', templateRoutes);
+app.use('/api/v1/document-types', documentTypeRoutes);
 
 // 4. Fallback Route Handler (404 Page Not Found)
 app.use((req: Request, res: Response) => {

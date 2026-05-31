@@ -92,8 +92,8 @@ model MembershipCategory {
   firstYearFee      Decimal          @map("first_year_fee") @db.Decimal(12, 2)
   annualRenewalFee  Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
   stampFee          Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
-  requiredDocuments String[]         @default([]) @map("required_documents")
-  optionalDocuments String[]         @default([]) @map("optional_documents")
+  requiredDocuments Json             @default("[]") @map("required_documents")
+  optionalDocuments Json             @default("[]") @map("optional_documents")
 
   applications Application[]
 
@@ -364,4 +364,15 @@ model EmailTemplate {
   updatedAt   DateTime? @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("email_templates")
+}
+
+model DocumentType {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique @db.VarChar(255)
+  code           String   @unique @db.VarChar(100)
+  appliesTo      String   @default("Both") @map("applies_to") @db.VarChar(50)
+  isPaymentProof Boolean  @default(false) @map("is_payment_proof")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("document_types")
 }
