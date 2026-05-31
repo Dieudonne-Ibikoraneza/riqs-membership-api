@@ -114,9 +114,21 @@ export async function submitStudentApplication(req: AuthenticatedRequest, res: R
     if (!app) return res.status(404).json({ error: 'Application not found.' });
 
     // Validate required documents
-    const requiredTypes = app.category.requiredDocuments;
+    const requiredDocsRaw = app.category.requiredDocuments;
+    const requiredDocs = Array.isArray(requiredDocsRaw) ? requiredDocsRaw : [];
+    const requiredKeys = requiredDocs.map((doc: any) => {
+      const cleanName = typeof doc === 'string' ? doc : (doc.name || "");
+      let k = cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+      if (cleanName.toLowerCase().includes("degree") || cleanName.toLowerCase().includes("diploma")) {
+        k = "degree";
+      } else if (cleanName.toLowerCase().includes("passport") || cleanName.toLowerCase().includes("photo")) {
+        k = "photo";
+      }
+      return k;
+    });
+
     const uploadedTypes = app.uploadedDocuments.map((d: any) => d.documentType);
-    const missing = requiredTypes.filter((rt: any) => !uploadedTypes.includes(rt));
+    const missing = requiredKeys.filter((k: string) => !uploadedTypes.includes(k));
 
     if (missing.length > 0) {
       return res.status(400).json({

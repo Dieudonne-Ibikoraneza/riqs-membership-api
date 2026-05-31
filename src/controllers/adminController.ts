@@ -458,7 +458,12 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         mentorshipAssignment: true,
         uploadedDocuments: true,
         studentAssociation: true,
-        statusHistory: { orderBy: { createdAt: 'desc' } }
+        statusHistory: { orderBy: { createdAt: 'desc' } },
+        financialTransactions: {
+          where: { txType: 'Processing_Fee' },
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
       }
     });
 
@@ -489,7 +494,8 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       stamp_fee: app.category.stampFee,
       currency: app.category.currency,
       location: app.category.location,
-      cat_entity_type: app.category.entityType
+      cat_entity_type: app.category.entityType,
+      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Cleared'
     };
 
     return res.status(200).json({

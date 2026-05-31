@@ -104,8 +104,8 @@ export async function updateCategory(req: Request, res: Response) {
         firstYearFee: first_year_fee !== undefined ? first_year_fee : existingCat.firstYearFee,
         annualRenewalFee: annual_renewal_fee !== undefined ? annual_renewal_fee : existingCat.annualRenewalFee,
         stampFee: stamp_fee !== undefined ? stamp_fee : existingCat.stampFee,
-        requiredDocuments: required_documents !== undefined && Array.isArray(required_documents) ? required_documents : existingCat.requiredDocuments,
-        optionalDocuments: optional_documents !== undefined && Array.isArray(optional_documents) ? optional_documents : existingCat.optionalDocuments,
+        requiredDocuments: required_documents !== undefined && Array.isArray(required_documents) ? required_documents : (existingCat.requiredDocuments as any),
+        optionalDocuments: optional_documents !== undefined && Array.isArray(optional_documents) ? optional_documents : (existingCat.optionalDocuments as any),
       }
     });
 

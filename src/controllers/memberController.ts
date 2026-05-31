@@ -26,7 +26,16 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
     if (mentorsOnly === 'true') {
       whereClause.membershipClass = { in: ['Professional', 'Technologist'] };
     } else if (category && category !== 'all') {
-      whereClause.membershipClass = category as MemberClass;
+      if (category === 'Firm') {
+        whereClause.membershipClass = {
+          in: [
+            'Firm_Local_Small', 'Firm_Local_Medium', 'Firm_Local_Large',
+            'Firm_Foreign_Small', 'Firm_Foreign_Medium', 'Firm_Foreign_Large'
+          ]
+        };
+      } else {
+        whereClause.membershipClass = category as MemberClass;
+      }
     }
 
     const [members, totalCount] = await Promise.all([

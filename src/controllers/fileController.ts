@@ -99,14 +99,37 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    if (documentType === 'payment') {
-      const appWithCat = await prisma.application.findUnique({
-        where: { id: applicationId },
-        include: { category: true }
+    // D. Determine if this document is a payment proof by looking up the category's document config
+    //    Each category document is stored as {name, typeCode}. The uploaded `documentType` is the
+    //    sanitized name key (e.g. "proof_of_momo_payment" from "Proof of MoMo Payment").
+    //    We match it against the category docs, find the typeCode, then check DocumentType.isPaymentProof.
+    let isPayment = false;
+
+    const appWithCat = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: { category: true }
+    });
+
+    if (appWithCat?.category) {
+      const reqDocs = (appWithCat.category.requiredDocuments as any[]) || [];
+      const optDocs = (appWithCat.category.optionalDocuments as any[]) || [];
+      const allCatDocs = [...reqDocs, ...optDocs];
+
+      // Find the category document entry matching the uploaded documentType key
+      const matched = allCatDocs.find((d: { name: string; typeCode: string }) => {
+        if (!d?.name || !d?.typeCode) return false;
+        const sanitizedName = d.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        return sanitizedName === documentType || d.typeCode === documentType;
       });
-      
-      if (appWithCat && appWithCat.category) {
-        const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
+
+      if (matched?.typeCode) {
+        const bucketDef = await prisma.documentType.findUnique({ where: { code: matched.typeCode } });
+        isPayment = !!(bucketDef?.isPaymentProof);
+      }
+    }
+
+    if (isPayment && appWithCat?.category) {
+      const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
         
         transactionOperations.push(
           prisma.financialTransaction.deleteMany({
@@ -129,7 +152,6 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
             }
           })
         );
-      }
     }
 
     const [_, docRes] = await prisma.$transaction(transactionOperations);
