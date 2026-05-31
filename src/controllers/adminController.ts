@@ -364,10 +364,6 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
     const oldStatus = app.status;
 
     if (action === 'Approve') {
-      const processingFeeTx = app.financialTransactions?.[0];
-      if (!processingFeeTx || processingFeeTx.status !== 'Cleared') {
-        return res.status(400).json({ error: 'Cannot approve application. The registration fee has not been cleared by Admin.' });
-      }
 
       const currentYear = new Date().getFullYear();
       const certCode = getCertificateCode(app.category.categoryCode);
