@@ -126,10 +126,12 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
 
+  const whereClause = status === 'All' ? {} : { status: status as TransactionStatus };
+
   try {
     const [transactions, total] = await Promise.all([
       prisma.financialTransaction.findMany({
-        where: { status: status as TransactionStatus },
+        where: whereClause,
         orderBy: { createdAt: 'desc' },
         skip,
         take,
@@ -138,7 +140,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
         }
       }),
       prisma.financialTransaction.count({
-        where: { status: status as TransactionStatus }
+        where: whereClause
       })
     ]);
 
