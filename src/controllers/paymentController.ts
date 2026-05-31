@@ -118,7 +118,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// 4. Admin: Get all pending payments queue
+// 4. Admin: Get all payments queue (supports filtering by status or all)
 export async function getPendingPayments(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
