@@ -26,19 +26,44 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
       return res.status(409).json({ error: 'Duplicate transaction reference. This reference code has already been submitted.' });
     }
 
-    const transaction = await prisma.financialTransaction.create({
-      data: {
+    const existingTx = await prisma.financialTransaction.findFirst({
+      where: {
         memberId: req.user.id,
         applicationId: applicationId || null,
-        amount,
-        currency,
         txType: txType as TransactionType,
-        paymentMethod: paymentMethod as PaymentMethod,
-        transactionReference,
-        receiptUrl: receiptUrl || null,
-        status: 'Pending_Verification'
+        status: { in: ['Unpaid', 'Failed'] }
       }
     });
+
+    let transaction;
+    if (existingTx) {
+      transaction = await prisma.financialTransaction.update({
+        where: { id: existingTx.id },
+        data: {
+          amount,
+          currency,
+          paymentMethod: paymentMethod as PaymentMethod,
+          transactionReference,
+          receiptUrl: receiptUrl || null,
+          status: 'Pending_Verification',
+          rejectionReason: null // clear previous reason
+        }
+      });
+    } else {
+      transaction = await prisma.financialTransaction.create({
+        data: {
+          memberId: req.user.id,
+          applicationId: applicationId || null,
+          amount,
+          currency,
+          txType: txType as TransactionType,
+          paymentMethod: paymentMethod as PaymentMethod,
+          transactionReference,
+          receiptUrl: receiptUrl || null,
+          status: 'Pending_Verification'
+        }
+      });
+    }
 
     return res.status(201).json({ message: 'Payment submitted for verification.', transaction });
   } catch (error: any) {
@@ -145,12 +170,25 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
       })
     ]);
 
-    // Flatten nested member relation for UI compatibility
-    const formattedTransactions = transactions.map(tx => ({
-      ...tx,
-      full_name: tx.member.fullName,
-      email: tx.member.email,
-      member: undefined
+    // Flatten nested member relation and fetch document file names
+    const formattedTransactions = await Promise.all(transactions.map(async tx => {
+      let receiptFileName = null;
+      if (tx.receiptUrl) {
+        const doc = await prisma.uploadedDocument.findUnique({
+          where: { id: tx.receiptUrl },
+          select: { fileName: true }
+        });
+        if (doc) {
+          receiptFileName = doc.fileName;
+        }
+      }
+      return {
+        ...tx,
+        full_name: tx.member.fullName,
+        email: tx.member.email,
+        member: undefined,
+        receiptFileName
+      };
     }));
 
     return res.status(200).json({

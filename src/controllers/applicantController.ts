@@ -16,7 +16,9 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             categoryName: true,
             processingFee: true,
             firstYearFee: true,
-            annualRenewalFee: true
+            annualRenewalFee: true,
+            requiredDocuments: true,
+            optionalDocuments: true
           }
         },
         educationRecords: true,
@@ -114,6 +116,31 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
 
     const memberProfile = app.member;
 
+    const categoryDocs = [
+      ...(Array.isArray(app.category.requiredDocuments) ? app.category.requiredDocuments as any[] : []),
+      ...(Array.isArray(app.category.optionalDocuments) ? app.category.optionalDocuments as any[] : [])
+    ];
+
+    const typeCounts: Record<string, number> = {};
+    const categoryDocsWithUid = categoryDocs.map(doc => {
+      const base = doc.typeCode || (doc.name ? doc.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : "unknown");
+      typeCounts[base] = (typeCounts[base] || 0) + 1;
+      const uid = typeCounts[base] > 1 ? `${base}_${typeCounts[base]}` : base;
+      return { ...doc, uid };
+    });
+
+    const mappedDocuments = app.uploadedDocuments.map((doc: any) => {
+      let docName = doc.documentType;
+      const matched = categoryDocsWithUid.find(c => c.uid === doc.documentType);
+      if (matched && matched.name) {
+        docName = matched.name;
+      }
+      return {
+        ...doc,
+        documentName: docName
+      };
+    });
+
     return res.status(200).json({
       profile: memberProfile,
       application: formattedApplication,
@@ -121,7 +148,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       employment: app.employmentRecords,
       shareholders: app.firmShareholders,
       mentorship: formattedMentorship,
-      documents: app.uploadedDocuments,
+      documents: mappedDocuments,
       financialTransactions: app.financialTransactions
     });
   } catch (error: any) {

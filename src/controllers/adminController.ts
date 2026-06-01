@@ -494,13 +494,38 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Cleared'
     };
 
+    const categoryDocs = [
+      ...((app.category?.requiredDocuments as Array<any>) || []),
+      ...((app.category?.optionalDocuments as Array<any>) || [])
+    ];
+
+    const typeCounts: Record<string, number> = {};
+    const categoryDocsWithUid = categoryDocs.map(doc => {
+      const base = doc.typeCode || (doc.name ? doc.name.toLowerCase().replace(/[^a-z0-9]/g, "_") : "unknown");
+      typeCounts[base] = (typeCounts[base] || 0) + 1;
+      const uid = typeCounts[base] > 1 ? `${base}_${typeCounts[base]}` : base;
+      return { ...doc, uid };
+    });
+
+    const mappedDocuments = app.uploadedDocuments.map((doc: any) => {
+      let docName = doc.documentType;
+      const matched = categoryDocsWithUid.find(c => c.uid === doc.documentType);
+      if (matched && matched.name) {
+        docName = matched.name;
+      }
+      return {
+        ...doc,
+        documentName: docName
+      };
+    });
+
     return res.status(200).json({
       application: formattedApplication,
       education: app.educationRecords,
       employment: app.employmentRecords,
       shareholders: app.firmShareholders,
       mentorship: app.mentorshipAssignment,
-      documents: app.uploadedDocuments,
+      documents: mappedDocuments,
       studentAssociation: app.studentAssociation,
       statusHistory: app.statusHistory
     });
