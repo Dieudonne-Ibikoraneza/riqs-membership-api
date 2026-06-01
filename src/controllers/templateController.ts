@@ -54,3 +54,16 @@ export const updateTemplate = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to update email template.' });
   }
 };
+
+export const deleteTemplate = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await prisma.emailTemplate.delete({
+      where: { id },
+    });
+    res.status(200).json({ message: 'Template deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting email template:', error);
+    res.status(500).json({ error: 'Failed to delete email template.' });
+  }
+};

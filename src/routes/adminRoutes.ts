@@ -354,7 +354,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
-router.post('/email/send', requireAuth, requireRoles(['admin']), sendAdminEmail);
+router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), sendAdminEmail);
 
 /**
  * @openapi
