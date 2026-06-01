@@ -9,7 +9,7 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
 
   const {
     applicationId, amount, currency, txType,
-    paymentMethod, transactionReference
+    paymentMethod, transactionReference, receiptUrl
   } = req.body;
 
   if (!amount || !currency || !txType || !paymentMethod || !transactionReference) {
@@ -35,6 +35,7 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
         txType: txType as TransactionType,
         paymentMethod: paymentMethod as PaymentMethod,
         transactionReference,
+        receiptUrl: receiptUrl || null,
         status: 'Pending_Verification'
       }
     });

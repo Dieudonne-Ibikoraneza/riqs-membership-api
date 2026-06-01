@@ -128,7 +128,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    if (isPayment && appWithCat?.category) {
+    if (isPayment && appWithCat?.category && req.body.skipTransaction !== 'true') {
       const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
         
         transactionOperations.push(
