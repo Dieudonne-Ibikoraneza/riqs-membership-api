@@ -605,7 +605,7 @@ export async function getAuditLogs(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
+  if (userRole !== 'admin') {
     return res.status(403).json({ error: 'Access Denied. Only Admins can view system audit logs.' });
   }
 
@@ -676,7 +676,7 @@ export async function updateSystemCategory(req: AuthenticatedRequest, res: Respo
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
+  if (userRole !== 'admin') {
     return res.status(403).json({ error: 'Access Denied. Only Admins can update system parameters.' });
   }
 
