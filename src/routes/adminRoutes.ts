@@ -316,7 +316,7 @@ router.post('/approver-decision', requireAuth, requireRoles(['admin', 'approver'
  *       200:
  *         description: Successfully fetched audit logs
  */
-router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
+router.get('/audit-logs', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getAuditLogs);
 
 /**
  * @openapi
@@ -355,7 +355,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  *       200:
  *         description: Category parameters updated successfully
  */
-router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
+router.put('/system/categories/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), updateSystemCategory);
 
 router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), upload.array('attachments'), sendAdminEmail);
 
@@ -368,7 +368,7 @@ router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'appr
  *     tags:
  *       - Administrative Dashboard
  */
-router.get('/staff', requireAuth, requireRoles(['admin']), getStaffMembers);
+router.get('/staff', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getStaffMembers);
 
 /**
  * @openapi
@@ -379,7 +379,7 @@ router.get('/staff', requireAuth, requireRoles(['admin']), getStaffMembers);
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/staff', requireAuth, requireRoles(['admin']), createStaffMember);
+router.post('/staff', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), createStaffMember);
 
 /**
  * @openapi
@@ -390,7 +390,7 @@ router.post('/staff', requireAuth, requireRoles(['admin']), createStaffMember);
  *     tags:
  *       - Administrative Dashboard
  */
-router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffMember);
+router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), lockStaffMember);
 
 /**
  * @openapi
@@ -401,6 +401,6 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
  *     tags:
  *       - Administrative Dashboard
  */
-router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
+router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), unlockStaffMember);
 
 export default router;

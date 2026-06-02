@@ -605,7 +605,7 @@ export async function getAuditLogs(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (userRole !== 'admin') {
+  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
     return res.status(403).json({ error: 'Access Denied. Only Admins can view system audit logs.' });
   }
 
@@ -676,7 +676,7 @@ export async function updateSystemCategory(req: AuthenticatedRequest, res: Respo
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (userRole !== 'admin') {
+  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
     return res.status(403).json({ error: 'Access Denied. Only Admins can update system parameters.' });
   }
 
@@ -830,7 +830,7 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (userRole !== 'admin') {
+  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
     return res.status(403).json({ error: 'Access Denied. Only Admins can send broadcast/custom emails.' });
   }
 
@@ -875,27 +875,48 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
 
       return res.status(200).json({ message: 'Email sent successfully.' });
 
-    } else if (recipientType === 'bulk') {
-      if (!groupFilter) {
-        return res.status(400).json({ error: 'Group filter is required for bulk mode.' });
+    } else if (recipientType === 'bulk' || recipientType === 'selected') {
+      let members: any[] = [];
+
+      if (recipientType === 'selected') {
+        const { memberIds } = req.body;
+        let ids: string[] = [];
+        try {
+          ids = typeof memberIds === 'string' ? JSON.parse(memberIds) : memberIds;
+        } catch (e) {
+          ids = memberIds;
+        }
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+          return res.status(400).json({ error: 'memberIds array is required for selected mode.' });
+        }
+
+        members = await prisma.member.findMany({
+          where: { id: { in: ids } },
+          select: { email: true, fullName: true }
+        });
+      } else {
+        if (!groupFilter) {
+          return res.status(400).json({ error: 'Group filter is required for bulk mode.' });
+        }
+
+        const whereClause: any = {
+          membershipId: { not: null }
+        };
+
+        if (groupFilter === 'active') {
+          // Active members in db (all approved)
+        } else if (groupFilter === 'mentorship') {
+          whereClause.mentorshipAssignment = { some: {} };
+        } else if (groupFilter === 'expired') {
+          whereClause.yearsInProfession = { gt: 10 }; // Simulation for expired
+        }
+
+        members = await prisma.member.findMany({
+          where: whereClause,
+          select: { email: true, fullName: true }
+        });
       }
-
-      const whereClause: any = {
-        membershipId: { not: null }
-      };
-
-      if (groupFilter === 'active') {
-        // Active members in db (all approved)
-      } else if (groupFilter === 'mentorship') {
-        whereClause.mentorshipAssignment = { some: {} };
-      } else if (groupFilter === 'expired') {
-        whereClause.yearsInProfession = { gt: 10 }; // Simulation for expired
-      }
-
-      const members = await prisma.member.findMany({
-        where: whereClause,
-        select: { email: true, fullName: true }
-      });
 
       if (members.length === 0) {
         return res.status(400).json({ error: 'No recipients found matching the filter.' });
