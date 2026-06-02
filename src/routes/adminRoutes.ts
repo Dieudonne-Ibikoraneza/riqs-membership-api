@@ -1,5 +1,8 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { requireAuth } from '../middleware/auth';
+
+const upload = multer({ storage: multer.memoryStorage() });
 import { requireRoles } from '../middleware/rbac';
 import {
   getReviewQueue, handleReviewDecision,
@@ -354,7 +357,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
-router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), sendAdminEmail);
+router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), upload.array('attachments'), sendAdminEmail);
 
 /**
  * @openapi

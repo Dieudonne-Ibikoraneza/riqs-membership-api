@@ -844,6 +844,13 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
     const smtpUser = process.env.SMTP_USER;
     const { transporter } = await import('../config/mailer');
 
+    const files = req.files as Express.Multer.File[];
+    const mailAttachments = files?.map(f => ({
+      filename: f.originalname,
+      content: f.buffer,
+      contentType: f.mimetype
+    })) || [];
+
     if (recipientType === 'single') {
       if (!recipientEmail) {
         return res.status(400).json({ error: 'Recipient email is required for single mode.' });
@@ -853,7 +860,8 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
         from: `"RIQS Registry Portal" <${smtpUser}>`,
         to: recipientEmail,
         subject,
-        html: body
+        html: body,
+        attachments: mailAttachments
       });
 
       // Log audit
@@ -899,7 +907,8 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
           from: `"RIQS Registry Portal" <${smtpUser}>`,
           to: member.email,
           subject,
-          html: body.replace(/\{\{name\}\}/g, member.fullName)
+          html: body.replace(/\{\{name\}\}/g, member.fullName),
+          attachments: mailAttachments
         }).catch(err => {
           console.error(`Failed to send email to ${member.email}:`, err.message);
         })
