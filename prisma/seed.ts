@@ -156,6 +156,53 @@ const templates = [
     subject: "Congratulations — RIQS Membership Category Advancement",
     description: "Congratulatory notice when a member is promoted to a higher category.",
     body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">We are thrilled to inform you that following a thorough review of your professional portfolio, practical experience records, and CPD achievements, the RIQS Assessment Committee has approved your <strong>category advancement</strong>.</p>\n<p class="mb-4"><strong>Promotion Details:</strong></p>\n<ul class="list-disc pl-5 mb-4 space-y-2">\n  <li><strong>Previous Category:</strong> Graduate Member (GRIQS)</li>\n  <li><strong>New Category:</strong> Technologist Member (TRIQS)</li>\n  <li><strong>Effective Date:</strong> 1st January 2027</li>\n</ul>\n<p class="mb-4">This promotion recognizes your dedication to professional development and your significant contributions to the Quantity Surveying profession. As a Technologist Member, you now have access to:</p>\n<ul class="list-disc pl-5 mb-4 space-y-2">\n  <li>Enhanced <strong>practicing rights</strong> for independent project engagement</li>\n  <li>Eligibility to <strong>mentor Graduate members</strong></li>\n  <li>Priority registration for <strong>advanced CPD workshops</strong></li>\n  <li>Voting rights at the <strong>Annual General Meeting</strong></li>\n</ul>\n<p class="mb-4">Your updated certificate and practicing license will be available for download in the Members Portal within 5 business days.</p>\n<p class="mb-4">Congratulations once again!</p>\n<p class="mb-4">Warm regards,<br/><strong>RIQS Council</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
+  },
+  {
+    id: "invoice_generated",
+    name: "New Invoice Generated",
+    category: "Billing",
+    subject: "New Invoice Available - RIQS Membership",
+    description: "Sent automatically when a new unpaid invoice is generated.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">New Invoice Available</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">A new invoice for <strong>{{txType}}</strong> has been generated on your RIQS account.</p>
+  
+  <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px; margin: 20px 0; border-radius: 6px;">
+    <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase;">Amount Due:</p>
+    <p style="margin: 8px 0 0 0; font-size: 24px; font-weight: 700; color: #1e3a8a;">{{currency}} {{amount}}</p>
+    <p style="margin: 8px 0 0 0; font-size: 13px; color: #64748b;">Reference: {{reference}}</p>
+  </div>
+  
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please log in to your Member Dashboard to view the invoice details and complete your payment securely.</p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    Finance Office, Rwanda Institute of Quantity Surveyors (RIQS).
+  </p>
+</div>`
+  },
+  {
+    id: "apc_scheduled",
+    name: "APC Board Scheduled",
+    category: "Assessment",
+    subject: "Your APC Board Assessment is Scheduled",
+    description: "Sent automatically when an admin schedules an APC board assessment.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">APC Board Scheduled</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your Assessment of Professional Competence (APC) Board review has been officially scheduled.</p>
+  
+  <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px; margin: 20px 0; border-radius: 6px;">
+    <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase;">Assessment Details:</p>
+    <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: 600; color: #1e3a8a;">Date: {{date}}</p>
+    <p style="margin: 8px 0 0 0; font-size: 15px; color: #334155;">Panel Chair: {{chair}}</p>
+    <p style="margin: 4px 0 0 0; font-size: 15px; color: #334155;">Examiners: {{examiner1}}, {{examiner2}}</p>
+  </div>
+  
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please ensure you arrive on time and have all necessary documentation prepared. Best of luck!</p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
+  </p>
+</div>`
   }
 ];
 
