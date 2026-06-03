@@ -166,6 +166,7 @@ model Application {
   apcAssessments        ApcAssessment[]
   statusHistory         ApplicationStatusHistory[]
   financialTransactions FinancialTransaction[]
+  logbookEntries        LogbookEntry[]
 
   @@map("applications")
 }
@@ -376,4 +377,34 @@ model DocumentType {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   @@map("document_types")
+}
+
+model Competency {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(255)
+  description String?  @db.Text
+  targetHours Int      @default(0) @map("target_hours")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  logbookEntries LogbookEntry[]
+
+  @@map("competencies")
+}
+
+model LogbookEntry {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId     String    @map("application_id") @db.Uuid
+  competencyId      String    @map("competency_id") @db.Uuid
+  date              DateTime  @db.Date
+  hoursCompleted    Decimal   @map("hours_completed") @db.Decimal(5, 2)
+  descriptionOfWork String    @map("description_of_work") @db.Text
+  supervisorName    String?   @map("supervisor_name") @db.VarChar(255)
+  status            String    @default("Pending_Approval") // Pending_Approval, Approved, Rejected
+  rejectionReason   String?   @map("rejection_reason") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  competency  Competency  @relation(fields: [competencyId], references: [id])
+
+  @@map("logbook_entries")
 }

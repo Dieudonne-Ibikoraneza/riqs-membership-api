@@ -411,9 +411,24 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
       }
     });
 
+    const competencies = await prisma.competency.findMany();
+    const totalTarget = competencies.reduce((acc, comp) => acc + comp.targetHours, 0);
+
+    const logbookEntries = await prisma.logbookEntry.findMany({
+      where: {
+        applicationId: { in: assignments.map(a => a.applicationId) },
+        status: "Approved"
+      }
+    });
+
     const formattedMentees = assignments.map(a => {
       const mentee = a.application.member;
       const recDoc = a.application.uploadedDocuments[0];
+      
+      const relatedLogs = logbookEntries.filter(e => e.applicationId === a.applicationId);
+      const totalCompleted = relatedLogs.reduce((acc, log) => acc + Number(log.hoursCompleted), 0);
+      const progress = totalTarget > 0 ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100)) : 0;
+
       return {
         id: a.id,
         applicationId: a.applicationId,
@@ -422,7 +437,7 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
         phone: mentee.phoneNumber,
         category: mentee.membershipClass || 'Graduate',
         joined: mentee.createdAt ? new Date(mentee.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
-        progress: a.completedDurationMonths ? Math.min(100, Math.round((a.completedDurationMonths / 24) * 100)) : 40,
+        progress,
         recommendationSent: !!recDoc,
         recommendationDocId: recDoc ? recDoc.id : null,
         recommendationFileName: recDoc ? recDoc.fileName : null
