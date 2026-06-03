@@ -9,7 +9,7 @@ import {
   handleReviewerAction, handleApproverDecision,
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
-  getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication,
+  getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember
 } from '../controllers/adminController';
 
@@ -206,6 +206,7 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
  *         description: Internal server error
  */
 router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getApcForApplication);
+router.get('/apc', requireAuth, requireRoles(['admin']), getAllApc);
 
 /**
  * @openapi

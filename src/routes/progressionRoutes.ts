@@ -7,7 +7,8 @@ import {
   gradeAPC,
   updateMemberProfile,
   getMentorshipProgress,
-  getMentees
+  getMentees,
+  requestAPC
 } from '../controllers/progressionController';
 
 const router = Router();
@@ -27,6 +28,22 @@ const router = Router();
  *         description: Internal server error
  */
 router.get('/apc/status', requireAuth, getAPCStatus);
+
+/**
+ * @openapi
+ * /api/v1/progression/apc/request:
+ *   post:
+ *     summary: Request an APC Upgrade (Graduate only)
+ *     description: Creates an ApcAssessment record with status 'Requested' for the Admin to schedule.
+ *     tags:
+ *       - Progression & APC
+ *     responses:
+ *       201:
+ *         description: APC Upgrade requested successfully
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/apc/request', requireAuth, requestAPC);
 
 /**
  * @openapi
