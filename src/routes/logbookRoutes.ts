@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 import {
   getCompetencies,
   submitLogbookEntry,
@@ -11,14 +11,14 @@ import {
 const router = Router();
 
 // Routes for both Mentor and Mentee
-router.get("/competencies", authenticate, getCompetencies);
-router.get("/:applicationId/entries", authenticate, getLogbookEntries);
-router.get("/:applicationId/progress", authenticate, getLogbookProgress);
+router.get("/competencies", requireAuth, getCompetencies);
+router.get("/:applicationId/entries", requireAuth, getLogbookEntries);
+router.get("/:applicationId/progress", requireAuth, getLogbookProgress);
 
 // Mentee routes
-router.post("/entry", authenticate, submitLogbookEntry);
+router.post("/entry", requireAuth, submitLogbookEntry);
 
 // Mentor routes
-router.patch("/entry/review", authenticate, reviewLogbookEntry);
+router.patch("/entry/review", requireAuth, reviewLogbookEntry);
 
 export default router;

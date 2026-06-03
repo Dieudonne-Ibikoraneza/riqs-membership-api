@@ -46,15 +46,15 @@ export const submitLogbookEntry = async (req: Request, res: Response) => {
         hoursCompleted: data.hoursCompleted,
         descriptionOfWork: data.descriptionOfWork,
         supervisorName: data.supervisorName,
-        status: "Approved" // Auto-approve for now until mentor UI is built
+        status: "Pending_Approval" // Require mentor verification
       }
     });
 
     res.status(201).json(logEntry);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error submitting logbook entry:", error);
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: "Validation failed", details: error.errors });
+      res.status(400).json({ error: "Validation failed", details: error.issues });
     } else {
       res.status(500).json({ error: "Failed to submit logbook entry" });
     }
