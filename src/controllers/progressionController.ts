@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
 import { ApcStatus, MemberClass } from '@prisma/client';
+import { transporter, sendMail } from '../config/mailer';
+import { getCertificateCode } from '../utils/membershipUtils';
 
 // 1. Fetch APC assessment tracking records
 export async function getAPCStatus(req: AuthenticatedRequest, res: Response) {
@@ -20,7 +22,51 @@ export async function getAPCStatus(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// 2. Schedule APC Assessment (Registers graduates for examinations)
+// 2. Request APC Upgrade (Graduate marks themselves ready)
+export async function requestAPC(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  try {
+    // Find the most recent approved application that does NOT already have a finalised APC
+    const app = await prisma.application.findFirst({
+      where: {
+        memberId: req.user.id,
+        status: 'Approved',
+        apcAssessments: {
+          none: { status: { in: ['Passed', 'Failed', 'No_Show'] } }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!app) {
+      return res.status(404).json({ error: 'No approved application found for this member. If you have already completed an APC for your current application, please submit a new application for the next membership tier.' });
+    }
+
+    const existing = await prisma.apcAssessment.findFirst({
+      where: { applicationId: app.id, status: { in: ['Requested', 'Scheduled'] } }
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: 'You already have an APC board requested or scheduled for this application.' });
+    }
+
+    const assessment = await prisma.apcAssessment.create({
+      data: {
+        memberId: req.user.id,
+        applicationId: app.id,
+        status: 'Requested'
+      }
+    });
+
+    return res.status(201).json({ message: 'APC Upgrade requested successfully.', assessment });
+  } catch (error: any) {
+    console.error('[Request APC] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error requesting APC.' });
+  }
+}
+
+// 3. Schedule APC Assessment (Registers graduates for examinations)
 export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
 
@@ -31,17 +77,51 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   }
 
   try {
-    const assessment = await prisma.apcAssessment.create({
-      data: {
-        memberId: req.user.id,
-        applicationId,
-        assessmentDate: new Date(assessmentDate),
-        panelChairName: panelChair || 'Board Chair TBD',
-        examiner1Name: examiner1 || 'Examiner 1 TBD',
-        examiner2Name: examiner2 || 'Examiner 2 TBD',
-        status: 'Scheduled'
-      }
+    const app = await prisma.application.findUnique({ where: { id: applicationId } });
+    if (!app) return res.status(404).json({ error: 'Application not found.' });
+
+    const existingReq = await prisma.apcAssessment.findFirst({
+      where: { applicationId, status: 'Requested' }
     });
+
+    let assessment;
+    if (existingReq) {
+      assessment = await prisma.apcAssessment.update({
+        where: { id: existingReq.id },
+        data: {
+          assessmentDate: new Date(assessmentDate),
+          panelChairName: panelChair || 'Board Chair TBD',
+          examiner1Name: examiner1 || 'Examiner 1 TBD',
+          examiner2Name: examiner2 || 'Examiner 2 TBD',
+          status: 'Scheduled',
+          updatedAt: new Date()
+        }
+      });
+    } else {
+      assessment = await prisma.apcAssessment.create({
+        data: {
+          memberId: app.memberId,
+          applicationId,
+          assessmentDate: new Date(assessmentDate),
+          panelChairName: panelChair || 'Board Chair TBD',
+          examiner1Name: examiner1 || 'Examiner 1 TBD',
+          examiner2Name: examiner2 || 'Examiner 2 TBD',
+          status: 'Scheduled'
+        }
+      });
+    }
+
+    const member = await prisma.member.findUnique({ where: { id: app.memberId } });
+    if (member) {
+      const formattedDate = new Date(assessmentDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      sendMail(member.email, 'apc_scheduled', {
+        name: member.fullName,
+        date: formattedDate,
+        chair: panelChair || 'TBD',
+        examiner1: examiner1 || 'TBD',
+        examiner2: examiner2 || 'TBD'
+      }).catch(console.error);
+    }
 
     return res.status(201).json({
       message: 'Assessment of Professional Competency (APC) board successfully scheduled.',
@@ -74,17 +154,35 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
   try {
     const apc = await prisma.apcAssessment.findUnique({
       where: { id: assessmentId },
-      include: { application: { include: { category: true } } }
+      include: { 
+        application: { include: { category: { select: { categoryCode: true, categoryName: true, stampFee: true, currency: true } } } },
+        member: true
+      }
     });
 
     if (!apc) return res.status(404).json({ error: 'APC assessment not found.' });
 
     let newClass: MemberClass | undefined = undefined;
+    let newMembershipId: string | undefined = undefined;
+    let newCertCode: string | undefined = undefined;
 
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
+      // Route 1 (GQST) → Technologist, Route 2+ (GQS/PQS/FPQS) → Professional
       newClass = 'Technologist';
       if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Professional';
+
+      // Determine the new certificate code based on new class
+      if (newClass === 'Technologist') newCertCode = 'TechQS';
+      else newCertCode = code === 'FPQS' ? 'PrQS' : 'PrQS';
+
+      // Generate a sequential membership ID under the new cert code
+      const currentYear = new Date().getFullYear();
+      const existingCount = await prisma.member.count({
+        where: { membershipId: { startsWith: `RIQS-${currentYear}-${newCertCode}-` } }
+      });
+      const paddedSequence = String(existingCount + 1).padStart(4, '0');
+      newMembershipId = `RIQS-${currentYear}-${newCertCode}-${paddedSequence}`;
     }
 
     const transactions: any[] = [
@@ -109,16 +207,75 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    if (newClass) {
+    if (newClass && newMembershipId) {
+      // Upgrade member class + issue new membership ID
       transactions.push(
         prisma.member.update({
           where: { id: apc.memberId },
-          data: { membershipClass: newClass, updatedAt: new Date() }
+          data: { membershipClass: newClass, membershipId: newMembershipId, updatedAt: new Date() }
+        })
+      );
+
+      // Create unpaid Stamp Fee invoice if applicable
+      const stampFeeAmount = apc.application.category.stampFee ?? 0;
+      if (Number(stampFeeAmount) > 0) {
+        transactions.push(
+          prisma.financialTransaction.create({
+            data: {
+              memberId: apc.memberId,
+              applicationId: apc.applicationId,
+              amount: stampFeeAmount,
+              currency: apc.application.category.currency || 'RWF',
+              txType: 'Stamp_Fee',
+              paymentMethod: 'Bank_Transfer',
+              transactionReference: `STAMP-${newMembershipId}-${Date.now()}`,
+              status: 'Unpaid',
+            }
+          })
+        );
+      }
+
+      // Audit the upgrade
+      transactions.push(
+        prisma.auditLog.create({
+          data: {
+            memberId: apc.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APC_UPGRADE',
+            details: `Membership upgraded to ${newClass}. New ID: ${newMembershipId}. Stamp fee invoice created.`
+          }
         })
       );
     }
 
-    const [updatedApc, _, __] = await prisma.$transaction(transactions);
+    const [updatedApc] = await prisma.$transaction(transactions);
+
+    // Send email notification for finalized results
+    if (['Passed', 'Failed'].includes(mappedStatus) && apc.member?.email) {
+      const emailSubject = `APC Assessment Result: ${mappedStatus}`;
+      const emailBody = `
+        <div style="font-family: sans-serif; color: #333;">
+          <h2>APC Assessment Results Published</h2>
+          <p>Dear ${apc.member.fullName},</p>
+          <p>The results for your recent APC board assessment have been finalized.</p>
+          <p><strong>Final Outcome:</strong> ${mappedStatus}</p>
+          ${scorePercentage ? `<p><strong>Score:</strong> ${scorePercentage}%</p>` : ''}
+          ${newClass ? `<p style="color: #059669; font-weight: bold;">Congratulations! Your membership class has been upgraded to ${newClass}.</p>` : ''}
+          ${newMembershipId ? `<p><strong>Your new Membership ID:</strong> ${newMembershipId}</p><p>A stamp fee invoice has been raised on your account. Please log in to your dashboard to complete payment.</p>` : ''}
+          <p>Please log in to your RIQS dashboard to view any specific feedback or notes from your examiners.</p>
+          <br/>
+          <p>Best regards,</p>
+          <p>RIQS Registration Board</p>
+        </div>
+      `;
+      
+      transporter.sendMail({
+        from: `"RIQS Registry Portal" <${process.env.SMTP_USER}>`,
+        to: apc.member.email,
+        subject: emailSubject,
+        html: emailBody
+      }).catch((err: any) => console.error("[Grade APC] Failed to send email:", err.message));
+    }
 
     return res.status(200).json({ message: `APC assessment graded: ${status}.`, assessment: updatedApc });
   } catch (error: any) {

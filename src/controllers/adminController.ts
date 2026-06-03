@@ -53,6 +53,8 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     } else if (view === 'all') {
       if (isApprover && !status) {
         whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected'] };
+      } else if (!status) {
+        whereClause.status = { not: 'Draft' };
       }
     } else {
       // Default fallback if view not provided (for backward compatibility)
@@ -77,6 +79,10 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
           uploadedDocuments: {
             where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
             take: 1
+          },
+          apcAssessments: {
+            where: { status: 'Requested' },
+            take: 1
           }
         }
       }),
@@ -86,6 +92,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     // Flatten to match existing SQL output shape for UI
     const formattedQueue = queue.map(app => ({
       id: app.id,
+      member_id: app.memberId,
       status: app.status,
       submitted_at: app.submittedAt,
       full_name: app.member.fullName,
@@ -93,7 +100,8 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       category_name: app.category.categoryName,
       location: app.category.location,
       reviewer: app.assignedReviewer?.fullName || 'Unassigned',
-      photoId: app.uploadedDocuments?.[0]?.id
+      photoId: app.uploadedDocuments?.[0]?.id,
+      apcRequested: (app as any).apcAssessments?.length > 0
     }));
 
     return res.status(200).json({
@@ -388,7 +396,7 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
       const generatedMembershipId = `RIQS-${currentYear}-${certCode}-${String(count + 1).padStart(4, '0')}`;
       const memberClass = deriveMemberClass(app.category.categoryCode);
 
-      await prisma.$transaction([
+      const txOps: any[] = [
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Approved', approvedAt: new Date(), updatedAt: new Date() } }),
         prisma.member.update({ where: { id: app.memberId }, data: { membershipId: generatedMembershipId, membershipClass: memberClass, updatedAt: new Date() } }),
         prisma.applicationStatusHistory.create({
@@ -396,22 +404,34 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
         }),
         prisma.auditLog.create({
           data: { memberId: app.memberId, actionByEmail: req.user.email, actionType: 'APPROVE', details: `Final approval. Membership ID: ${generatedMembershipId}` }
-        }),
-        prisma.financialTransaction.create({
-          data: {
-            memberId: app.memberId,
-            applicationId: applicationId,
-            amount: app.category.firstYearFee,
-            currency: (app.category.currency || 'RWF') as string,
-            txType: 'First_Year_Fee',
-            paymentMethod: 'Bank_Transfer', // Default placeholder
-            transactionReference: `INV-${generatedMembershipId}-${currentYear}`,
-            status: 'Unpaid'
-          }
         })
-      ]);
+      ];
+
+      if (app.category.firstYearFee && Number(app.category.firstYearFee) > 0) {
+        txOps.push(
+          prisma.financialTransaction.create({
+            data: {
+              memberId: app.memberId,
+              applicationId: applicationId,
+              amount: app.category.firstYearFee,
+              currency: (app.category.currency || 'RWF') as string,
+              txType: 'First_Year_Fee',
+              paymentMethod: 'Bank_Transfer',
+              transactionReference: `INV-${generatedMembershipId}-${currentYear}`,
+              status: 'Unpaid'
+            }
+          })
+        );
+      }
+
+      await prisma.$transaction(txOps);
 
       try { await sendMail(app.member.email, "approved", { name: app.member.fullName, membershipId: generatedMembershipId, category: app.category.categoryName }); } catch (e) {}
+      
+      if (app.category.firstYearFee && Number(app.category.firstYearFee) > 0) {
+        try { await sendMail(app.member.email, "invoice_generated", { name: app.member.fullName, txType: "First Year Membership Fee", amount: app.category.firstYearFee, currency: app.category.currency || 'RWF', reference: `INV-${generatedMembershipId}-${currentYear}` }); } catch (e) {}
+      }
+      
       return res.status(200).json({ message: 'Application approved. Membership ID issued.', membershipId: generatedMembershipId });
 
     } else if (action === 'Reject') {
@@ -668,6 +688,49 @@ export async function getApcForApplication(req: AuthenticatedRequest, res: Respo
   } catch (error: any) {
     console.error('[Get Admin APC] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching APC progression records.' });
+  }
+}
+
+// 8b. Get ALL APC Assessments (System-wide, for dedicated APC module)
+export async function getAllApc(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { status, page = 1, limit = 20 } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+  const take = Number(limit);
+
+  const whereClause: any = {};
+  if (status && status !== 'all') {
+    // Support comma-separated statuses e.g. "Passed,Failed,No_Show"
+    const statuses = String(status).split(',').map(s => s.trim());
+    whereClause.status = statuses.length === 1 ? statuses[0] : { in: statuses };
+  }
+
+  try {
+    const [assessments, total] = await Promise.all([
+      prisma.apcAssessment.findMany({
+        where: whereClause,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          member: { select: { fullName: true, email: true, membershipId: true, membershipClass: true } },
+          application: {
+            select: {
+              id: true,
+              category: { select: { categoryName: true, categoryCode: true, stampFee: true } },
+              uploadedDocuments: true
+            }
+          }
+        }
+      }),
+      prisma.apcAssessment.count({ where: whereClause })
+    ]);
+
+    return res.status(200).json({ assessments, pagination: { total, page: Number(page), limit: take } });
+  } catch (error: any) {
+    console.error('[Get All APC] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching all APC records.' });
   }
 }
 
