@@ -308,6 +308,94 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+// 4. Award Associate Class — Admin awards Associate membership after 2-year mentorship (no APC required)
+export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId } = req.body;
+  if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        member: true,
+        category: { select: { categoryCode: true, categoryName: true } }
+      }
+    });
+
+    if (!app) return res.status(404).json({ error: 'Application not found.' });
+    if (app.status !== 'Approved') return res.status(400).json({ error: 'Application must be Approved to award Associate class.' });
+
+    const code = app.category.categoryCode;
+    // Route 1 (GQST) → Associate QS Technologist (AQST)
+    // Route 2 (GQS)  → Associate Quantity Surveyor (AQS)
+    let targetCode: string;
+    let newClass: MemberClass;
+    if (code === 'GQST') { targetCode = 'AQST'; newClass = 'Associate'; }
+    else if (code === 'GQS') { targetCode = 'AQS'; newClass = 'Associate'; }
+    else return res.status(400).json({ error: `Associate class is only applicable to Route 1 (GQST) or Route 2 (GQS). Current category: ${code}` });
+
+    const targetCategory = await prisma.membershipCategory.findFirst({
+      where: { categoryCode: targetCode, entityType: 'Individual' }
+    });
+    if (!targetCategory) return res.status(500).json({ error: `Associate category (${targetCode}) not found in database. Please re-run seed.` });
+
+    // Generate new membership ID
+    const currentYear = new Date().getFullYear();
+    const existingCount = await prisma.member.count({
+      where: { membershipId: { startsWith: `RIQS-${currentYear}-${targetCode}-` } }
+    });
+    const paddedSeq = String(existingCount + 1).padStart(4, '0');
+    const newMembershipId = `RIQS-${currentYear}-${targetCode}-${paddedSeq}`;
+
+    await prisma.$transaction([
+      prisma.member.update({
+        where: { id: app.memberId },
+        data: { membershipClass: newClass, membershipId: newMembershipId, updatedAt: new Date() }
+      }),
+      prisma.application.update({
+        where: { id: applicationId },
+        data: { categoryId: targetCategory.id }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: app.memberId,
+          actionByEmail: req.user.email,
+          actionType: 'ASSOCIATE_AWARDED',
+          details: `Associate class awarded to ${app.member.email}. New ID: ${newMembershipId}. No APC required.`
+        }
+      })
+    ]);
+
+    // Email notification
+    transporter.sendMail({
+      from: `"RIQS Registry Portal" <${process.env.SMTP_USER}>`,
+      to: app.member.email,
+      subject: 'RIQS Membership Upgrade: Associate Class Awarded',
+      html: `
+        <div style="font-family: sans-serif; color: #333;">
+          <h2>Congratulations — Associate Membership Awarded</h2>
+          <p>Dear ${app.member.fullName},</p>
+          <p>We are pleased to inform you that upon review of your completed 2-year mentorship period, the RIQS Board has awarded you the <strong>${targetCategory.categoryName}</strong> membership class.</p>
+          <p><strong>Your New Membership ID:</strong> ${newMembershipId}</p>
+          <p>You may continue your professional journey by requesting an APC assessment at any time to upgrade to full Technologist or Professional membership.</p>
+          <br/><p>Best regards,</p><p>RIQS Registration Board</p>
+        </div>
+      `
+    }).catch((err: any) => console.error('[Award Associate] Failed to send email:', err.message));
+
+    return res.status(200).json({
+      message: `Associate class successfully awarded. New membership ID: ${newMembershipId}`,
+      membershipId: newMembershipId,
+      memberClass: newClass
+    });
+  } catch (error: any) {
+    console.error('[Award Associate] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error awarding Associate class.' });
+  }
+}
+
 // 4. Update Member Profile (Phase B editable fields: Full Name only — with mandatory audit)
 export async function updateMemberProfile(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });

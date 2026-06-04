@@ -280,6 +280,9 @@ async function main() {
     // Rwandan Individuals (Rwandan)
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist (Route 1)', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor (Route 2)', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
+    // Associate-class upgrade paths (awarded after 2-year mentorship without APC)
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist (Route 3)', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor (Route 4)', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
     // Non-Rwandan Individuals (Non_Rwandan)

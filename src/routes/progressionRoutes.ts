@@ -5,6 +5,7 @@ import {
   getAPCStatus,
   registerAPC,
   gradeAPC,
+  awardAssociate,
   updateMemberProfile,
   getMentorshipProgress,
   getMentees,
@@ -137,6 +138,38 @@ router.post('/apc/register', requireAuth, requireRoles(['admin']), registerAPC);
  *         description: Internal server error
  */
 router.post('/apc/grade', requireAuth, requireRoles(['admin']), gradeAPC);
+
+/**
+ * @openapi
+ * /api/v1/progression/associate/award:
+ *   post:
+ *     summary: Award Associate class to a Graduate after 2-year mentorship (Admin only)
+ *     description: Upgrades a Route 1 or Route 2 Graduate to Associate QS Technologist or Associate QS respectively, without requiring APC. Issues a new membership ID.
+ *     tags:
+ *       - Progression & APC
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - applicationId
+ *             properties:
+ *               applicationId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Associate class awarded and new membership ID issued
+ *       400:
+ *         description: Invalid category or application state
+ *       404:
+ *         description: Application not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/associate/award', requireAuth, requireRoles(['admin']), awardAssociate);
 
 /**
  * @openapi
