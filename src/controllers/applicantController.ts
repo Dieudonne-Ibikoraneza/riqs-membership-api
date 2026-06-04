@@ -478,6 +478,33 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       }
     }
 
+    const isRoute3Or4 = existingApp.category && 
+      (existingApp.category.categoryName.toLowerCase().includes('route 3') || 
+       existingApp.category.categoryName.toLowerCase().includes('route 4') ||
+       existingApp.category.categoryCode === 'QST' ||
+       existingApp.category.categoryCode === 'PQS');
+
+    // Route 3/4 Fee Bypass Logic
+    if (isRoute3Or4) {
+      const existingFee = await prisma.financialTransaction.findFirst({
+        where: { applicationId, txType: 'Processing_Fee' }
+      });
+      if (!existingFee) {
+        await prisma.financialTransaction.create({
+          data: {
+            memberId: existingApp.memberId,
+            applicationId: applicationId,
+            amount: 0,
+            currency: 'RWF',
+            txType: 'Processing_Fee',
+            paymentMethod: 'Bank_Transfer',
+            transactionReference: `AUTO-WAIVED-${Date.now()}`,
+            status: 'Cleared'
+          }
+        });
+      }
+    }
+
     const updatedApp = await prisma.application.update({
       where: { id: applicationId },
       data: {

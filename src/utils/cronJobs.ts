@@ -35,24 +35,60 @@ export function startCronJobs() {
     console.log('[Cron Jobs] Running annual renewal checks...');
     try {
       // Find all applications approved more than a year ago that haven't been renewed yet.
-      // (This is a structural placeholder for the Annual Report generation / notification logic)
+      const currentYear = new Date().getFullYear();
       const oneYearAgo = new Date();
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      oneYearAgo.setFullYear(currentYear - 1);
 
       const dueForRenewal = await prisma.application.findMany({
         where: {
           status: 'Approved',
           approvedAt: { lte: oneYearAgo }
         },
-        include: { member: true }
+        include: { member: true, category: true }
       });
 
       if (dueForRenewal.length > 0) {
         console.log(`[Cron Jobs] Found ${dueForRenewal.length} members due for annual renewal/reporting.`);
         for (const app of dueForRenewal) {
-          // TODO: Send email notification
-          // TODO: Generate AnnualReport requirement record
-          console.log(`[Cron Jobs] Triggering renewal requirement for member ${app.member.email}`);
+          // Check if an Annual_Renewal transaction exists for this member created in the current year
+          const existingTx = await prisma.financialTransaction.findFirst({
+            where: {
+              memberId: app.member.id,
+              txType: 'Annual_Renewal',
+              createdAt: {
+                gte: new Date(currentYear, 0, 1),
+                lt: new Date(currentYear + 1, 0, 1)
+              }
+            }
+          });
+
+          if (!existingTx && app.category?.annualRenewalFee) {
+            const feeAmount = app.category.annualRenewalFee;
+            const currency = app.category.currency || 'RWF';
+
+            await prisma.financialTransaction.create({
+              data: {
+                memberId: app.member.id,
+                applicationId: app.id,
+                amount: feeAmount,
+                currency: currency,
+                txType: 'Annual_Renewal',
+                paymentMethod: 'Bank_Transfer',
+                transactionReference: `RENEW-${app.member.membershipId || app.member.id.substring(0, 8)}-${currentYear}`,
+                status: 'Unpaid'
+              }
+            });
+
+            // Send Email Notification
+            const { sendMail } = require('./mailer');
+            sendMail(app.member.email, 'annual_renewal', {
+              name: app.member.fullName,
+              year: currentYear,
+              fee: `${feeAmount} ${currency}`
+            }).catch((err: any) => console.error('[Cron Jobs] Failed to send renewal email:', err.message));
+
+            console.log(`[Cron Jobs] Generated renewal invoice and sent notification to ${app.member.email}`);
+          }
         }
       } else {
         console.log('[Cron Jobs] No members due for annual renewal found.');

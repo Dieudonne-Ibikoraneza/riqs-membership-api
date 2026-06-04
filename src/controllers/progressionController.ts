@@ -185,6 +185,20 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       newMembershipId = `RIQS-${currentYear}-${newCertCode}-${paddedSequence}`;
     }
 
+    let targetCategory: any = null;
+    if (mappedStatus === 'Passed') {
+      const code = apc.application.category.categoryCode;
+      let targetCategoryCode = code;
+      if (code === 'GQST') targetCategoryCode = 'QST';
+      else if (code === 'GQS') targetCategoryCode = 'PQS';
+
+      if (targetCategoryCode !== code) {
+        targetCategory = await prisma.membershipCategory.findFirst({
+          where: { categoryCode: targetCategoryCode, entityType: 'Individual' }
+        });
+      }
+    }
+
     const transactions: any[] = [
       prisma.apcAssessment.update({
         where: { id: assessmentId },
@@ -215,6 +229,16 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
           data: { membershipClass: newClass, membershipId: newMembershipId, updatedAt: new Date() }
         })
       );
+
+      // Upgrade the application category so future renewals have the escalated fee
+      if (targetCategory) {
+        transactions.push(
+          prisma.application.update({
+            where: { id: apc.applicationId },
+            data: { categoryId: targetCategory.id }
+          })
+        );
+      }
 
       // Create unpaid Stamp Fee invoice if applicable
       const stampFeeAmount = apc.application.category.stampFee ?? 0;
