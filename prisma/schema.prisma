@@ -30,6 +30,7 @@ enum ApplicationStatus {
 
 enum MemberClass {
   Graduate
+  Associate
   Technologist
   Professional
   Firm_Local_Small
@@ -144,9 +145,17 @@ model Application {
   practiceLocation   PracticeLocation   @map("practice_location")
   entityType         EntityType         @map("entity_type")
   categoryId         String             @map("category_id") @db.Uuid
-  firmName           String?            @map("firm_name") @db.VarChar(255)
-  firmAddress        String?            @map("firm_address") @db.VarChar(255)
-  status             ApplicationStatus? @default(Draft)
+  firmName                      String?            @map("firm_name") @db.VarChar(255)
+  firmAddress                   String?            @map("firm_address") @db.VarChar(255)
+  firmContactRegistrationNumber String?            @map("firm_contact_registration_number") @db.VarChar(100)
+  firmContactResidence          String?            @map("firm_contact_residence") @db.VarChar(255)
+  firmMainBusinessActivity      String?            @map("firm_main_business_activity") @db.VarChar(255)
+  firmCountryOfIncorporation    String?            @map("firm_country_of_incorporation") @db.VarChar(100)
+  firmPrincipalPlaceOfBusiness  String?            @map("firm_principal_place_of_business") @db.VarChar(255)
+  agreedToMentorshipIntent      Boolean?           @default(false) @map("agreed_to_mentorship_intent")
+  agreedToDeclarations          Boolean?           @default(false) @map("agreed_to_declarations")
+  competenceSummary             Json?              @map("competence_summary")
+  status                        ApplicationStatus? @default(Draft)
   assignedReviewerId String?            @map("assigned_reviewer_id") @db.Uuid
   submittedAt        DateTime?          @map("submitted_at") @db.Timestamptz
   approvedAt         DateTime?          @map("approved_at") @db.Timestamptz

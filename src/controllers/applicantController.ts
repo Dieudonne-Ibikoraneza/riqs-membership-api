@@ -23,6 +23,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
         },
         educationRecords: true,
         employmentRecords: { orderBy: { startDate: 'desc' } },
+        studentAssociation: true,
         firmShareholders: true,
         mentorshipAssignment: true,
         uploadedDocuments: {
@@ -94,6 +95,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       category: undefined,
       educationRecords: undefined,
       employmentRecords: undefined,
+      studentAssociation: undefined,
       firmShareholders: undefined,
       mentorshipAssignment: undefined,
       uploadedDocuments: undefined,
@@ -107,10 +109,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       formattedMentorship = {
         ...app.mentorshipAssignment,
         options: app.mentorshipAssignment.preferredMentors || [],
-        preferredMentors: undefined,
-        isSelfAssigned: undefined,
-        requestedInstitutionalAssignment: undefined,
-        preferredPracticeAreas: undefined
+        preferredMentors: undefined
       };
     }
 
@@ -146,6 +145,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
       application: formattedApplication,
       education: app.educationRecords,
       employment: app.employmentRecords,
+      studentAssociation: app.studentAssociation,
       shareholders: app.firmShareholders,
       mentorship: formattedMentorship,
       documents: mappedDocuments,
@@ -176,7 +176,15 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     yearsInProfession,
     countryOfOrigin,
     firmName,
-    firmAddress
+    firmAddress,
+    firmContactRegistrationNumber,
+    firmContactResidence,
+    firmMainBusinessActivity,
+    firmCountryOfIncorporation,
+    firmPrincipalPlaceOfBusiness,
+    agreedToMentorshipIntent,
+    agreedToDeclarations,
+    competenceSummary
   } = req.body;
 
   if (!practiceLocation || !entityType || !categoryId) {
@@ -228,6 +236,14 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
             categoryId,
             firmName,
             firmAddress,
+            firmContactRegistrationNumber,
+            firmContactResidence,
+            firmMainBusinessActivity,
+            firmCountryOfIncorporation,
+            firmPrincipalPlaceOfBusiness,
+            agreedToMentorshipIntent: agreedToMentorshipIntent ?? existingApp.agreedToMentorshipIntent,
+            agreedToDeclarations: agreedToDeclarations ?? existingApp.agreedToDeclarations,
+            competenceSummary: competenceSummary ?? existingApp.competenceSummary,
             updatedAt: new Date()
           }
         })
@@ -263,6 +279,14 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         categoryId,
         firmName,
         firmAddress,
+        firmContactRegistrationNumber,
+        firmContactResidence,
+        firmMainBusinessActivity,
+        firmCountryOfIncorporation,
+        firmPrincipalPlaceOfBusiness,
+        agreedToMentorshipIntent: agreedToMentorshipIntent || false,
+        agreedToDeclarations: agreedToDeclarations || false,
+        competenceSummary: competenceSummary || null,
         status: 'Draft'
       }
     });
@@ -277,7 +301,40 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
   }
 }
 
-// 3. Upsert Shareholders - Bulk loads and checks for 100.00% exact shareholdings
+// 3. Upsert Student Association
+export async function upsertStudentAssociation(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId, associationName, membershipNumber, registrationDate, activeYears } = req.body;
+  if (!applicationId || !associationName || !membershipNumber || !registrationDate || activeYears === undefined) {
+    return res.status(400).json({ error: 'Missing student association parameters.' });
+  }
+
+  try {
+    const record = await prisma.studentAssociationRecord.upsert({
+      where: { applicationId },
+      update: {
+        associationName,
+        membershipNumber,
+        registrationDate: new Date(registrationDate),
+        activeYears: parseInt(activeYears, 10)
+      },
+      create: {
+        applicationId,
+        associationName,
+        membershipNumber,
+        registrationDate: new Date(registrationDate),
+        activeYears: parseInt(activeYears, 10)
+      }
+    });
+    return res.status(200).json({ message: 'Student association saved', studentAssociation: record });
+  } catch (error: any) {
+    console.error('[Upsert Student Association] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error saving student association.' });
+  }
+}
+
+// 4. Upsert Shareholders - Bulk loads and checks for 100.00% exact shareholdings
 export async function upsertShareholders(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
 

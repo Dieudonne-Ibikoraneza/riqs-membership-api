@@ -31,5 +31,34 @@ export function startCronJobs() {
     } catch (error: any) {
       console.error('[Cron Jobs] Error running account expiration job:', error.message);
     }
+
+    console.log('[Cron Jobs] Running annual renewal checks...');
+    try {
+      // Find all applications approved more than a year ago that haven't been renewed yet.
+      // (This is a structural placeholder for the Annual Report generation / notification logic)
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+      const dueForRenewal = await prisma.application.findMany({
+        where: {
+          status: 'Approved',
+          approvedAt: { lte: oneYearAgo }
+        },
+        include: { member: true }
+      });
+
+      if (dueForRenewal.length > 0) {
+        console.log(`[Cron Jobs] Found ${dueForRenewal.length} members due for annual renewal/reporting.`);
+        for (const app of dueForRenewal) {
+          // TODO: Send email notification
+          // TODO: Generate AnnualReport requirement record
+          console.log(`[Cron Jobs] Triggering renewal requirement for member ${app.member.email}`);
+        }
+      } else {
+        console.log('[Cron Jobs] No members due for annual renewal found.');
+      }
+    } catch (error: any) {
+      console.error('[Cron Jobs] Error running annual renewal job:', error.message);
+    }
   }, RUN_INTERVAL_MS);
 }

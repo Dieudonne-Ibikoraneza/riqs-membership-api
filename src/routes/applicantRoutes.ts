@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { getApplication, createOrUpdateApplication, upsertShareholders, submitApplication } from '../controllers/applicantController';
+import { getApplication, createOrUpdateApplication, upsertShareholders, upsertStudentAssociation, submitApplication } from '../controllers/applicantController';
 
 const router = Router();
 
@@ -61,6 +61,20 @@ router.get('/profile', requireAuth, getApplication);
  *         description: Internal server error
  */
 router.patch('/application', requireAuth, createOrUpdateApplication);
+
+/**
+ * @openapi
+ * /api/v1/applicants/student-association:
+ *   put:
+ *     summary: Upsert Student Association Record
+ *     description: Saves or updates the student association details for Route 1 and Route 2 applicants.
+ *     tags:
+ *       - Applicant Portal
+ *     responses:
+ *       200:
+ *         description: Successfully saved
+ */
+router.put('/student-association', requireAuth, upsertStudentAssociation);
 
 /**
  * @openapi
