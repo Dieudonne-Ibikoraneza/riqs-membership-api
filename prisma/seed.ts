@@ -212,7 +212,9 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
   
   if (draft.entityType === "Individual") {
     if (draft.location === "Rwandan") {
-      if (catName.includes("Graduate")) {
+      if (catName.includes("Associate")) {
+        // Associate categories are system placeholders. No application documents required.
+      } else if (catName.includes("Graduate")) {
         list.push({ name: "Notarized Degree/Diploma (HEC equivalency if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects (Optional)", typeCode: "transcript" });
         list.push({ name: "Certificate of RQSSA (or equivalent student membership proof)", typeCode: "student_association" });
@@ -425,6 +427,8 @@ async function main() {
     await prisma.documentType.create({ data: bucket });
   }
   console.log(`Seeded ${documentTypeBuckets.length} document type buckets.`);
+
+
 
   for (const t of templates) {
     await prisma.emailTemplate.upsert({
