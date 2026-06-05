@@ -1,103 +1,53 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { supabaseAdmin } from "../config/db";
+import { AuthenticatedRequest } from "../middleware/auth";
 
 const prisma = new PrismaClient();
 
-export const createCompetency = async (req: Request, res: Response) => {
-  try {
-    const { name, description, targetHours } = req.body;
-    if (!name || targetHours == null) {
-      return res.status(400).json({ error: 'Name and targetHours are required' });
-    }
-    const competency = await prisma.competency.create({
-      data: { name, description, targetHours: parseInt(targetHours, 10) }
-    });
-    res.status(201).json(competency);
-  } catch (error: any) {
-    console.error('Error creating competency:', error);
-    if (error.code === 'P2002') return res.status(400).json({ error: 'Competency name must be unique' });
-    res.status(500).json({ error: 'Failed to create competency' });
-  }
-};
-
-export const updateCompetency = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { name, description, targetHours } = req.body;
-    const competency = await prisma.competency.update({
-      where: { id },
-      data: { name, description, targetHours: parseInt(targetHours, 10) }
-    });
-    res.json(competency);
-  } catch (error: any) {
-    console.error('Error updating competency:', error);
-    if (error.code === 'P2025') return res.status(404).json({ error: 'Competency not found' });
-    if (error.code === 'P2002') return res.status(400).json({ error: 'Competency name must be unique' });
-    res.status(500).json({ error: 'Failed to update competency' });
-  }
-};
-
-export const deleteCompetency = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    // Check if logbook entries exist
-    const count = await prisma.logbookEntry.count({ where: { competencyId: id } });
-    if (count > 0) {
-      return res.status(400).json({ error: 'Cannot delete competency because it is referenced by existing logbook entries.' });
-    }
-    await prisma.competency.delete({ where: { id } });
-    res.json({ message: 'Competency deleted successfully' });
-  } catch (error: any) {
-    console.error('Error deleting competency:', error);
-    if (error.code === 'P2025') return res.status(404).json({ error: 'Competency not found' });
-    res.status(500).json({ error: 'Failed to delete competency' });
-  }
-};
-
-export const getCompetencies = async (req: Request, res: Response) => {
-  try {
-    const competencies = await prisma.competency.findMany({
-      orderBy: { name: "asc" }
-    });
-    res.json(competencies);
-  } catch (error) {
-    console.error("Error fetching competencies:", error);
-    res.status(500).json({ error: "Failed to fetch competencies" });
-  }
-};
-
 const submitLogSchema = z.object({
   applicationId: z.string().uuid(),
-  competencyId: z.string().uuid(),
-  date: z.string().datetime(),
-  hoursCompleted: z.number().positive(),
-  descriptionOfWork: z.string().min(10),
-  supervisorName: z.string().optional()
+  period: z.string().min(1)
 });
 
-export const submitLogbookEntry = async (req: Request, res: Response) => {
+export const submitLogbookEntry = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (!req.file || !req.user) {
+      return res.status(400).json({ error: "Access Denied. File payload is missing." });
+    }
+
     const data = submitLogSchema.parse(req.body);
 
-    // Verify the application belongs to the user
     const app = await prisma.application.findUnique({
       where: { id: data.applicationId }
     });
 
-    if (!app || app.memberId !== (req as any).user.id) {
+    if (!app || app.memberId !== req.user.id) {
       return res.status(403).json({ error: "Unauthorized access to application logbook" });
+    }
+
+    const file = req.file;
+    const uniqueName = `logbook_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
+    const filePath = `applications/${data.applicationId}/${uniqueName}`;
+
+    const { error: storageError } = await supabaseAdmin.storage
+      .from("riqs-membership")
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: "3600",
+        upsert: true
+      });
+
+    if (storageError) {
+      return res.status(500).json({ error: `Storage upload failure: ${storageError.message}` });
     }
 
     const logEntry = await prisma.logbookEntry.create({
       data: {
         applicationId: data.applicationId,
-        competencyId: data.competencyId,
-        date: new Date(data.date),
-        hoursCompleted: data.hoursCompleted,
-        descriptionOfWork: data.descriptionOfWork,
-        supervisorName: data.supervisorName,
-        status: "Pending_Approval" // Require mentor verification
+        period: data.period,
+        documentUrl: filePath
       }
     });
 
@@ -118,8 +68,7 @@ export const getLogbookEntries = async (req: Request, res: Response) => {
 
     const entries = await prisma.logbookEntry.findMany({
       where: { applicationId },
-      include: { competency: true },
-      orderBy: { date: "desc" }
+      orderBy: { createdAt: "desc" }
     });
 
     res.json(entries);
@@ -129,73 +78,180 @@ export const getLogbookEntries = async (req: Request, res: Response) => {
   }
 };
 
-export const getLogbookProgress = async (req: Request, res: Response) => {
+export const getMentorshipProgress = async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
 
+    const assignment = await prisma.mentorshipAssignment.findUnique({
+      where: { applicationId }
+    });
+    
     const entries = await prisma.logbookEntry.findMany({
-      where: { 
-        applicationId,
-        status: "Approved"
-      },
-      include: { competency: true }
+      where: { applicationId }
     });
-
-    const competencies = await prisma.competency.findMany();
-
-    const progressMap = competencies.map(comp => {
-      const relatedLogs = entries.filter(e => e.competencyId === comp.id);
-      const totalHours = relatedLogs.reduce((acc, log) => acc + Number(log.hoursCompleted), 0);
-      const percentage = comp.targetHours > 0 ? Math.min(100, Math.round((totalHours / comp.targetHours) * 100)) : 0;
-      
-      return {
-        competencyId: comp.id,
-        name: comp.name,
-        targetHours: comp.targetHours,
-        completedHours: totalHours,
-        percentage
-      };
-    });
-
-    // Also calculate overall progress, capping each competency to its target hours so over-logging doesn't artificially inflate overall completion
-    const totalTarget = competencies.reduce((acc, comp) => acc + comp.targetHours, 0);
-    const totalCompleted = progressMap.reduce((acc, p) => acc + Math.min(p.completedHours, p.targetHours), 0);
-    const overallProgress = totalTarget > 0 ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100)) : 0;
 
     res.json({
-      overallProgress,
-      competencies: progressMap
+      assignment,
+      entriesCount: entries.length,
+      entries
     });
   } catch (error) {
-    console.error("Error calculating logbook progress:", error);
-    res.status(500).json({ error: "Failed to calculate progress" });
+    console.error("Error fetching mentorship progress:", error);
+    res.status(500).json({ error: "Failed to fetch progress" });
   }
 };
 
-const reviewLogSchema = z.object({
-  entryId: z.string().uuid(),
-  status: z.enum(["Approved", "Rejected"]),
-  rejectionReason: z.string().optional()
+const uploadReportSchema = z.object({
+  applicationId: z.string().uuid(),
+  year: z.enum(["1", "2"])
 });
 
-export const reviewLogbookEntry = async (req: Request, res: Response) => {
+export const uploadAnnualReport = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const data = reviewLogSchema.parse(req.body);
+    if (!req.file || !req.user) {
+      return res.status(400).json({ error: "Access Denied. File is missing." });
+    }
 
-    // Ideally, we'd verify the logged-in user is the assigned mentor here,
-    // but for now we'll allow anyone with the "Reviewer" or "Mentor" role.
-    
-    const entry = await prisma.logbookEntry.update({
-      where: { id: data.entryId },
+    const data = uploadReportSchema.parse(req.body);
+    const file = req.file;
+    const uniqueName = `annual_report_year_${data.year}_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
+    const filePath = `applications/${data.applicationId}/${uniqueName}`;
+
+    const { error: storageError } = await supabaseAdmin.storage
+      .from("riqs-membership")
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: true
+      });
+
+    if (storageError) throw storageError;
+
+    const updated = await prisma.mentorshipAssignment.update({
+      where: { applicationId: data.applicationId },
       data: {
-        status: data.status,
-        rejectionReason: data.status === "Rejected" ? data.rejectionReason : null
+        ...(data.year === "1" ? { yearOneReportUrl: filePath } : { yearTwoReportUrl: filePath })
       }
     });
 
-    res.json(entry);
+    res.json(updated);
   } catch (error) {
-    console.error("Error reviewing logbook entry:", error);
-    res.status(500).json({ error: "Failed to review logbook entry" });
+    console.error("Error uploading annual report:", error);
+    res.status(500).json({ error: "Failed to upload report" });
   }
 };
+
+const requestUpgradeSchema = z.object({
+  applicationId: z.string().uuid(),
+  apcReadiness: z.enum(["Ready", "Not_Ready"])
+});
+
+export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = requestUpgradeSchema.parse(req.body);
+    
+    const assignment = await prisma.mentorshipAssignment.findUnique({ where: { applicationId: data.applicationId }});
+    const hasRecommendation = !!assignment?.mentorRecommendationUrl;
+
+    const updated = await prisma.mentorshipAssignment.update({
+      where: { applicationId: data.applicationId },
+      data: {
+        upgradeRequested: true,
+        apcReadiness: data.apcReadiness,
+        status: hasRecommendation ? "Pending_Admin_Review" : "Pending_Mentor"
+      }
+    });
+    
+    res.json(updated);
+  } catch (error) {
+    console.error("Error requesting upgrade:", error);
+    res.status(500).json({ error: "Failed to request upgrade" });
+  }
+};
+
+const submitMentorRecSchema = z.object({
+  applicationId: z.string().uuid(),
+  mentorNotes: z.string().optional()
+});
+
+export const submitMentorRecommendation = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Recommendation letter is missing." });
+    }
+    
+    const data = submitMentorRecSchema.parse(req.body);
+    const file = req.file;
+    const uniqueName = `mentor_rec_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
+    const filePath = `applications/${data.applicationId}/${uniqueName}`;
+
+    const { error: storageError } = await supabaseAdmin.storage
+      .from("riqs-membership")
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: true
+      });
+
+    if (storageError) throw storageError;
+
+    const assignment = await prisma.mentorshipAssignment.findUnique({ where: { applicationId: data.applicationId }});
+    const hasRequested = !!assignment?.upgradeRequested;
+
+    const updated = await prisma.mentorshipAssignment.update({
+      where: { applicationId: data.applicationId },
+      data: {
+        mentorRecommendationUrl: filePath,
+        mentorNotes: data.mentorNotes,
+        status: hasRequested ? "Pending_Admin_Review" : "In_Progress"
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error("Error submitting recommendation:", error);
+    res.status(500).json({ error: "Failed to submit recommendation" });
+  }
+};
+
+const adminReviewSchema = z.object({
+  status: z.enum(["Approved", "Rejected"]),
+  adminNotes: z.string().optional()
+});
+
+export const adminReviewUpgrade = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { applicationId } = req.params;
+    const data = adminReviewSchema.parse(req.body);
+
+    const assignment = await prisma.mentorshipAssignment.update({
+      where: { applicationId },
+      data: {
+        status: data.status,
+        adminNotes: data.adminNotes,
+        completedDurationMonths: data.status === "Approved" ? 24 : 0,
+        // On rejection, reset upgradeRequested so the graduate can re-apply after correction
+        upgradeRequested: data.status === "Rejected" ? false : undefined,
+      }
+    });
+    
+    if (data.status === "Approved") {
+      const app = await prisma.application.findUnique({ where: { id: applicationId }});
+      if (assignment.apcReadiness === "Ready" && app) {
+        // Schedule APC
+        await prisma.apcAssessment.create({
+          data: {
+            applicationId: app.id,
+            memberId: app.memberId,
+            status: "Requested"
+          }
+        });
+      }
+      // If not ready, stays Approved for Mentorship but doesn't schedule APC.
+    }
+
+    res.json(assignment);
+  } catch (error) {
+    console.error("Error in admin review:", error);
+    res.status(500).json({ error: "Failed to review upgrade" });
+  }
+};
+

@@ -528,26 +528,17 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
       }
     });
 
-    const competencies = await prisma.competency.findMany();
-    const totalTarget = competencies.reduce((acc, comp) => acc + comp.targetHours, 0);
 
     const logbookEntries = await prisma.logbookEntry.findMany({
       where: {
-        applicationId: { in: assignments.map(a => a.applicationId) },
-        status: { in: ["Approved", "Pending_Approval"] }
+        applicationId: { in: assignments.map(a => a.applicationId) }
       }
     });
 
     const formattedMentees = assignments.map(a => {
       const mentee = a.application.member;
-      const recDoc = a.application.uploadedDocuments[0];
-      
       const relatedLogs = logbookEntries.filter(e => e.applicationId === a.applicationId);
-      const approvedLogs = relatedLogs.filter(e => e.status === "Approved");
-      const pendingLogs = relatedLogs.filter(e => e.status === "Pending_Approval");
-
-      const totalCompleted = approvedLogs.reduce((acc, log) => acc + Number(log.hoursCompleted), 0);
-      const progress = totalTarget > 0 ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100)) : 0;
+      const progress = Math.min(100, Math.round((relatedLogs.length / 4) * 100));
 
       return {
         id: a.id,
@@ -558,10 +549,13 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
         category: mentee.membershipClass || 'Graduate',
         joined: mentee.createdAt ? new Date(mentee.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A',
         progress,
-        pendingLogsCount: pendingLogs.length,
-        recommendationSent: !!recDoc,
-        recommendationDocId: recDoc ? recDoc.id : null,
-        recommendationFileName: recDoc ? recDoc.fileName : null
+        entriesCount: relatedLogs.length,
+        upgradeRequested: a.upgradeRequested,
+        apcReadiness: a.apcReadiness,
+        assignmentStatus: a.status,
+        yearOneReportUrl: a.yearOneReportUrl,
+        yearTwoReportUrl: a.yearTwoReportUrl,
+        mentorRecommendationUrl: a.mentorRecommendationUrl
       };
     });
 

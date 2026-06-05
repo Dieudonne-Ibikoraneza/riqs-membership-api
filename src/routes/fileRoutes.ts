@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { sanitizeUpload } from '../middleware/sanitizer';
-import { uploadFile, downloadFile, deleteFileByType } from '../controllers/fileController';
+import { uploadFile, downloadFile, downloadByUrl, deleteFileByType } from '../controllers/fileController';
 
 const router = Router();
 
@@ -75,6 +75,7 @@ router.post('/upload', requireAuth, sanitizeUpload, uploadFile);
  *       500:
  *         description: Internal streaming failure
  */
+router.get('/downloadByUrl', requireAuth, downloadByUrl);
 router.get('/download/:fileId', requireAuth, downloadFile);
 
 router.delete('/type/:applicationId/:documentType', requireAuth, deleteFileByType);

@@ -292,3 +292,41 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
     return res.status(500).json({ error: 'Internal server error deleting document.' });
   }
 }
+
+export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Access Denied. Active session required.' });
+  }
+
+  const { url } = req.query;
+
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid url query parameter.' });
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.storage
+      .from('riqs-membership')
+      .download(url);
+
+    if (error || !data) {
+      console.error('[Supabase Storage Download Error]:', error?.message);
+      return res.status(500).json({ error: 'Unable to stream binary object from private storage.' });
+    }
+
+    const arrayBuffer = await data.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    let contentType = 'application/octet-stream';
+    if (url.toLowerCase().endsWith('.pdf')) contentType = 'application/pdf';
+    else if (url.toLowerCase().endsWith('.png')) contentType = 'image/png';
+    else if (url.toLowerCase().endsWith('.jpg') || url.toLowerCase().endsWith('.jpeg')) contentType = 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${url.split('/').pop()}"`);
+    return res.send(buffer);
+  } catch (error: any) {
+    console.error('[File Controller DownloadByUrl] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error streaming document buffer.' });
+  }
+}
