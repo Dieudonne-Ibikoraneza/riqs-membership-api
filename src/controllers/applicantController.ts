@@ -185,7 +185,8 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     agreedToMentorshipIntent,
     agreedToDeclarations,
     competenceSummary,
-    studentAssociation
+    studentAssociation,
+    currentStep
   } = req.body;
 
   if (!practiceLocation || !entityType || !categoryId) {
@@ -245,6 +246,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
             agreedToMentorshipIntent: agreedToMentorshipIntent ?? existingApp.agreedToMentorshipIntent,
             agreedToDeclarations: agreedToDeclarations ?? existingApp.agreedToDeclarations,
             competenceSummary: competenceSummary ?? existingApp.competenceSummary,
+            currentStep: currentStep !== undefined ? currentStep : existingApp.currentStep,
             updatedAt: new Date()
           }
         })
@@ -309,6 +311,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         agreedToMentorshipIntent: agreedToMentorshipIntent || false,
         agreedToDeclarations: agreedToDeclarations || false,
         competenceSummary: competenceSummary || null,
+        currentStep: currentStep || 0,
         status: 'Draft'
       }
     });
@@ -452,31 +455,33 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
     const isGraduate = existingApp.category && existingApp.entityType === 'Individual' && existingApp.category.categoryName.toLowerCase().includes('graduate');
     if (!mentorship && isGraduate) {
       mentorship = await prisma.mentorshipAssignment.create({
-        data: { applicationId, preferredMentors: [] }
+        data: { applicationId, preferredMentors: [], isSelfAssigned: false, requestedInstitutionalAssignment: true }
       });
     }
 
-    if (mentorship) {
-      let assignedMentor: any = null;
-
-      // 1. Check preferred mentors if provided
-      if (mentorship.preferredMentors && Array.isArray(mentorship.preferredMentors)) {
-        for (const pref of mentorship.preferredMentors as any[]) {
-          if (pref.regNumber) {
-            const currentLoad = await prisma.mentorshipAssignment.count({
-              where: { mentorRegistrationNumber: pref.regNumber }
-            });
-            if (currentLoad < 5) {
-              assignedMentor = {
-                regNumber: pref.regNumber,
-                name: pref.name || null,
-                contact: pref.contact || null
-              };
-              break;
+      if (mentorship) {
+        let assignedMentor: any = null;
+        let wasPreferredMentorAssigned = false;
+  
+        // 1. Check preferred mentors if provided
+        if (mentorship.preferredMentors && Array.isArray(mentorship.preferredMentors)) {
+          for (const pref of mentorship.preferredMentors as any[]) {
+            if (pref.regNumber) {
+              const currentLoad = await prisma.mentorshipAssignment.count({
+                where: { mentorRegistrationNumber: pref.regNumber }
+              });
+              if (currentLoad < 5) {
+                assignedMentor = {
+                  regNumber: pref.regNumber,
+                  name: pref.name || null,
+                  contact: pref.contact || null
+                };
+                wasPreferredMentorAssigned = true;
+                break;
+              }
             }
           }
         }
-      }
 
       // 2. Fallback: Auto-assign if no preferences were available
       if (!assignedMentor) {
@@ -499,17 +504,18 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
         }
       }
 
-      // Update mentorship record with final assignment
-      if (assignedMentor) {
-        await prisma.mentorshipAssignment.update({
-          where: { id: mentorship.id },
-          data: {
-            mentorRegistrationNumber: assignedMentor.regNumber,
-            mentorName: assignedMentor.name,
-            mentorContact: assignedMentor.contact
-          }
-        });
-      }
+        // Update mentorship record with final assignment
+        if (assignedMentor) {
+          await prisma.mentorshipAssignment.update({
+            where: { id: mentorship.id },
+            data: {
+              mentorRegistrationNumber: assignedMentor.regNumber,
+              mentorName: assignedMentor.name,
+              mentorContact: assignedMentor.contact,
+              isSelfAssigned: wasPreferredMentorAssigned
+            }
+          });
+        }
     }
 
     const isRoute3Or4 = existingApp.category && 

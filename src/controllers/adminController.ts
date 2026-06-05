@@ -38,15 +38,28 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       if (isApprover) {
         if (!status) whereClause.status = 'Pending_Approval';
       } else {
-        if (!status) whereClause.status = 'Pending';
-        whereClause.assignedReviewerId = null;
+        if (!status) {
+          whereClause.OR = [
+            { status: 'Pending' },
+            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
+          ];
+          whereClause.assignedReviewerId = null;
+        } else {
+          whereClause.status = status;
+          whereClause.assignedReviewerId = null;
+        }
       }
     } else if (view === 'assigned') {
       if (isApprover) {
         whereClause.assignedReviewerId = '00000000-0000-0000-0000-000000000000';
       } else {
         if (!status) {
-          whereClause.status = { in: ['Pending', 'Under_Review', 'Correction_Required'] };
+          whereClause.OR = [
+            { status: { in: ['Pending', 'Under_Review', 'Correction_Required'] } },
+            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
+          ];
+        } else {
+          whereClause.status = status;
         }
         whereClause.assignedReviewerId = req.user?.id;
       }
@@ -61,8 +74,16 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       if (isApprover) {
         if (!status) whereClause.status = 'Pending_Approval';
       } else {
-        if (!status) whereClause.status = 'Pending';
-        whereClause.assignedReviewerId = null;
+        if (!status) {
+          whereClause.OR = [
+            { status: 'Pending' },
+            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
+          ];
+          whereClause.assignedReviewerId = null;
+        } else {
+          whereClause.status = status;
+          whereClause.assignedReviewerId = null;
+        }
       }
     }
 
@@ -76,6 +97,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
           member: { select: { fullName: true, email: true } },
           category: { select: { categoryName: true, location: true } },
           assignedReviewer: { select: { fullName: true } },
+          mentorshipAssignment: true,
           uploadedDocuments: {
             where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
             take: 1
@@ -93,7 +115,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     const formattedQueue = queue.map(app => ({
       id: app.id,
       member_id: app.memberId,
-      status: app.status,
+      status: app.mentorshipAssignment?.status === 'Pending_Admin_Review' ? 'Mentorship_Upgrade' : app.status,
       submitted_at: app.submittedAt,
       full_name: app.member.fullName,
       email: app.member.email,
@@ -482,6 +504,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         mentorshipAssignment: true,
         uploadedDocuments: true,
         studentAssociation: true,
+        logbookEntries: { orderBy: { createdAt: 'desc' } },
         statusHistory: { orderBy: { createdAt: 'desc' } },
         financialTransactions: {
           where: { txType: 'Processing_Fee' },
@@ -519,7 +542,9 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       currency: app.category.currency,
       location: app.category.location,
       cat_entity_type: app.category.entityType,
-      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Cleared'
+      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Cleared',
+      processing_fee_tx_id: app.financialTransactions?.[0]?.id || null,
+      processing_fee_status: app.financialTransactions?.[0]?.status || null
     };
 
     const categoryDocs = [
@@ -555,6 +580,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       mentorship: app.mentorshipAssignment,
       documents: mappedDocuments,
       studentAssociation: app.studentAssociation,
+      logbookEntries: app.logbookEntries,
       statusHistory: app.statusHistory
     });
   } catch (error: any) {

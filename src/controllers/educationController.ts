@@ -222,6 +222,9 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
       mentorData.mentorContact = filledOptions[0].contact || null;
     }
 
+    const isSelfAssigned = filledOptions.length > 0;
+    const requestedInstitutionalAssignment = filledOptions.length === 0;
+
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
@@ -232,7 +235,9 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
         mentorContact: mentorData.mentorContact,
         mentorQualification: null,
         mentorClass: null,
-        mentorEmployer: null
+        mentorEmployer: null,
+        isSelfAssigned,
+        requestedInstitutionalAssignment
       },
       create: {
         applicationId,
@@ -241,6 +246,8 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
         mentorRegistrationNumber: mentorData.mentorRegistrationNumber,
         mentorName: mentorData.mentorName,
         mentorContact: mentorData.mentorContact,
+        isSelfAssigned,
+        requestedInstitutionalAssignment
       }
     });
 
