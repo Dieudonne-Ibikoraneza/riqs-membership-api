@@ -4,6 +4,57 @@ import { z } from "zod";
 
 const prisma = new PrismaClient();
 
+export const createCompetency = async (req: Request, res: Response) => {
+  try {
+    const { name, description, targetHours } = req.body;
+    if (!name || targetHours == null) {
+      return res.status(400).json({ error: 'Name and targetHours are required' });
+    }
+    const competency = await prisma.competency.create({
+      data: { name, description, targetHours: parseInt(targetHours, 10) }
+    });
+    res.status(201).json(competency);
+  } catch (error: any) {
+    console.error('Error creating competency:', error);
+    if (error.code === 'P2002') return res.status(400).json({ error: 'Competency name must be unique' });
+    res.status(500).json({ error: 'Failed to create competency' });
+  }
+};
+
+export const updateCompetency = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, targetHours } = req.body;
+    const competency = await prisma.competency.update({
+      where: { id },
+      data: { name, description, targetHours: parseInt(targetHours, 10) }
+    });
+    res.json(competency);
+  } catch (error: any) {
+    console.error('Error updating competency:', error);
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Competency not found' });
+    if (error.code === 'P2002') return res.status(400).json({ error: 'Competency name must be unique' });
+    res.status(500).json({ error: 'Failed to update competency' });
+  }
+};
+
+export const deleteCompetency = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    // Check if logbook entries exist
+    const count = await prisma.logbookEntry.count({ where: { competencyId: id } });
+    if (count > 0) {
+      return res.status(400).json({ error: 'Cannot delete competency because it is referenced by existing logbook entries.' });
+    }
+    await prisma.competency.delete({ where: { id } });
+    res.json({ message: 'Competency deleted successfully' });
+  } catch (error: any) {
+    console.error('Error deleting competency:', error);
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Competency not found' });
+    res.status(500).json({ error: 'Failed to delete competency' });
+  }
+};
+
 export const getCompetencies = async (req: Request, res: Response) => {
   try {
     const competencies = await prisma.competency.findMany({
@@ -106,9 +157,9 @@ export const getLogbookProgress = async (req: Request, res: Response) => {
       };
     });
 
-    // Also calculate overall progress
+    // Also calculate overall progress, capping each competency to its target hours so over-logging doesn't artificially inflate overall completion
     const totalTarget = competencies.reduce((acc, comp) => acc + comp.targetHours, 0);
-    const totalCompleted = progressMap.reduce((acc, p) => acc + p.completedHours, 0);
+    const totalCompleted = progressMap.reduce((acc, p) => acc + Math.min(p.completedHours, p.targetHours), 0);
     const overallProgress = totalTarget > 0 ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100)) : 0;
 
     res.json({

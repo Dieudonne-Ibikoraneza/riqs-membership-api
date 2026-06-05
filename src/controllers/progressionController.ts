@@ -222,11 +222,16 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     ];
 
     if (newClass && newMembershipId) {
-      // Upgrade member class + issue new membership ID
+      // Upgrade member class + issue new membership ID and upgrade system role to Mentor
       transactions.push(
         prisma.member.update({
           where: { id: apc.memberId },
-          data: { membershipClass: newClass, membershipId: newMembershipId, updatedAt: new Date() }
+          data: { 
+            membershipClass: newClass, 
+            membershipId: newMembershipId, 
+            systemRole: 'Mentor',
+            updatedAt: new Date() 
+          }
         })
       );
 
