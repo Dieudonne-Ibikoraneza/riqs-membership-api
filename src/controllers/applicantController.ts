@@ -184,7 +184,8 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     firmPrincipalPlaceOfBusiness,
     agreedToMentorshipIntent,
     agreedToDeclarations,
-    competenceSummary
+    competenceSummary,
+    studentAssociation
   } = req.body;
 
   if (!practiceLocation || !entityType || !categoryId) {
@@ -262,6 +263,27 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         );
       }
 
+      if (studentAssociation && studentAssociation.associationName) {
+        transactions.push(
+          prisma.studentAssociationRecord.upsert({
+            where: { applicationId: existingApp.id },
+            update: {
+              associationName: studentAssociation.associationName,
+              membershipNumber: studentAssociation.membershipNumber,
+              registrationDate: new Date(studentAssociation.registrationDate),
+              activeYears: parseInt(String(studentAssociation.activeYears), 10) || 0
+            },
+            create: {
+              applicationId: existingApp.id,
+              associationName: studentAssociation.associationName,
+              membershipNumber: studentAssociation.membershipNumber,
+              registrationDate: new Date(studentAssociation.registrationDate),
+              activeYears: parseInt(String(studentAssociation.activeYears), 10) || 0
+            }
+          })
+        );
+      }
+
       const [updatedApp] = await prisma.$transaction(transactions);
 
       return res.status(200).json({ 
@@ -290,6 +312,18 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         status: 'Draft'
       }
     });
+
+    if (studentAssociation && studentAssociation.associationName) {
+      await prisma.studentAssociationRecord.create({
+        data: {
+          applicationId: newApp.id,
+          associationName: studentAssociation.associationName,
+          membershipNumber: studentAssociation.membershipNumber,
+          registrationDate: new Date(studentAssociation.registrationDate),
+          activeYears: parseInt(String(studentAssociation.activeYears), 10) || 0
+        }
+      });
+    }
 
     return res.status(201).json({ 
       message: 'Application initialized as Draft.', 

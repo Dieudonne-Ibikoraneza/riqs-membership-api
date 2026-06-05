@@ -398,7 +398,15 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
 
       const txOps: any[] = [
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Approved', approvedAt: new Date(), updatedAt: new Date() } }),
-        prisma.member.update({ where: { id: app.memberId }, data: { membershipId: generatedMembershipId, membershipClass: memberClass, updatedAt: new Date() } }),
+        prisma.member.update({ 
+          where: { id: app.memberId }, 
+          data: { 
+            membershipId: generatedMembershipId, 
+            membershipClass: memberClass, 
+            ...(app.member.systemRole === 'Standard' && (memberClass.includes('Technologist') || memberClass.includes('Professional')) ? { systemRole: 'Mentor' } : {}),
+            updatedAt: new Date() 
+          } 
+        }),
         prisma.applicationStatusHistory.create({
           data: { applicationId, changedByEmail: req.user.email, oldStatus, newStatus: 'Approved', reviewerNotes: notes || 'Approved by Approver.' }
         }),
