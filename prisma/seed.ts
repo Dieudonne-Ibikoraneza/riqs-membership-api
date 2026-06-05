@@ -213,37 +213,47 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
   if (draft.entityType === "Individual") {
     if (draft.location === "Rwandan") {
       if (catName.includes("Graduate")) {
-        list.push({ name: "Notarized Degree/Diploma (HEC equivalency if foreign)", typeCode: "certificate" });
+        list.push({ name: "Notarized Degree/Diploma (HEC equivalency if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects (Optional)", typeCode: "transcript" });
-        list.push({ name: "Certificate of RQSSA (or equivalent student membership proof)", typeCode: "certificate" });
+        list.push({ name: "Certificate of RQSSA (or equivalent student membership proof)", typeCode: "student_association" });
         list.push({ name: "Application Letter", typeCode: "application_letter" });
         list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Passport size photo", typeCode: "photo" });
         list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
         list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
-      } else if (catName.includes("Technologist")) {
-        list.push({ name: "Diploma Certificate (HEC equivalency if foreign)", typeCode: "certificate" });
+      } else if (catName.includes("Technologist") && !catName.includes("Associate")) {
+        list.push({ name: "Diploma Certificate (HEC equivalency if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects", typeCode: "transcript" });
-        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "certificate" });
-        list.push({ name: "Logbook of records (Optional)", typeCode: "logbook" });
+        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "cpd_certificate" });
+        list.push({ name: "Professional Competence Summary Document", typeCode: "competence_summary" });
+        list.push({ name: "Logbook of records", typeCode: "logbook" });
+        list.push({ name: "Mentor recommendation letter", typeCode: "mentor_letter" });
+        list.push({ name: "Mentorship completion certificate", typeCode: "mentorship_certificate" });
         list.push({ name: "Application Letter", typeCode: "application_letter" });
         list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Passport size photo", typeCode: "photo" });
         list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
         list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       } else {
-        list.push({ name: "Notarized Degree Certificate (HEC equivalent if foreign)", typeCode: "certificate" });
+        list.push({ name: "Notarized Degree Certificate (HEC equivalent if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects", typeCode: "transcript" });
-        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "certificate" });
-        list.push({ name: "Logbook of records (Optional)", typeCode: "logbook" });
+        list.push({ name: "At least 2 CPD Activities certificate copies (Optional)", typeCode: "cpd_certificate" });
+        list.push({ name: "Professional Competence Summary Document", typeCode: "competence_summary" });
+        list.push({ name: "Logbook of records", typeCode: "logbook" });
+        list.push({ name: "Mentor recommendation letter", typeCode: "mentor_letter" });
+        list.push({ name: "Mentorship completion certificate", typeCode: "mentorship_certificate" });
         list.push({ name: "Application Letter", typeCode: "application_letter" });
         list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
+        list.push({ name: "Passport size photo", typeCode: "photo" });
         list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
         list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       }
     } else {
       const isProf = catName.includes("Professional");
-      list.push({ name: isProf ? "Notarized Degree Certificate" : "Notarized Diploma Certificate", typeCode: "certificate" });
-      list.push({ name: "Valid Membership Certificate from country of origin", typeCode: "certificate" });
+      list.push({ name: isProf ? "Notarized Degree Certificate" : "Notarized Diploma Certificate", typeCode: "degree" });
+      list.push({ name: "Valid Membership Certificate from country of origin", typeCode: "membership_certificate" });
       list.push({ name: "Visa & Work Permit (PDF)", typeCode: "permit" });
+      list.push({ name: "Passport size photo", typeCode: "photo" });
       list.push({ name: "CV & References (PDF) (Optional)", typeCode: "cv" });
       list.push({ name: `Proof of Payment (${isProf ? "50 USD" : "30 USD"} Application Fee)`, typeCode: "payment" });
     }
@@ -252,9 +262,9 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
     list.push({ name: isLocal ? "Firm Business Registration Certificate by RDB" : "Firm Business Registration Certificate", typeCode: "business_registration" });
     list.push({ name: "Tax Clearance Certificate", typeCode: "tax_clearance" });
     list.push({ name: "Identity documents of beneficial owners / shareholders", typeCode: "id_passport" });
-    list.push({ name: "Share certificates or company registry extract", typeCode: "certificate" });
+    list.push({ name: "Share certificates or company registry extract", typeCode: "share_certificate" });
     list.push({ name: isLocal ? "RSSB Tax Clearance Certificate (Optional)" : "Social Security Clearance Certificate (Optional)", typeCode: "tax_clearance" });
-    if (isLocal) list.push({ name: "RIQS Members working in the firm (Certificates) (Optional)", typeCode: "certificate" });
+    if (isLocal) list.push({ name: "RIQS Members working in the firm (Certificates) (Optional)", typeCode: "employee_certificate" });
     const fee = catName.includes("Small") ? (isLocal ? "50,000 RWF" : "100 USD")
       : catName.includes("Medium") ? (isLocal ? "100,000 RWF" : "200 USD")
       : isLocal ? "200,000 RWF" : "400 USD";
@@ -278,13 +288,13 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
 async function main() {
   const categoriesData = [
     // Rwandan Individuals (Rwandan)
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist (Route 1)', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor (Route 2)', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
     // Associate-class upgrade paths (awarded after 2-year mentorship without APC)
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist (Route 3)', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 50000.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor (Route 4)', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 100000.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 200000.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
     // Non-Rwandan Individuals (Non_Rwandan)
     { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'FQST', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
     { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'FPQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
@@ -298,19 +308,27 @@ async function main() {
     { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Large Firm (>500K USD)', categoryCode: 'FF-LG', processingFee: 400.00, currency: 'USD', firstYearFee: 3000.00, annualRenewalFee: 3000.00, stampFee: 0.00 },
   ];
 
-  await prisma.membershipCategory.createMany({
-    data: categoriesData.map(cat => {
-      const docs = getDefaultDocuments(cat);
-      return {
+  for (const cat of categoriesData) {
+    const docs = getDefaultDocuments(cat);
+    await prisma.membershipCategory.upsert({
+      where: { categoryName: cat.categoryName },
+      update: {
+        requiredDocuments: docs.requiredDocuments,
+        optionalDocuments: docs.optionalDocuments,
+        processingFee: cat.processingFee,
+        firstYearFee: cat.firstYearFee,
+        annualRenewalFee: cat.annualRenewalFee,
+        stampFee: cat.stampFee,
+      },
+      create: {
         ...cat,
         location: cat.location as any,
         entityType: cat.entityType as any,
         requiredDocuments: docs.requiredDocuments,
         optionalDocuments: docs.optionalDocuments,
-      };
-    }),
-    skipDuplicates: true
-  });
+      }
+    });
+  }
   console.log('Database seeded with membership categories.');
 
   // Create testing users for different system roles
@@ -385,10 +403,19 @@ async function main() {
     { code: 'id_passport', name: 'ID / Passport', isPaymentProof: false, appliesTo: 'Both' },
     { code: 'photo', name: 'Passport Photo', isPaymentProof: false, appliesTo: 'Individual' },
     { code: 'logbook', name: 'Logbook', isPaymentProof: false, appliesTo: 'Individual' },
-    { code: 'report', name: 'Report / Annual Report', isPaymentProof: false, appliesTo: 'Firm' },
+    { code: 'report', name: 'Report / Annual Report', isPaymentProof: false, appliesTo: 'Both' },
     { code: 'business_registration', name: 'Business Registration Document', isPaymentProof: false, appliesTo: 'Firm' },
     { code: 'tax_clearance', name: 'Tax Clearance', isPaymentProof: false, appliesTo: 'Firm' },
     { code: 'permit', name: 'Visa / Work Permit', isPaymentProof: false, appliesTo: 'Individual' },
+    { code: 'degree', name: 'Degree / Diploma Certificate', isPaymentProof: false, appliesTo: 'Both' },
+    { code: 'student_association', name: 'Student Association Proof', isPaymentProof: false, appliesTo: 'Individual' },
+    { code: 'competence_summary', name: 'Professional Competence Summary', isPaymentProof: false, appliesTo: 'Individual' },
+    { code: 'cpd_certificate', name: 'CPD Certificate', isPaymentProof: false, appliesTo: 'Both' },
+    { code: 'membership_certificate', name: 'Membership Certificate', isPaymentProof: false, appliesTo: 'Both' },
+    { code: 'share_certificate', name: 'Share Certificate', isPaymentProof: false, appliesTo: 'Firm' },
+    { code: 'employee_certificate', name: 'Employee Certificate', isPaymentProof: false, appliesTo: 'Firm' },
+    { code: 'mentor_letter', name: 'Mentor Recommendation Letter', isPaymentProof: false, appliesTo: 'Individual' },
+    { code: 'mentorship_certificate', name: 'Mentorship Completion Certificate', isPaymentProof: false, appliesTo: 'Individual' },
     { code: 'other', name: 'Other', isPaymentProof: false, appliesTo: 'Both' },
   ];
 
