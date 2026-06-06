@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // Load environment variables
-dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
 const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
@@ -14,10 +14,10 @@ const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASSWORD;
 
 if (!smtpUser || !smtpPass) {
-  console.error("Critical Error: Missing SMTP credentials in .env.local.");
+  console.error("Critical Error: Missing SMTP credentials in .env.");
 }
 
-// 1. Instantiate Transporter using Gmail SMTP SSL connection
+// 1. Instantiate Transporter using configuration matching Starhawk to bypass Render blocks
 export const transporter = nodemailer.createTransport({
   host: smtpHost,
   port: smtpPort,
@@ -25,7 +25,18 @@ export const transporter = nodemailer.createTransport({
   auth: {
     user: smtpUser,
     pass: smtpPass
-  }
+  },
+  tls: {
+    rejectUnauthorized: false, // Essential for bypassing strict certificate blocks on Render
+  },
+  // Connection pool settings
+  pool: true,
+  maxConnections: 5,
+  maxMessages: 100,
+  // Timeout settings
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 5000,    // 5 seconds
+  socketTimeout: 10000,     // 10 seconds
 });
 
 // Verify connection on startup
