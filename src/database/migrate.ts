@@ -16,10 +16,11 @@ if (!dbUrl) {
 async function runMigration() {
   console.log("[RIQS Migration] Initializing PostgreSQL Pool...");
   
+  const isLocal = dbUrl?.includes('localhost') || dbUrl?.includes('127.0.0.1');
   // Set up connection pool with SSL configured for remote Supabase connections
   const pool = new Pool({
     connectionString: dbUrl,
-    ssl: {
+    ssl: isLocal ? false : {
       rejectUnauthorized: false
     }
   });
