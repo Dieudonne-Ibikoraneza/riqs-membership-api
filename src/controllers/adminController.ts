@@ -1227,3 +1227,217 @@ export async function unlockStaffMember(req: AuthenticatedRequest, res: Response
     return res.status(500).json({ error: 'Internal server error while unlocking staff member.' });
   }
 }
+
+// ─── Mentorship Queue ───────────────────────────────────────────────────────
+
+// Get paginated list of Mentorship Upgrade candidates (applications whose
+// mentorshipAssignment.status === 'Pending_Admin_Review')
+export async function getMentorshipQueue(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { page = 1, limit = 10, q, status } = req.query;
+  const skip = (Number(page) - 1) * Number(limit);
+  const take = Number(limit);
+
+  try {
+    let mentorshipStatusFilter: any;
+    const statusQuery = (status as string)?.toLowerCase();
+
+    if (statusQuery === 'all' || !statusQuery) {
+      mentorshipStatusFilter = { in: ['Pending_Admin_Review', 'Approved', 'Correction_Required'] };
+    } else if (statusQuery === 'pending') {
+      mentorshipStatusFilter = 'Pending_Admin_Review';
+    } else if (statusQuery === 'approved') {
+      mentorshipStatusFilter = 'Approved';
+    } else if (statusQuery === 'rejected' || statusQuery === 'flagged') {
+      mentorshipStatusFilter = 'Correction_Required';
+    }
+
+    const whereClause: any = {
+      mentorshipAssignment: { 
+        status: mentorshipStatusFilter,
+        upgradeRequested: true
+      }
+    };
+
+    if (q) {
+      whereClause.OR = [
+        { member: { fullName: { contains: String(q), mode: 'insensitive' } } },
+        { member: { email:    { contains: String(q), mode: 'insensitive' } } },
+      ];
+    }
+
+    const [apps, total] = await Promise.all([
+      prisma.application.findMany({
+        where: whereClause,
+        skip,
+        take,
+        orderBy: { submittedAt: 'desc' },
+        include: {
+          member:   { select: { fullName: true, email: true } },
+          category: { select: { categoryName: true, location: true } },
+          mentorshipAssignment: {
+            select: {
+              id: true,
+              mentorName: true,
+              apcReadiness: true,
+              completedDurationMonths: true,
+              upgradeRequested: true,
+              status: true,
+              yearOneReportUrl: true,
+              yearTwoReportUrl: true,
+              mentorRecommendationUrl: true
+            }
+          },
+          uploadedDocuments: {
+            where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
+            take: 1
+          }
+        }
+      }),
+      prisma.application.count({ where: whereClause })
+    ]);
+
+    const queue = apps.map(app => ({
+      id:              app.id,
+      member_id:       app.memberId,
+      full_name:       app.member.fullName,
+      email:           app.member.email,
+      category_name:   app.category.categoryName,
+      location:        app.category.location,
+      submitted_at:    app.submittedAt,
+      status:          app.mentorshipAssignment?.status || 'Pending_Admin_Review',
+      mentor_name:     app.mentorshipAssignment?.mentorName || 'Unassigned',
+      apc_readiness:   app.mentorshipAssignment?.apcReadiness || 'Unknown',
+      duration_months: app.mentorshipAssignment?.completedDurationMonths || 0,
+      photoId:         app.uploadedDocuments?.[0]?.id
+    }));
+
+    return res.status(200).json({
+      queue,
+      pagination: { total, page: Number(page), limit: take }
+    });
+  } catch (error: any) {
+    console.error('[Mentorship Queue] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error fetching mentorship queue.' });
+  }
+}
+
+// Approve a Mentorship Upgrade: marks the assignment as Approved, creates an
+// APC assessment record and returns its ID so the frontend can navigate directly.
+export async function approveMentorshipUpgrade(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const userRole = req.user.role.toLowerCase();
+  if (!['admin', 'approver'].includes(userRole)) {
+    return res.status(403).json({ error: 'Access Denied. Only Admins or Approvers can approve mentorship upgrades.' });
+  }
+
+  const { applicationId, notes } = req.body;
+  if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        member: true,
+        mentorshipAssignment: true,
+        apcAssessments: { where: { status: 'Requested' }, take: 1 }
+      }
+    });
+
+    if (!app) return res.status(404).json({ error: 'Application not found.' });
+    if (!app.mentorshipAssignment) return res.status(400).json({ error: 'No mentorship record found for this application.' });
+    if (app.mentorshipAssignment.status !== 'Pending_Admin_Review') {
+      return res.status(400).json({ error: `Mentorship assignment must be in Pending_Admin_Review status. Currently: ${app.mentorshipAssignment.status}` });
+    }
+
+    // 1. Mark the mentorship assignment as approved
+    await prisma.mentorshipAssignment.update({
+      where: { id: app.mentorshipAssignment.id },
+      data: { status: 'Approved', adminNotes: notes || null }
+    });
+
+    // 2. Create or reuse an APC assessment record in "Requested" state
+    let apcAssessment = app.apcAssessments[0] || null;
+    if (!apcAssessment) {
+      apcAssessment = await prisma.apcAssessment.create({
+        data: {
+          memberId:      app.memberId,
+          applicationId: applicationId,
+          status:        'Requested'
+        }
+      });
+    }
+
+    // 3. Audit log
+    await prisma.auditLog.create({
+      data: {
+        memberId:        app.memberId,
+        actionByEmail:   req.user.email,
+        actionType:      'MENTORSHIP_UPGRADE_APPROVED',
+        details:         `Mentorship upgrade approved. APC assessment ${apcAssessment.id} created/reused.`
+      }
+    });
+
+    // 4. Notify the candidate
+    try {
+      await sendMail(app.member.email, 'mentorship_approved', {
+        name: app.member.fullName
+      });
+    } catch (e) {}
+
+    return res.status(200).json({
+      message:         'Mentorship upgrade approved. Candidate moved to APC queue.',
+      apcAssessmentId: apcAssessment.id,
+      applicationId
+    });
+  } catch (error: any) {
+    console.error('[Approve Mentorship Upgrade] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error approving mentorship upgrade.' });
+  }
+}
+
+// Flag a Mentorship Upgrade for Correction
+export async function flagMentorshipForCorrection(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId, notes } = req.body;
+  if (!applicationId || !notes) return res.status(400).json({ error: 'Missing applicationId or correction notes.' });
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: { member: true, mentorshipAssignment: true }
+    });
+
+    if (!app) return res.status(404).json({ error: 'Application not found.' });
+    if (!app.mentorshipAssignment) return res.status(400).json({ error: 'No mentorship record found.' });
+
+    await prisma.mentorshipAssignment.update({
+      where: { id: app.mentorshipAssignment.id },
+      data: { status: 'Correction_Required', adminNotes: notes }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        memberId:      app.memberId,
+        actionByEmail: req.user.email,
+        actionType:    'MENTORSHIP_FLAGGED',
+        details:       `Mentorship upgrade flagged for correction. Notes: ${notes}`
+      }
+    });
+
+    try {
+      await sendMail(app.member.email, 'mentorship_flagged', {
+        name:   app.member.fullName,
+        reason: notes
+      });
+    } catch (e) {}
+
+    return res.status(200).json({ message: 'Mentorship upgrade flagged for correction. Notification sent.' });
+  } catch (error: any) {
+    console.error('[Flag Mentorship] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error flagging mentorship upgrade.' });
+  }
+}

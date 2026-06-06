@@ -10,7 +10,8 @@ import {
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
-  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember
+  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember,
+  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection
 } from '../controllers/adminController';
 
 const router = Router();
@@ -403,5 +404,10 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
  *       - Administrative Dashboard
  */
 router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
+
+// Mentorship Queue endpoints
+router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMentorshipQueue);
+router.post('/mentorship/approve', requireAuth, requireRoles(['admin', 'approver']), approveMentorshipUpgrade);
+router.post('/mentorship/flag', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), flagMentorshipForCorrection);
 
 export default router;
