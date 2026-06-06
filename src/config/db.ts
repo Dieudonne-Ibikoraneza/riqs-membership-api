@@ -5,10 +5,16 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { createClient } from '@supabase/supabase-js';
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Setup Prisma Client with pg adapter
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const dbUrl = process.env.DATABASE_URL;
+const isLocal = dbUrl?.includes('localhost') || dbUrl?.includes('127.0.0.1');
+
+const pool = new Pool({ 
+  connectionString: dbUrl,
+  ssl: isLocal ? false : { rejectUnauthorized: false }
+});
 const adapter = new PrismaPg(pool);
 export const prisma = new PrismaClient({ adapter });
 

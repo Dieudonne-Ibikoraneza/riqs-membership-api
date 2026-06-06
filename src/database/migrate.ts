@@ -3,13 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 
-// Load environment variables from .env.local
-dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+// Load environment variables from .env
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const dbUrl = process.env.DATABASE_URL;
 
 if (!dbUrl) {
-  console.error("Error: DATABASE_URL is not set in .env.local");
+  console.error("Error: DATABASE_URL is not set in .env");
   process.exit(1);
 }
 
