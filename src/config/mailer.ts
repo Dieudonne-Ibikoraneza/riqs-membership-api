@@ -1,52 +1,21 @@
-import * as nodemailer from 'nodemailer';
+import emailjs from '@emailjs/nodejs';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Load environment variables
+// Load environment variables (support both local and Render env vars)
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASSWORD;
+const EMAILJS_SERVICE_ID = process.env.EMAILJS_SERVICE_ID;
+const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID;
+const EMAILJS_PUBLIC_KEY = process.env.EMAILJS_PUBLIC_KEY;
+const EMAILJS_PRIVATE_KEY = process.env.EMAILJS_PRIVATE_KEY;
 
-if (!smtpUser || !smtpPass) {
-  console.error("Critical Error: Missing SMTP credentials in .env.");
+if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY || !EMAILJS_PRIVATE_KEY) {
+  console.warn("Warning: Missing EmailJS credentials in .env. Emails will fail to send.");
 }
-
-// 1. Instantiate Transporter using configuration matching Starhawk to bypass Render blocks
-export const transporter = nodemailer.createTransport({
-  host: smtpHost,
-  port: smtpPort,
-  secure: smtpPort === 465,
-  auth: {
-    user: smtpUser,
-    pass: smtpPass
-  },
-  tls: {
-    rejectUnauthorized: false, // Essential for bypassing strict certificate blocks on Render
-  },
-  // Connection pool settings
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 100,
-  // Timeout settings
-  connectionTimeout: 10000, // 10 seconds
-  greetingTimeout: 5000,    // 5 seconds
-  socketTimeout: 10000,     // 10 seconds
-});
-
-// Verify connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('[SMTP Mailer] Connection Verification Failed:', error.message);
-  } else {
-    console.log('[SMTP Mailer] Successfully connected to Gmail SMTP. Transporter ready.');
-  }
-});
 
 /**
  * Interpolates variables into a template string
@@ -58,7 +27,7 @@ function interpolate(template: string, variables: Record<string, any>): string {
   });
 }
 
-// Mail Send Dispatcher
+// Mail Send Dispatcher using EmailJS
 export async function sendMail(to: string, templateId: string, payload: Record<string, any>) {
   try {
     // Fetch template from database
@@ -70,20 +39,61 @@ export async function sendMail(to: string, templateId: string, payload: Record<s
       throw new Error(`Email template with ID '${templateId}' not found in database.`);
     }
 
-    // Interpolate variables
+    // Interpolate variables into final HTML and subject
     const subject = interpolate(template.subject, payload);
-    const html = interpolate(template.body, payload);
+    const html_content = interpolate(template.body, payload);
 
-    const info = await transporter.sendMail({
-      from: `"RIQS Registry Portal" <${smtpUser}>`,
-      to,
-      subject,
-      html
-    });
-    console.log(`[SMTP Mailer] Dispatch Success to ${to}. MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    // Send via EmailJS
+    // Requires a template on EmailJS with variables: {{to_email}}, {{subject}}, {{{html_content}}}
+    const response = await emailjs.send(
+      EMAILJS_SERVICE_ID!,
+      EMAILJS_TEMPLATE_ID!,
+      {
+        to_email: to,
+        subject: subject,
+        html_content: html_content
+      },
+      {
+        publicKey: EMAILJS_PUBLIC_KEY,
+        privateKey: EMAILJS_PRIVATE_KEY
+      }
+    );
+
+    console.log(`[EmailJS] Dispatch Success to ${to}. Status: ${response.status} ${response.text}`);
+    return { success: true };
   } catch (error: any) {
-    console.error(`[SMTP Mailer] Dispatch Failure to ${to}:`, error.message);
+    console.error(`[EmailJS] Dispatch Failure to ${to}:`, error.message || error.text || error);
+    throw error;
+  }
+}
+
+// Raw Mail Dispatcher for Admin Broadcasts and Progression Notifications
+export async function sendRawMail(options: { to: string, subject: string, html: string, attachments?: any[] }) {
+  try {
+    // Note: EmailJS free tier has a strict 50kb limit on attachments. 
+    // Attachments must be base64 data URIs. We map them if provided, but warn the user.
+    if (options.attachments && options.attachments.length > 0) {
+      console.warn("[EmailJS] Attachments are not fully supported on the free tier (50kb limit) and require Base64 encoding. They may be dropped.");
+    }
+
+    const response = await emailjs.send(
+      EMAILJS_SERVICE_ID!,
+      EMAILJS_TEMPLATE_ID!,
+      {
+        to_email: options.to,
+        subject: options.subject,
+        html_content: options.html
+      },
+      {
+        publicKey: EMAILJS_PUBLIC_KEY,
+        privateKey: EMAILJS_PRIVATE_KEY
+      }
+    );
+
+    console.log(`[EmailJS] Raw Dispatch Success to ${options.to}. Status: ${response.status}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EmailJS] Raw Dispatch Failure to ${options.to}:`, error.message || error.text || error);
     throw error;
   }
 }

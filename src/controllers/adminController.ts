@@ -938,8 +938,7 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
   }
 
   try {
-    const smtpUser = process.env.SMTP_USER;
-    const { transporter } = await import('../config/mailer');
+    const { sendRawMail } = await import('../config/mailer');
 
     const files = req.files as Express.Multer.File[];
     const mailAttachments = files?.map(f => ({
@@ -953,8 +952,7 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
         return res.status(400).json({ error: 'Recipient email is required for single mode.' });
       }
 
-      await transporter.sendMail({
-        from: `"RIQS Registry Portal" <${smtpUser}>`,
+      await sendRawMail({
         to: recipientEmail,
         subject,
         html: body,
@@ -1021,8 +1019,7 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
 
       // Send to all matching members
       const sendPromises = members.map(member => 
-        transporter.sendMail({
-          from: `"RIQS Registry Portal" <${smtpUser}>`,
+        sendRawMail({
           to: member.email,
           subject,
           html: body.replace(/\{\{name\}\}/g, member.fullName),

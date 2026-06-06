@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
 import { ApcStatus, MemberClass } from '@prisma/client';
-import { transporter, sendMail } from '../config/mailer';
+import { sendRawMail, sendMail } from '../config/mailer';
 import { getCertificateCode } from '../utils/membershipUtils';
 
 // 1. Fetch APC assessment tracking records
@@ -298,8 +298,7 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
         </div>
       `;
       
-      transporter.sendMail({
-        from: `"RIQS Registry Portal" <${process.env.SMTP_USER}>`,
+      sendRawMail({
         to: apc.member.email,
         subject: emailSubject,
         html: emailBody
@@ -374,8 +373,7 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     ]);
 
     // Email notification
-    transporter.sendMail({
-      from: `"RIQS Registry Portal" <${process.env.SMTP_USER}>`,
+    sendRawMail({
       to: app.member.email,
       subject: 'RIQS Membership Upgrade: Associate Class Awarded',
       html: `
