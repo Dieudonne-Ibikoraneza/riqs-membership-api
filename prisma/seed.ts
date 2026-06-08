@@ -288,6 +288,21 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
 };
 
 async function main() {
+  // Cleanup old deprecated firm categories to prevent duplicates in the dropdown
+  console.log('Cleaning up old deprecated category names...');
+  await prisma.membershipCategory.deleteMany({
+    where: {
+      OR: [
+        { categoryName: { startsWith: 'Local ' } },
+        { categoryName: { startsWith: 'Foreign ' } },
+        { categoryName: { endsWith: '(Route 1)' } },
+        { categoryName: { endsWith: '(Route 2)' } },
+        { categoryName: { endsWith: '(Route 3)' } },
+        { categoryName: { endsWith: '(Route 4)' } }
+      ]
+    }
+  });
+
   const categoriesData = [
     // Rwandan Individuals (Rwandan)
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
