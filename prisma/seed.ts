@@ -289,19 +289,19 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
 
 async function main() {
   // Cleanup old deprecated firm categories to prevent duplicates in the dropdown
-  console.log('Cleaning up old deprecated category names...');
-  await prisma.membershipCategory.deleteMany({
-    where: {
-      OR: [
-        { categoryName: { startsWith: 'Local ' } },
-        { categoryName: { startsWith: 'Foreign ' } },
-        { categoryName: { endsWith: '(Route 1)' } },
-        { categoryName: { endsWith: '(Route 2)' } },
-        { categoryName: { endsWith: '(Route 3)' } },
-        { categoryName: { endsWith: '(Route 4)' } }
-      ]
-    }
-  });
+  console.log('Skipping cleanup of deprecated categories to preserve existing data...');
+  // await prisma.membershipCategory.deleteMany({
+  //   where: {
+  //     OR: [
+  //       { categoryName: { startsWith: 'Local ' } },
+  //       { categoryName: { startsWith: 'Foreign ' } },
+  //       { categoryName: { endsWith: '(Route 1)' } },
+  //       { categoryName: { endsWith: '(Route 2)' } },
+  //       { categoryName: { endsWith: '(Route 3)' } },
+  //       { categoryName: { endsWith: '(Route 4)' } }
+  //     ]
+  //   }
+  // });
 
   const categoriesData = [
     // Rwandan Individuals (Rwandan)
@@ -437,11 +437,13 @@ async function main() {
   ];
 
   console.log('Seeding document type buckets...');
-  await prisma.documentType.deleteMany({});
   for (const bucket of documentTypeBuckets) {
-    await prisma.documentType.create({ data: bucket });
+    const existing = await prisma.documentType.findFirst({ where: { code: bucket.code } });
+    if (!existing) {
+      await prisma.documentType.create({ data: bucket });
+    }
   }
-  console.log(`Seeded ${documentTypeBuckets.length} document type buckets.`);
+  console.log(`Checked/Seeded ${documentTypeBuckets.length} document type buckets.`);
 
 
 

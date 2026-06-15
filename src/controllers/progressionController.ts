@@ -536,7 +536,7 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
     const formattedMentees = assignments.map(a => {
       const mentee = a.application.member;
       const relatedLogs = logbookEntries.filter(e => e.applicationId === a.applicationId);
-      const progress = Math.min(100, Math.round((relatedLogs.length / 4) * 100));
+      const progress = Math.min(100, Math.round((relatedLogs.length / 2) * 100));
 
       return {
         id: a.id,

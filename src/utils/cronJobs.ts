@@ -1,6 +1,6 @@
 import { prisma } from '../config/db';
 
-const RUN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const RUN_INTERVAL_MS = 30 * 1000; // 30 seconds for testing
 
 export function startCronJobs() {
   console.log('[Cron Jobs] Initializing background tasks...');
@@ -34,15 +34,15 @@ export function startCronJobs() {
 
     console.log('[Cron Jobs] Running annual renewal checks...');
     try {
-      // Find all applications approved more than a year ago that haven't been renewed yet.
+      // FOR TESTING: Find all applications approved more than 5 minutes ago that haven't been renewed yet.
       const currentYear = new Date().getFullYear();
-      const oneYearAgo = new Date();
-      oneYearAgo.setFullYear(currentYear - 1);
+      const timeThreshold = new Date();
+      timeThreshold.setMinutes(timeThreshold.getMinutes() - 5); // 5 minutes ago
 
       const dueForRenewal = await prisma.application.findMany({
         where: {
           status: 'Approved',
-          approvedAt: { lte: oneYearAgo }
+          approvedAt: { lte: timeThreshold }
         },
         include: { member: true, category: true }
       });
@@ -80,7 +80,7 @@ export function startCronJobs() {
             });
 
             // Send Email Notification
-            const { sendMail } = require('./mailer');
+            const { sendMail } = require('../config/mailer');
             sendMail(app.member.email, 'annual_renewal', {
               name: app.member.fullName,
               year: currentYear,

@@ -887,6 +887,13 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
             where: { txType: 'Processing_Fee' },
             orderBy: { createdAt: 'desc' },
             take: 1
+          },
+          _count: {
+            select: {
+              financialTransactions: {
+                where: { txType: 'Annual_Renewal', status: 'Cleared' }
+              }
+            }
           }
         }
       }),
@@ -898,6 +905,19 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
       const processingFeeTx = m.financialTransactions?.[0];
       const memberStatus = processingFeeTx?.status === 'Cleared' ? 'Active' : 'Pending Payment';
 
+      // FOR TESTING: Dynamic Expiry Calculation: 5 minutes from approval + 5 minutes for each cleared renewal
+      const baseDate = app?.approvedAt || m.createdAt || new Date();
+      const renewalsCount = m._count?.financialTransactions || 0;
+      const expiryDate = new Date(baseDate);
+      // Instead of years, we add 5-minute increments for testing
+      expiryDate.setMinutes(expiryDate.getMinutes() + ((1 + renewalsCount) * 5));
+
+      // Adjust for Local Time (Rwandan Time / CAT is UTC+2)
+      expiryDate.setHours(expiryDate.getHours() + 2);
+
+      // Format to show time as well (YYYY-MM-DD HH:mm:ss) so the 5-minute jumps are visible
+      const formattedExpiry = expiryDate.toISOString().replace('T', ' ').substring(0, 19);
+
       return {
         id: m.id,
         fullName: m.fullName,
@@ -907,7 +927,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         practiceLocation: app?.practiceLocation || 'Rwandan',
         country: m.countryOfOrigin,
         status: memberStatus,
-        expiresAt: '2026-12-31', // Placeholder for UI
+        expiresAt: formattedExpiry,
         photoId: app?.uploadedDocuments?.[0]?.id
       };
     });
