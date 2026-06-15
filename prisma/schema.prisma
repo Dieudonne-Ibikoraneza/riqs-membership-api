@@ -307,8 +307,11 @@ model ApcAssessment {
   applicationId   String     @map("application_id") @db.Uuid
   assessmentDate  DateTime?  @map("assessment_date") @db.Date
   panelChairName  String?    @map("panel_chair_name") @db.VarChar(255)
+  panelChairEmail String?    @map("panel_chair_email") @db.VarChar(255)
   examiner1Name   String?    @map("examiner_1_name") @db.VarChar(255)
+  examiner1Email  String?    @map("examiner_1_email") @db.VarChar(255)
   examiner2Name   String?    @map("examiner_2_name") @db.VarChar(255)
+  examiner2Email  String?    @map("examiner_2_email") @db.VarChar(255)
   status          ApcStatus? @default(Scheduled)
   scorePercentage Decimal?   @map("score_percentage") @db.Decimal(5, 2)
   assessmentNotes String?    @map("assessment_notes")

@@ -70,7 +70,7 @@ export async function requestAPC(req: AuthenticatedRequest, res: Response) {
 export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
 
-  const { applicationId, assessmentDate, panelChair, examiner1, examiner2 } = req.body;
+  const { applicationId, assessmentDate, panelChair, panelChairEmail, examiner1, examiner1Email, examiner2, examiner2Email } = req.body;
 
   if (!applicationId || !assessmentDate) {
     return res.status(400).json({ error: 'Missing required parameters: applicationId and assessmentDate.' });
@@ -91,8 +91,11 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
         data: {
           assessmentDate: new Date(assessmentDate),
           panelChairName: panelChair || 'Board Chair TBD',
+          panelChairEmail: panelChairEmail || null,
           examiner1Name: examiner1 || 'Examiner 1 TBD',
+          examiner1Email: examiner1Email || null,
           examiner2Name: examiner2 || 'Examiner 2 TBD',
+          examiner2Email: examiner2Email || null,
           status: 'Scheduled',
           updatedAt: new Date()
         }
@@ -104,8 +107,11 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
           applicationId,
           assessmentDate: new Date(assessmentDate),
           panelChairName: panelChair || 'Board Chair TBD',
+          panelChairEmail: panelChairEmail || null,
           examiner1Name: examiner1 || 'Examiner 1 TBD',
+          examiner1Email: examiner1Email || null,
           examiner2Name: examiner2 || 'Examiner 2 TBD',
+          examiner2Email: examiner2Email || null,
           status: 'Scheduled'
         }
       });
@@ -121,6 +127,34 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
         examiner1: examiner1 || 'TBD',
         examiner2: examiner2 || 'TBD'
       }).catch(console.error);
+
+      const generateHtmlTemplate = (examinerName: string) => `
+        <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
+          <p>Dear ${examinerName},</p>
+          <p>I hope you are doing well. I am pleased to inform you that you have been selected to serve as an Examiner for the APC Assessment of the <strong>${member?.fullName || 'candidate'}</strong>.</p>
+          <p>The panel schedule is as follows:</p>
+          <ul style="list-style-type: none; padding-left: 0;">
+            <li><strong>Date & Time:</strong> ${formattedDate}</li>
+            <li><strong>Panel Chair:</strong> ${panelChair || 'TBD'}</li>
+            <li><strong>Examination/Candidate:</strong> ${member?.fullName || 'TBD'}</li>
+            <li><strong>Examiners:</strong> ${examiner1 || 'TBD'}, ${examiner2 || 'TBD'}</li>
+          </ul>
+          <p>Kindly proceed with your preparations in line with the assessment requirements and any instructions already communicated by the RIQS Secretariat.</p>
+          <p>Please acknowledge receipt of this message at your earliest convenience.</p>
+          <p>Regards,<br/><strong>RIQS Board</strong></p>
+        </div>
+      `;
+      const emailSubject = `Appointment Confirmation – APC Assessment for ${member?.fullName || 'candidate'}`;
+
+      if (panelChairEmail) {
+        sendRawMail({ to: panelChairEmail, subject: emailSubject, html: generateHtmlTemplate(panelChair || 'Panel Chair') }).catch(console.error);
+      }
+      if (examiner1Email) {
+        sendRawMail({ to: examiner1Email, subject: emailSubject, html: generateHtmlTemplate(examiner1 || 'Examiner') }).catch(console.error);
+      }
+      if (examiner2Email) {
+        sendRawMail({ to: examiner2Email, subject: emailSubject, html: generateHtmlTemplate(examiner2 || 'Examiner') }).catch(console.error);
+      }
     }
 
     return res.status(201).json({
