@@ -202,9 +202,9 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
 
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
-      // Route 1 (GQST) → Technologist, Route 2+ (GQS/PQS/FPQS) → Professional
+      // Route 1 (GQST, AQST) → Technologist, Route 2+ (GQS, AQS, PQS, FPQS) → Professional
       newClass = 'Technologist';
-      if (code === 'GQS' || code === 'PQS' || code === 'FPQS') newClass = 'Professional';
+      if (code === 'GQS' || code === 'PQS' || code === 'FPQS' || code === 'AQS') newClass = 'Professional';
 
       // Determine the new certificate code based on new class
       if (newClass === 'Technologist') newCertCode = 'TechQS';
@@ -223,8 +223,8 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
       let targetCategoryCode = code;
-      if (code === 'GQST') targetCategoryCode = 'QST';
-      else if (code === 'GQS') targetCategoryCode = 'PQS';
+      if (code === 'GQST' || code === 'AQST') targetCategoryCode = 'QST';
+      else if (code === 'GQS' || code === 'AQS') targetCategoryCode = 'PQS';
 
       if (targetCategoryCode !== code) {
         targetCategory = await prisma.membershipCategory.findFirst({

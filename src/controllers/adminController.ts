@@ -1358,6 +1358,7 @@ export async function approveMentorshipUpgrade(req: AuthenticatedRequest, res: R
       where: { id: applicationId },
       include: {
         member: true,
+        category: true,
         mentorshipAssignment: true,
         apcAssessments: { where: { status: 'Requested' }, take: 1 }
       }
@@ -1375,7 +1376,43 @@ export async function approveMentorshipUpgrade(req: AuthenticatedRequest, res: R
       data: { status: 'Approved', adminNotes: notes || null }
     });
 
-    // 2. Create or reuse an APC assessment record in "Requested" state
+    if (app.mentorshipAssignment.apcReadiness === 'Not_Ready') {
+      const targetCategoryName = app.category.categoryName.includes("Technologist")
+        ? "Associate Quantity Surveying Technologist"
+        : "Associate Quantity Surveyor";
+
+      const targetCategory = await prisma.membershipCategory.findFirst({
+        where: { categoryName: targetCategoryName }
+      });
+
+      await prisma.application.update({
+        where: { id: applicationId },
+        data: {
+          categoryId: targetCategory?.id || app.categoryId
+        }
+      });
+
+      await prisma.member.update({
+        where: { id: app.memberId },
+        data: { membershipClass: 'Associate' }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          memberId: app.memberId,
+          actionByEmail: req.user.email,
+          actionType: 'MENTORSHIP_UPGRADE_APPROVED',
+          details: 'Mentorship upgrade approved. Direct upgrade to Associate.'
+        }
+      });
+
+      return res.status(200).json({
+        message: 'Mentorship upgrade approved. Candidate successfully upgraded to Associate.',
+        applicationId
+      });
+    }
+
+    // 2. Create or reuse an APC assessment record in "Requested" state for Professional upgrades
     let apcAssessment = app.apcAssessments[0] || null;
     if (!apcAssessment) {
       apcAssessment = await prisma.apcAssessment.create({
