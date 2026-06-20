@@ -60,7 +60,6 @@ export async function register(req: Request, res: Response) {
 
     return res.status(201).json({
       message: 'Registration successful. Please check your email for the verification code.',
-      memberId: newMember.id,
       email: newMember.email
     });
   } catch (error: any) {
@@ -204,7 +203,6 @@ export async function login(req: Request, res: Response) {
 
     return res.status(200).json({
       message: 'OTP sent to your email. Please verify to complete login.',
-      memberId: member.id,
       email: member.email
       // Notice: No token returned yet! Must call /verify-otp
     });
