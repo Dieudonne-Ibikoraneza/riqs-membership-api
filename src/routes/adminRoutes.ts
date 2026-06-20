@@ -11,7 +11,8 @@ import {
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember,
-  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection
+  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection,
+  getDashboardStats
 } from '../controllers/adminController';
 
 const router = Router();
@@ -49,6 +50,24 @@ const router = Router();
  *         description: Internal server error
  */
 router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getReviewQueue);
+
+/**
+ * @openapi
+ * /api/v1/admin/stats:
+ *   get:
+ *     summary: Dashboard Statistics
+ *     description: Returns role-based statistics for Admin, Reviewer, and Approver dashboards.
+ *     tags:
+ *       - Administrative Dashboard
+ *     responses:
+ *       200:
+ *         description: Successfully retrieved statistics
+ *       401:
+ *         description: Access Denied
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getDashboardStats);
 
 /**
  * @openapi

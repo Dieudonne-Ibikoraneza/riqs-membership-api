@@ -1495,3 +1495,107 @@ export async function flagMentorshipForCorrection(req: AuthenticatedRequest, res
     return res.status(500).json({ error: 'Internal server error flagging mentorship upgrade.' });
   }
 }
+
+export const getDashboardStats = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const role = req.user?.role || "";
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+
+    const stats: any = {};
+
+    if (role === "Admin") {
+      stats.admin = {
+        totalMembers: await prisma.member.count(),
+        pendingApplications: await prisma.application.count({ where: { status: { in: ['Pending', 'Under_Review', 'Pending_Approval'] } } }),
+        pendingApc: await prisma.apcAssessment.count({ where: { status: { in: ['Requested', 'Scheduled'] } } }),
+        unpaidInvoices: await prisma.financialTransaction.count({ where: { status: 'Unpaid' } }),
+        mentorshipQueue: await prisma.mentorshipAssignment.count({ where: { upgradeRequested: true, status: { not: 'Approved' } } }),
+      };
+
+      const totalApproved = await prisma.application.count({ where: { status: 'Approved' } });
+      const totalRejected = await prisma.application.count({ where: { status: 'Rejected' } });
+      stats.admin.approvalRate = {
+        approved: totalApproved,
+        rejected: totalRejected,
+        total: totalApproved + totalRejected
+      };
+
+      const twelveMonthsAgo = new Date();
+      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+      twelveMonthsAgo.setDate(1);
+      twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+      const apps = await prisma.application.findMany({
+        where: { createdAt: { gte: twelveMonthsAgo } },
+        select: { createdAt: true }
+      });
+
+      const approvals = await prisma.auditLog.findMany({
+        where: { actionType: 'APPROVE', createdAt: { gte: twelveMonthsAgo } },
+        select: { createdAt: true }
+      });
+
+      const monthlyData: Record<string, { month: string, applications: number, approved: number }> = {};
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date();
+        d.setMonth(d.getMonth() - i);
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        monthlyData[key] = { month: monthNames[d.getMonth()], applications: 0, approved: 0 };
+      }
+
+      apps.forEach(app => {
+        if (app.createdAt) {
+          const key = `${app.createdAt.getFullYear()}-${app.createdAt.getMonth()}`;
+          if (monthlyData[key]) monthlyData[key].applications++;
+        }
+      });
+
+      approvals.forEach(approval => {
+        if (approval.createdAt) {
+          const key = `${approval.createdAt.getFullYear()}-${approval.createdAt.getMonth()}`;
+          if (monthlyData[key]) monthlyData[key].approved++;
+        }
+      });
+
+      stats.admin.applicationsVsApprovals = Object.values(monthlyData);
+
+      stats.admin.recentActivity = await prisma.auditLog.findMany({
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        select: { actionByEmail: true, actionType: true, details: true, createdAt: true }
+      });
+
+      stats.admin.recentApplications = await prisma.application.findMany({
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          member: { select: { fullName: true } },
+          category: { select: { categoryName: true } }
+        }
+      });
+    }
+
+    if (role === "Reviewer") {
+      stats.reviewer = {
+        assignedApplications: await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Under_Review' } }),
+        pendingReviews: await prisma.application.count({ where: { status: 'Pending' } }),
+        myReviewed: await prisma.application.count({ where: { assignedReviewerId: userId, status: { not: 'Under_Review' } } })
+      };
+    }
+
+    if (role === "Approver") {
+      stats.approver = {
+        pendingApproval: await prisma.application.count({ where: { status: 'Pending_Approval' } }),
+        recentlyApproved: await prisma.auditLog.count({ where: { actionByEmail: userEmail, actionType: 'APPROVE' } })
+      };
+    }
+
+    res.status(200).json(stats);
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error);
+    res.status(500).json({ error: "Failed to fetch dashboard statistics" });
+  }
+};
