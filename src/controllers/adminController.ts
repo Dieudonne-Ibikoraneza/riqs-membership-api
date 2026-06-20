@@ -1496,11 +1496,45 @@ export async function flagMentorshipForCorrection(req: AuthenticatedRequest, res
   }
 }
 
-export const getDashboardStats = async (req: AuthenticatedRequest, res: Response) => {
+export async function getDashboardStats(req: AuthenticatedRequest, res: Response) {
   try {
-    const role = req.user?.role || "";
-    const userId = req.user?.id;
-    const userEmail = req.user?.email;
+    const userId = req.user!.id;
+    const userEmail = req.user!.email;
+    const role = req.user!.role;
+
+    async function getEnrichedActivity(whereClause: any) {
+      const rawActivity = await prisma.auditLog.findMany({
+        where: whereClause,
+        take: 6,
+        orderBy: { createdAt: 'desc' },
+        include: { member: { select: { fullName: true } } }
+      });
+
+      const emails = [...new Set(rawActivity.map((a: any) => a.actionByEmail))];
+      const actors = await prisma.member.findMany({
+        where: { email: { in: emails } },
+        select: { email: true, fullName: true }
+      });
+      const actorMap: Record<string, string> = Object.fromEntries(actors.map((a: any) => [a.email, a.fullName]));
+
+      return rawActivity.map((a: any) => {
+        let cleanDetails = a.details ? a.details
+          .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ig, '')
+          .replace(/New\s+ID:\s*\.?/gi, '')
+          .replace(/\.\s*\./g, '.')
+          .replace(/\s{2,}/g, ' ')
+          .replace(/\s+\./g, '.')
+          .trim() : '';
+        cleanDetails = cleanDetails.replace(/\s+/g, ' ').replace(/ \./g, '.').trim();
+
+        return {
+          actionByEmail: actorMap[a.actionByEmail] || a.actionByEmail.split('@')[0],
+          actionType: a.actionType,
+          details: a.member?.fullName ? `${cleanDetails} — ${a.member.fullName}` : cleanDetails,
+          createdAt: a.createdAt
+        };
+      });
+    }
 
     const stats: any = {};
 
@@ -1515,35 +1549,32 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
 
       const totalApproved = await prisma.application.count({ where: { status: 'Approved' } });
       const totalRejected = await prisma.application.count({ where: { status: 'Rejected' } });
+      const totalSubmitted = await prisma.application.count();
       stats.admin.approvalRate = {
         approved: totalApproved,
         rejected: totalRejected,
-        total: totalApproved + totalRejected
+        total: totalSubmitted
       };
 
-      const twelveMonthsAgo = new Date();
-      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
-      twelveMonthsAgo.setDate(1);
-      twelveMonthsAgo.setHours(0, 0, 0, 0);
+      const currentYear = new Date().getFullYear();
+      const startOfYear = new Date(currentYear, 0, 1);
 
       const apps = await prisma.application.findMany({
-        where: { createdAt: { gte: twelveMonthsAgo } },
+        where: { createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
       const approvals = await prisma.auditLog.findMany({
-        where: { actionType: 'APPROVE', createdAt: { gte: twelveMonthsAgo } },
+        where: { actionType: 'APPROVE', createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
       const monthlyData: Record<string, { month: string, applications: number, approved: number }> = {};
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        monthlyData[key] = { month: monthNames[d.getMonth()], applications: 0, approved: 0 };
+      for (let i = 0; i < 12; i++) {
+        const key = `${currentYear}-${i}`;
+        monthlyData[key] = { month: monthNames[i], applications: 0, approved: 0 };
       }
 
       apps.forEach(app => {
@@ -1562,13 +1593,9 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
 
       stats.admin.applicationsVsApprovals = Object.values(monthlyData);
 
-      stats.admin.recentActivity = await prisma.auditLog.findMany({
-        take: 6,
-        orderBy: { createdAt: 'desc' },
-        select: { actionByEmail: true, actionType: true, details: true, createdAt: true }
-      });
+      stats.admin.recentActivity = await getEnrichedActivity({});
 
-      stats.admin.recentApplications = await prisma.application.findMany({
+      const rawRecentAdmin = await prisma.application.findMany({
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -1576,35 +1603,40 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
           category: { select: { categoryName: true } }
         }
       });
+
+      stats.admin.recentApplications = rawRecentAdmin.map(app => ({
+        id: app.id,
+        applicantName: app.member?.fullName || 'Unknown',
+        category: app.category?.categoryName || 'Unknown',
+        practiceLocation: app.practiceLocation || 'Local',
+        status: app.status
+      }));
     }
 
     if (role === "Reviewer") {
-      const myApproved = await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Approved' } });
-      const myRejected = await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Rejected' } });
-      const myPending = await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Pending_Approval' } });
+      // Reviewer rate = how many they forwarded to Pending_Approval/Approved vs total assigned
+      const myForwarded = await prisma.application.count({ where: { assignedReviewerId: userId, status: { in: ['Pending_Approval', 'Approved'] } } });
+      const myTotalAssigned = await prisma.application.count({ where: { assignedReviewerId: userId } });
 
-      const twelveMonthsAgo = new Date();
-      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
-      twelveMonthsAgo.setDate(1);
-      twelveMonthsAgo.setHours(0, 0, 0, 0);
+      const currentYear = new Date().getFullYear();
+      const startOfYear = new Date(currentYear, 0, 1);
 
       const reviewerApps = await prisma.application.findMany({
-        where: { assignedReviewerId: userId, createdAt: { gte: twelveMonthsAgo } },
+        where: { assignedReviewerId: userId, createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
+      // Graph: applications assigned to reviewer vs ones they forwarded to Pending_Approval
       const reviewerApprovals = await prisma.application.findMany({
-        where: { assignedReviewerId: userId, status: 'Approved', updatedAt: { gte: twelveMonthsAgo } },
+        where: { assignedReviewerId: userId, status: { in: ['Pending_Approval', 'Approved'] }, updatedAt: { gte: startOfYear } },
         select: { updatedAt: true }
       });
 
       const monthlyData: Record<string, { month: string, applications: number, approved: number }> = {};
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        monthlyData[key] = { month: monthNames[d.getMonth()], applications: 0, approved: 0 };
+      for (let i = 0; i < 12; i++) {
+        const key = `${currentYear}-${i}`;
+        monthlyData[key] = { month: monthNames[i], applications: 0, approved: 0 };
       }
 
       reviewerApps.forEach(app => {
@@ -1635,12 +1667,11 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
         assignedApplications: await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Under_Review' } }),
         pendingReviews: await prisma.application.count({ where: { status: 'Pending' } }),
         myReviewed: await prisma.application.count({ where: { assignedReviewerId: userId, status: { notIn: ['Under_Review', 'Pending'] } } }),
-        approvalRate: {
-          approved: myApproved,
-          rejected: myRejected,
-          pending_approval: myPending,
-          total: myApproved + myRejected + myPending
+        reviewRate: {
+          forwarded: myForwarded,
+          total: myTotalAssigned
         },
+        totalReceived: await prisma.application.count(),
         applicationsVsApprovals: Object.values(monthlyData),
         recentApplications: rawRecent.map(app => ({
           id: app.id,
@@ -1649,12 +1680,7 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await prisma.auditLog.findMany({
-          where: { actionByEmail: userEmail },
-          take: 6,
-          orderBy: { createdAt: 'desc' },
-          select: { actionByEmail: true, actionType: true, details: true, createdAt: true }
-        })
+        recentActivity: await getEnrichedActivity({ actionByEmail: userEmail })
       };
     }
 
@@ -1662,28 +1688,24 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
       const totalApprovedByMe = await prisma.auditLog.count({ where: { actionByEmail: userEmail, actionType: 'APPROVE' } });
       const totalRejectedByMe = await prisma.auditLog.count({ where: { actionByEmail: userEmail, actionType: 'REJECT' } });
 
-      const twelveMonthsAgo = new Date();
-      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
-      twelveMonthsAgo.setDate(1);
-      twelveMonthsAgo.setHours(0, 0, 0, 0);
+      const currentYear = new Date().getFullYear();
+      const startOfYear = new Date(currentYear, 0, 1);
 
       const approverApps = await prisma.application.findMany({
-        where: { status: { in: ['Pending_Approval', 'Approved', 'Rejected'] }, updatedAt: { gte: twelveMonthsAgo } },
+        where: { status: { in: ['Pending_Approval', 'Approved', 'Rejected'] }, updatedAt: { gte: startOfYear } },
         select: { updatedAt: true }
       });
 
       const approverApprovals = await prisma.auditLog.findMany({
-        where: { actionByEmail: userEmail, actionType: 'APPROVE', createdAt: { gte: twelveMonthsAgo } },
+        where: { actionByEmail: userEmail, actionType: 'APPROVE', createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
       const monthlyData: Record<string, { month: string, applications: number, approved: number }> = {};
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date();
-        d.setMonth(d.getMonth() - i);
-        const key = `${d.getFullYear()}-${d.getMonth()}`;
-        monthlyData[key] = { month: monthNames[d.getMonth()], applications: 0, approved: 0 };
+      for (let i = 0; i < 12; i++) {
+        const key = `${currentYear}-${i}`;
+        monthlyData[key] = { month: monthNames[i], applications: 0, approved: 0 };
       }
 
       approverApps.forEach(app => {
@@ -1726,12 +1748,7 @@ export const getDashboardStats = async (req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await prisma.auditLog.findMany({
-          where: { actionByEmail: userEmail },
-          take: 6,
-          orderBy: { createdAt: 'desc' },
-          select: { actionByEmail: true, actionType: true, details: true, createdAt: true }
-        })
+        recentActivity: await getEnrichedActivity({ actionByEmail: userEmail })
       };
     }
 
