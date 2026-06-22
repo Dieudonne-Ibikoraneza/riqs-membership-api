@@ -8,13 +8,16 @@ import { MemberClass } from '@prisma/client';
  */
 const CERT_CODE_MAP: Record<string, string> = {
   // Local individuals
-  'GQS':   'GradQS',  // Graduate Quantity Surveyor
-  'GQST':  'GradQS',  // Graduate QS Technologist
-  'QST':   'TechQS',  // Quantity Surveying Technologist
-  'PQS':   'PrQS',    // Professional Quantity Surveyor
+  'GrQS':  'GrQS',
+  'GrQST': 'GrQS',
+  'TcQS':  'TcQS',
+  'PrQS':  'PrQS',
+  // Associate paths
+  'AsQS':  'AsQS',
+  'AsQST': 'AsQS',
   // Foreign individuals
-  'FQST':  'TechQS',  // Foreign QS Technologist
-  'FPQS':  'PrQS',    // Foreign Professional QS
+  'F-TcQS': 'TcQS',
+  'F-PrQS': 'PrQS',
   // Local firms
   'LF-SM': 'LF',
   'LF-MD': 'LF',

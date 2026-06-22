@@ -9,7 +9,7 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
 
   const {
     applicationId, amount, currency, txType,
-    paymentMethod, transactionReference, receiptUrl
+    paymentMethod, transactionReference, receiptUrl, cpdDocumentUrl
   } = req.body;
 
   if (!amount || !currency || !txType || !paymentMethod || !transactionReference) {
@@ -45,6 +45,7 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
           paymentMethod: paymentMethod as PaymentMethod,
           transactionReference,
           receiptUrl: receiptUrl || null,
+          cpdDocumentUrl: cpdDocumentUrl || null,
           status: 'Pending_Verification',
           rejectionReason: null // clear previous reason
         }
@@ -60,6 +61,7 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
           paymentMethod: paymentMethod as PaymentMethod,
           transactionReference,
           receiptUrl: receiptUrl || null,
+          cpdDocumentUrl: cpdDocumentUrl || null,
           status: 'Pending_Verification'
         }
       });
@@ -117,7 +119,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ error: 'Transaction not found or already verified.' });
     }
 
-    const [updatedTransaction, _] = await prisma.$transaction([
+    const transactionQueries: any[] = [
       prisma.financialTransaction.update({
         where: { id: transactionId },
         data: {
@@ -135,7 +137,25 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
           details: `Transaction ${transactionId} marked as ${action}.`
         }
       })
-    ]);
+    ];
+
+    if (action === 'Cleared' && (existingTransaction.txType === 'First_Year_Fee' || existingTransaction.txType === 'Annual_Renewal')) {
+      const now = new Date();
+      let expiryYear = now.getFullYear();
+      if (now.getMonth() === 11) {
+        expiryYear++; // If paid in December, extends to next year
+      }
+      const newExpiry = new Date(Date.UTC(expiryYear, 11, 31, 23, 59, 59));
+      
+      transactionQueries.push(
+        prisma.member.update({
+          where: { id: existingTransaction.memberId },
+          data: { membershipExpiresAt: newExpiry }
+        })
+      );
+    }
+
+    const [updatedTransaction] = await prisma.$transaction(transactionQueries);
 
     return res.status(200).json({ message: `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
   } catch (error: any) {

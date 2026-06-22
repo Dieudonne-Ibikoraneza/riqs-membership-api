@@ -212,34 +212,30 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
     } else if (action === 'Approve') {
       const currentYear = new Date().getFullYear();
 
-      // Derive the certificate-friendly code (e.g. PQS → PrQS, GQS → GradQS, LF-SM → LF)
+      // Derive the certificate-friendly code (e.g. PrQS, LF, FF)
       const certCode = getCertificateCode(app.category.categoryCode);
 
-      // Count approved applications for this cert code this year (across all size variants)
-      const count = await prisma.application.count({
+      // To prevent duplicate IDs, find the latest membership ID assigned this year for this certCode
+      const prefix = `RIQS-${currentYear}-${certCode}-`;
+      const latestMember = await prisma.member.findFirst({
         where: {
-          status: 'Approved',
-          approvedAt: { gte: new Date(`${currentYear}-01-01`), lte: new Date(`${currentYear}-12-31`),
-          },
-          category: {
-            // Match all category codes that map to the same cert code
-            categoryCode: {
-              in: Object.entries({
-                'GQS': 'GradQS', 'GQST': 'GradQS',
-                'QST': 'TechQS', 'FQST': 'TechQS',
-                'PQS': 'PrQS',  'FPQS': 'PrQS',
-                'LF-SM': 'LF', 'LF-MD': 'LF', 'LF-LG': 'LF',
-                'FF-SM': 'FF', 'FF-MD': 'FF', 'FF-LG': 'FF',
-              }).filter(([, v]) => v === certCode).map(([k]) => k)
-            }
-          }
-        }
+          membershipId: { startsWith: prefix }
+        },
+        orderBy: { membershipId: 'desc' }
       });
 
-      const sequenceNumber = count + 1;
+      let sequenceNumber = 1;
+      if (latestMember && latestMember.membershipId) {
+        const parts = latestMember.membershipId.split('-');
+        const lastSeq = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(lastSeq)) {
+          sequenceNumber = lastSeq + 1;
+        }
+      }
+
       const paddedSequence = String(sequenceNumber).padStart(4, '0');
       // DB format uses dashes (safe for unique constraint); certificate displays slashes
-      const generatedMembershipId = `RIQS-${currentYear}-${certCode}-${paddedSequence}`;
+      const generatedMembershipId = `${prefix}${paddedSequence}`;
 
       // Derive the professional tier (MemberClass) from the category code
       const memberClass = deriveMemberClass(app.category.categoryCode);

@@ -1,11 +1,11 @@
 import { prisma } from '../config/db';
-
-const RUN_INTERVAL_MS = 30 * 1000; // 30 seconds for testing
+import cron from 'node-cron';
 
 export function startCronJobs() {
-  console.log('[Cron Jobs] Initializing background tasks...');
+  console.log('[Cron Jobs] Initializing background tasks via node-cron...');
 
-  setInterval(async () => {
+  // 1. Daily Job: Expiration Check for Locked Accounts (Runs every midnight)
+  cron.schedule('0 0 * * *', async () => {
     console.log('[Cron Jobs] Running expiration check for locked accounts...');
     try {
       const expiredAccounts = await prisma.member.findMany({
@@ -31,63 +31,102 @@ export function startCronJobs() {
     } catch (error: any) {
       console.error('[Cron Jobs] Error running account expiration job:', error.message);
     }
+  });
 
+  // 2. Daily Job: Annual Renewal Checks
+  cron.schedule('0 0 * * *', async () => {
     console.log('[Cron Jobs] Running annual renewal checks...');
     try {
-      // FOR TESTING: Find all applications approved more than 5 minutes ago that haven't been renewed yet.
-      const currentYear = new Date().getFullYear();
-      const timeThreshold = new Date();
-      timeThreshold.setMinutes(timeThreshold.getMinutes() - 5); // 5 minutes ago
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const thresholdDate = new Date();
+      thresholdDate.setDate(today.getDate() + 30); // 30 days ahead
 
-      const dueForRenewal = await prisma.application.findMany({
+      // Find members expiring within 30 days or already expired
+      const eligibleMembers = await prisma.member.findMany({
         where: {
-          status: 'Approved',
-          approvedAt: { lte: timeThreshold }
+          membershipExpiresAt: {
+            lte: thresholdDate,
+            not: null
+          }
         },
-        include: { member: true, category: true }
+        include: {
+          applications: {
+            where: { status: 'Approved' },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            include: { category: true }
+          }
+        }
       });
 
-      if (dueForRenewal.length > 0) {
-        console.log(`[Cron Jobs] Found ${dueForRenewal.length} members due for annual renewal/reporting.`);
-        for (const app of dueForRenewal) {
-          // Check if an Annual_Renewal transaction exists for this member created in the current year
+      if (eligibleMembers.length > 0) {
+        console.log(`[Cron Jobs] Found ${eligibleMembers.length} members due for annual renewal invoicing.`);
+        for (const member of eligibleMembers) {
+          const app = member.applications[0];
+          
+          // Check if an Annual_Renewal transaction exists for this member generated for the upcoming cycle
+          // Since billing cycle usually matches the year they are entering
+          const targetBillingYear = member.membershipExpiresAt!.getFullYear();
+          
           const existingTx = await prisma.financialTransaction.findFirst({
             where: {
-              memberId: app.member.id,
+              memberId: member.id,
               txType: 'Annual_Renewal',
-              createdAt: {
-                gte: new Date(currentYear, 0, 1),
-                lt: new Date(currentYear + 1, 0, 1)
-              }
+              status: { in: ['Unpaid', 'Pending_Verification', 'Failed'] }
             }
           });
 
-          if (!existingTx && app.category?.annualRenewalFee) {
-            const feeAmount = app.category.annualRenewalFee;
-            const currency = app.category.currency || 'RWF';
+          // Also check if they already have a cleared transaction recently (in case they paid but expiry didn't bump yet)
+          const alreadyPaid = await prisma.financialTransaction.findFirst({
+             where: {
+               memberId: member.id,
+               txType: 'Annual_Renewal',
+               status: 'Cleared',
+               createdAt: { gte: new Date(today.getFullYear(), today.getMonth() - 2, 1) }
+             }
+          });
+
+          if (!existingTx && !alreadyPaid) {
+            let feeAmount = 100;
+            let currency = 'USD';
+            let appId = undefined;
+
+            if (app && app.category?.annualRenewalFee) {
+              feeAmount = Number(app.category.annualRenewalFee);
+              currency = app.category.currency || 'RWF';
+              appId = app.id;
+            } else {
+               const isRwandan = member.countryOfOrigin === 'Rwanda';
+               feeAmount = isRwandan ? 50000 : 100;
+               currency = isRwandan ? 'RWF' : 'USD';
+            }
 
             await prisma.financialTransaction.create({
               data: {
-                memberId: app.member.id,
-                applicationId: app.id,
+                memberId: member.id,
+                applicationId: appId,
                 amount: feeAmount,
                 currency: currency,
                 txType: 'Annual_Renewal',
                 paymentMethod: 'Bank_Transfer',
-                transactionReference: `RENEW-${app.member.membershipId || app.member.id.substring(0, 8)}-${currentYear}`,
+                transactionReference: `RENEW-${member.membershipId || member.id.substring(0, 8)}-${targetBillingYear}`,
                 status: 'Unpaid'
               }
             });
 
             // Send Email Notification
-            const { sendMail } = require('../config/mailer');
-            sendMail(app.member.email, 'annual_renewal', {
-              name: app.member.fullName,
-              year: currentYear,
-              fee: `${feeAmount} ${currency}`
-            }).catch((err: any) => console.error('[Cron Jobs] Failed to send renewal email:', err.message));
-
-            console.log(`[Cron Jobs] Generated renewal invoice and sent notification to ${app.member.email}`);
+            try {
+              const { sendMail } = require('../config/mailer');
+              await sendMail(member.email, 'annual_renewal', {
+                name: member.fullName,
+                year: targetBillingYear,
+                fee: `${currency} ${feeAmount}`
+              });
+              console.log(`[Cron Jobs] Generated renewal invoice and sent notification to ${member.email}`);
+            } catch (err: any) {
+               console.error('[Cron Jobs] Failed to send renewal email:', err.message);
+            }
           }
         }
       } else {
@@ -96,8 +135,10 @@ export function startCronJobs() {
     } catch (error: any) {
       console.error('[Cron Jobs] Error running annual renewal job:', error.message);
     }
+  });
 
-    console.log('[Cron Jobs] Running 2-year mentorship completion checks...');
+  // 3. Daily Job: 2-Year Mentorship Checks
+  cron.schedule('0 0 * * *', async () => {
     try {
       const twoYearsAgo = new Date();
       twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
@@ -166,5 +207,5 @@ export function startCronJobs() {
     } catch (error: any) {
       console.error('[Cron Jobs] Error running 2-year mentorship completion job:', error.message);
     }
-  }, RUN_INTERVAL_MS);
+  });
 }

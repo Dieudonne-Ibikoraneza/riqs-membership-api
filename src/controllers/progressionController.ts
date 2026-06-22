@@ -415,7 +415,7 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
           memberId: app.memberId,
           actionByEmail: req.user.email,
           actionType: 'ASSOCIATE_AWARDED',
-          details: `Associate class awarded to ${app.member.email}. New ID: ${newMembershipId}. No APC required.`
+          details: `Associate class awarded to ${app.member.fullName}. New membership ID issued.`
         }
       })
     ]);
