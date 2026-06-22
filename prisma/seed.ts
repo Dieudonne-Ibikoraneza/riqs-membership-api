@@ -305,16 +305,16 @@ async function main() {
 
   const categoriesData = [
     // Rwandan Individuals (Rwandan)
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GrQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
     // Associate-class upgrade paths (awarded after 2-year mentorship without APC)
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist', categoryCode: 'QST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 100000.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor', categoryCode: 'PQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 200000.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AsQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AsQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist', categoryCode: 'TcQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 100000.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor', categoryCode: 'PrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 200000.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
     // Non-Rwandan Individuals (Non_Rwandan)
-    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'FQST', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
-    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'FPQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'F-TcQS', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'F-PrQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
     // Rwandan Firms (Rwandan)
     { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Small Firm (<50M Rwf)', categoryCode: 'LF-SM', processingFee: 50000.00, currency: 'RWF', firstYearFee: 300000.00, annualRenewalFee: 300000.00, stampFee: 0.00 },
     { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Medium Firm (50-100M Rwf)', categoryCode: 'LF-MD', processingFee: 100000.00, currency: 'RWF', firstYearFee: 500000.00, annualRenewalFee: 500000.00, stampFee: 0.00 },
@@ -330,6 +330,7 @@ async function main() {
     await prisma.membershipCategory.upsert({
       where: { categoryName: cat.categoryName },
       update: {
+        categoryCode: cat.categoryCode,
         requiredDocuments: docs.requiredDocuments,
         optionalDocuments: docs.optionalDocuments,
         processingFee: cat.processingFee,
@@ -358,7 +359,7 @@ async function main() {
       fullName: 'Dieudonne Admin',
       systemRole: SystemRole.Admin,
       membershipClass: MemberClass.Professional,
-      membershipId: 'RIQS-2010-PRO-0001',
+      membershipId: 'RIQS-2010-PrQS-0001',
       isEmailVerified: true,
       passwordHash
     },
@@ -367,7 +368,7 @@ async function main() {
       fullName: 'Dieudonne Reviewer',
       systemRole: SystemRole.Reviewer,
       membershipClass: MemberClass.Professional,
-      membershipId: 'RIQS-2015-PRO-0002',
+      membershipId: 'RIQS-2015-PrQS-0002',
       isEmailVerified: true,
       passwordHash
     },
@@ -376,7 +377,7 @@ async function main() {
       fullName: 'Dieudonne Approver',
       systemRole: SystemRole.Approver,
       membershipClass: MemberClass.Professional,
-      membershipId: 'RIQS-2015-PRO-0003',
+      membershipId: 'RIQS-2015-PrQS-0003',
       isEmailVerified: true,
       passwordHash
     },
@@ -385,7 +386,7 @@ async function main() {
       fullName: 'Dieudonne Teacher',
       systemRole: SystemRole.Teacher,
       membershipClass: MemberClass.Professional,
-      membershipId: 'RIQS-2012-PRO-0003',
+      membershipId: 'RIQS-2012-PrQS-0004',
       isEmailVerified: true,
       passwordHash
     },
@@ -394,7 +395,7 @@ async function main() {
       fullName: 'Dieudonne Mentor',
       systemRole: SystemRole.Mentor,
       membershipClass: MemberClass.Technologist,
-      membershipId: 'RIQS-2018-TECH-0001',
+      membershipId: 'RIQS-2018-TcQS-0001',
       isEmailVerified: true,
       phoneNumber: '+250788123456',
       passwordHash
@@ -404,7 +405,7 @@ async function main() {
   for (const user of testUsers) {
     await prisma.member.upsert({
       where: { email: user.email },
-      update: {},
+      update: { membershipId: user.membershipId },
       create: user
     });
   }

@@ -127,6 +127,7 @@ model Member {
   otpExpiresAt           DateTime?    @map("otp_expires_at") @db.Timestamptz
   resetPasswordOtp       String?      @map("reset_password_otp") @db.VarChar(6)
   resetPasswordExpires   DateTime?    @map("reset_password_expires") @db.Timestamptz
+  membershipExpiresAt    DateTime?    @map("membership_expires_at") @db.Timestamptz
   createdAt              DateTime?    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime?    @default(now()) @map("updated_at") @db.Timestamptz
 
@@ -354,6 +355,7 @@ model FinancialTransaction {
   rejectionReason      String?            @map("rejection_reason")
   invoiceUrl           String?            @map("invoice_url")
   receiptUrl           String?            @map("receipt_url")
+  cpdDocumentUrl       String?            @map("cpd_document_url")
   clearedAt            DateTime?          @map("cleared_at") @db.Timestamptz
   createdAt            DateTime?          @default(now()) @map("created_at") @db.Timestamptz
 
