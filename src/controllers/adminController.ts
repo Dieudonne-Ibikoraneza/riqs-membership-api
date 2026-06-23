@@ -1618,7 +1618,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       const startOfYear = new Date(currentYear, 0, 1);
 
       const reviewerApps = await prisma.application.findMany({
-        where: { assignedReviewerId: userId, createdAt: { gte: startOfYear } },
+        where: { createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
