@@ -323,6 +323,9 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot return. Application is in "${app.status}" status.` });
       }
+      if (app.assignedReviewerId !== req.user.id && userRole !== 'admin') {
+        return res.status(403).json({ error: 'Access Denied. You are not the assigned reviewer for this application.' });
+      }
       await prisma.$transaction([
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Correction_Required', updatedAt: new Date() } }),
         prisma.applicationStatusHistory.create({
@@ -335,6 +338,9 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
     } else if (action === 'ForwardToApprover') {
       if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
+      }
+      if (app.assignedReviewerId !== req.user.id && userRole !== 'admin') {
+        return res.status(403).json({ error: 'Access Denied. You are not the assigned reviewer for this application.' });
       }
       await prisma.$transaction([
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Pending_Approval', updatedAt: new Date() } }),
