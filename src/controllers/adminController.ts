@@ -1676,7 +1676,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await getEnrichedActivity({ actionByEmail: userEmail })
+        recentActivity: await getEnrichedActivity({})
       };
     }
 
@@ -1744,7 +1744,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await getEnrichedActivity({ actionByEmail: userEmail })
+        recentActivity: await getEnrichedActivity({})
       };
     }
 
