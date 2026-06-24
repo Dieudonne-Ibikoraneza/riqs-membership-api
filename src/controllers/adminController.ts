@@ -1734,13 +1734,17 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
         }
       });
 
+      const totalSubmitted = await prisma.application.count();
+      const totalApprovedSys = await prisma.application.count({ where: { status: 'Approved' } });
+      const totalRejectedSys = await prisma.application.count({ where: { status: 'Rejected' } });
+
       stats.approver = {
         pendingApproval: await prisma.application.count({ where: { status: 'Pending_Approval' } }),
         recentlyApproved: totalApprovedByMe,
         approvalRate: {
-          approved: totalApprovedByMe,
-          rejected: totalRejectedByMe,
-          total: totalApprovedByMe + totalRejectedByMe
+          approved: totalApprovedSys,
+          rejected: totalRejectedSys,
+          total: totalSubmitted
         },
         applicationsVsApprovals: Object.values(monthlyData),
         recentApplications: rawRecent.map(app => ({
