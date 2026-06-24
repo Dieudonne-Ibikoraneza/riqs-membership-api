@@ -247,7 +247,12 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
         }),
         prisma.member.update({
           where: { id: app.memberId },
-          data: { membershipId: generatedMembershipId, membershipClass: memberClass, updatedAt: new Date() }
+          data: { 
+            membershipId: generatedMembershipId, 
+            membershipClass: memberClass, 
+            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
+            updatedAt: new Date() 
+          }
         }),
         prisma.applicationStatusHistory.create({
           data: {
@@ -427,6 +432,7 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
           data: { 
             membershipId: generatedMembershipId, 
             membershipClass: memberClass, 
+            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
             ...(app.member.systemRole === 'Standard' && (memberClass.includes('Technologist') || memberClass.includes('Professional')) ? { systemRole: 'Mentor' } : {}),
             updatedAt: new Date() 
           } 
