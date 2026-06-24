@@ -304,7 +304,7 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
     const oldStatus = app.status;
 
     if (action === 'StartReview') {
-      if (app.status !== 'Pending') {
+      if (app.status !== 'Pending' && !(app.status === 'Under_Review' && userRole === 'admin')) {
         return res.status(400).json({ error: `Cannot start review. Application is in "${app.status}" status.` });
       }
       await prisma.$transaction([
@@ -313,7 +313,7 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
           data: { status: 'Under_Review', assignedReviewerId: req.user.id, updatedAt: new Date() }
         }),
         prisma.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: req.user.email, oldStatus: oldStatus!, newStatus: 'Under_Review' }
+          data: { applicationId, changedByEmail: req.user.email, oldStatus: oldStatus!, newStatus: 'Under_Review', reviewerNotes: 'Admin took over the review.' }
         })
       ]);
       return res.status(200).json({ message: 'Application picked up. Review has started.' });
