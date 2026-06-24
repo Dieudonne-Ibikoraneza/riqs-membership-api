@@ -34,7 +34,7 @@ export function startCronJobs() {
   });
 
   // 2. Daily Job: Annual Renewal Checks
-  cron.schedule('0 0 * * *', async () => {
+  cron.schedule('30 16 * * *', async () => {
     console.log('[Cron Jobs] Running annual renewal checks...');
     try {
       const today = new Date();
@@ -118,10 +118,14 @@ export function startCronJobs() {
             // Send Email Notification
             try {
               const { sendMail } = require('../config/mailer');
-              await sendMail(member.email, 'annual_renewal', {
+              const expiryDateStr = member.membershipExpiresAt
+                ? new Date(member.membershipExpiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+                : `31 December ${targetBillingYear}`;
+              await sendMail(member.email, 'renewal', {
                 name: member.fullName,
                 year: targetBillingYear,
-                fee: `${currency} ${feeAmount}`
+                fee: `${currency} ${Number(feeAmount).toLocaleString()}`,
+                expiry_date: expiryDateStr
               });
               console.log(`[Cron Jobs] Generated renewal invoice and sent notification to ${member.email}`);
             } catch (err: any) {
