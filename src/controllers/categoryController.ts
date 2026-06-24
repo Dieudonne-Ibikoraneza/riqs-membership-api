@@ -81,6 +81,7 @@ export async function updateCategory(req: Request, res: Response) {
     const { id } = req.params;
     const {
       category_name,
+      category_code,
       processing_fee,
       currency,
       first_year_fee,
@@ -99,6 +100,7 @@ export async function updateCategory(req: Request, res: Response) {
       where: { id },
       data: {
         categoryName: category_name !== undefined ? category_name : existingCat.categoryName,
+        categoryCode: category_code !== undefined ? category_code : existingCat.categoryCode,
         processingFee: processing_fee !== undefined ? processing_fee : existingCat.processingFee,
         currency: currency !== undefined ? currency : existingCat.currency,
         firstYearFee: first_year_fee !== undefined ? first_year_fee : existingCat.firstYearFee,
