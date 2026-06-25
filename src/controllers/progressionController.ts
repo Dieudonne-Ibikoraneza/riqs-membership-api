@@ -202,13 +202,13 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
 
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
-      // Route 1 (GQST, AQST) → Technologist, Route 2+ (GQS, AQS, PQS, FPQS) → Professional
+      // Route 1 (GradQST, AsQST) → Technologist, Route 2+ (GradQS, AsQS, PrQS, F-PrQS) → Professional
       newClass = 'Technologist';
-      if (code === 'GQS' || code === 'PQS' || code === 'FPQS' || code === 'AQS') newClass = 'Professional';
+      if (code === 'GradQS' || code === 'PrQS' || code === 'F-PrQS' || code === 'AsQS') newClass = 'Professional';
 
       // Determine the new certificate code based on new class
       if (newClass === 'Technologist') newCertCode = 'TechQS';
-      else newCertCode = code === 'FPQS' ? 'PrQS' : 'PrQS';
+      else newCertCode = 'PrQS';
 
       // Generate a sequential membership ID under the new cert code
       const currentYear = new Date().getFullYear();
@@ -223,8 +223,8 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
       let targetCategoryCode = code;
-      if (code === 'GQST' || code === 'AQST') targetCategoryCode = 'QST';
-      else if (code === 'GQS' || code === 'AQS') targetCategoryCode = 'PQS';
+      if (code === 'GradQST' || code === 'AsQST') targetCategoryCode = 'TcQS';
+      else if (code === 'GradQS' || code === 'AsQS') targetCategoryCode = 'PrQS';
 
       if (targetCategoryCode !== code) {
         targetCategory = await prisma.membershipCategory.findFirst({
