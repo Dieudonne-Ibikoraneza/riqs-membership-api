@@ -380,12 +380,12 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     if (app.status !== 'Approved') return res.status(400).json({ error: 'Application must be Approved to award Associate class.' });
 
     const code = app.category.categoryCode;
-    // Route 1 (GQST) → Associate QS Technologist (AQST)
-    // Route 2 (GQS)  → Associate Quantity Surveyor (AQS)
+    // Route 1 (GQST) → Associate QS Technologist (AsQST)
+    // Route 2 (GQS)  → Associate Quantity Surveyor (AsQS)
     let targetCode: string;
     let newClass: MemberClass;
-    if (code === 'GQST') { targetCode = 'AQST'; newClass = 'Associate'; }
-    else if (code === 'GQS') { targetCode = 'AQS'; newClass = 'Associate'; }
+    if (code === 'GQST') { targetCode = 'AsQST'; newClass = 'Associate'; }
+    else if (code === 'GQS') { targetCode = 'AsQS'; newClass = 'Associate'; }
     else return res.status(400).json({ error: `Associate class is only applicable to Route 1 (GQST) or Route 2 (GQS). Current category: ${code}` });
 
     const targetCategory = await prisma.membershipCategory.findFirst({

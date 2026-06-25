@@ -1385,32 +1385,12 @@ export async function approveMentorshipUpgrade(req: AuthenticatedRequest, res: R
     });
 
     if (app.mentorshipAssignment.apcReadiness === 'Not_Ready') {
-      const targetCategoryName = app.category.categoryName.includes("Technologist")
-        ? "Associate Quantity Surveying Technologist"
-        : "Associate Quantity Surveyor";
-
-      const targetCategory = await prisma.membershipCategory.findFirst({
-        where: { categoryName: targetCategoryName }
-      });
-
-      await prisma.application.update({
-        where: { id: applicationId },
-        data: {
-          categoryId: targetCategory?.id || app.categoryId
-        }
-      });
-
-      await prisma.member.update({
-        where: { id: app.memberId },
-        data: { membershipClass: 'Associate' }
-      });
-
       await prisma.auditLog.create({
         data: {
           memberId: app.memberId,
           actionByEmail: req.user.email,
           actionType: 'MENTORSHIP_UPGRADE_APPROVED',
-          details: 'Mentorship upgrade approved. Direct upgrade to Associate.'
+          details: 'Mentorship upgrade approved. Ready for Associate award.'
         }
       });
 
