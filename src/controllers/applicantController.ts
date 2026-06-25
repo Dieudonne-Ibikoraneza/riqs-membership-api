@@ -565,6 +565,15 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       }
     });
 
+    await prisma.auditLog.create({
+      data: {
+        memberId: req.user.id,
+        actionByEmail: req.user.email,
+        actionType: 'APPLICATION_SUBMITTED',
+        details: `Application submitted for category: ${existingApp.category?.categoryName || 'Unknown'}.`
+      }
+    });
+
     return res.status(200).json({
       message: 'Application locked and successfully submitted to review queue.',
       application: updatedApp

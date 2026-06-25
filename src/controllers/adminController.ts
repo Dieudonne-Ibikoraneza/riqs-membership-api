@@ -1642,7 +1642,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       });
 
       const rawRecent = await prisma.application.findMany({
-        where: { OR: [{ status: 'Pending' }, { assignedReviewerId: userId, status: 'Under_Review' }] },
+        where: { OR: [{ status: 'Pending' }, { assignedReviewerId: userId }] },
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -1668,7 +1668,9 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await getEnrichedActivity({})
+        recentActivity: await getEnrichedActivity({
+          actionType: { in: ['REVIEWER_ASSIGNED', 'APPROVE', 'REJECT', 'FLAG_FOR_CORRECTION', 'APPLICATION_SUBMITTED'] }
+        })
       };
     }
 
@@ -1740,7 +1742,9 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
           practiceLocation: app.practiceLocation || 'Local',
           status: app.status
         })),
-        recentActivity: await getEnrichedActivity({})
+        recentActivity: await getEnrichedActivity({
+          actionType: { in: ['APPROVE', 'REJECT', 'ADMIN_EMAIL_SEND', 'ADMIN_EMAIL_BULK_SEND'] }
+        })
       };
     }
 
