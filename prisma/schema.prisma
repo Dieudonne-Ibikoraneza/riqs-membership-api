@@ -29,16 +29,33 @@ enum ApplicationStatus {
 }
 
 enum MemberClass {
+  Student
   Graduate
   Associate
   Technologist
   Professional
+  Fellow
+  Life_Member
+  Honorary_Member
+  Visiting_Member
   Firm_Local_Small
   Firm_Local_Medium
   Firm_Local_Large
   Firm_Foreign_Small
   Firm_Foreign_Medium
   Firm_Foreign_Large
+}
+
+enum CompetencyLevel {
+  Level_0
+  Level_1
+  Level_2
+  Level_3
+  Level_4
+  Level_5
+  Not_Applicable
+  Equivalent
+  Organization
 }
 
 enum SystemRole {
@@ -94,8 +111,10 @@ model MembershipCategory {
   firstYearFee      Decimal          @map("first_year_fee") @db.Decimal(12, 2)
   annualRenewalFee  Decimal          @map("annual_renewal_fee") @db.Decimal(12, 2)
   stampFee          Decimal?         @default(0.00) @map("stamp_fee") @db.Decimal(12, 2)
+  supportedHonors   Json             @default("[]") @map("supported_honors")
   requiredDocuments Json             @default("[]") @map("required_documents")
   optionalDocuments Json             @default("[]") @map("optional_documents")
+  competencyLevel   CompetencyLevel? @map("competency_level")
 
   applications Application[]
 
@@ -119,6 +138,8 @@ model Member {
   membershipId           String?      @unique @map("membership_id") @db.VarChar(100)
   membershipClass        MemberClass? @map("membership_class")
   systemRole             SystemRole?  @default(Standard) @map("system_role")
+  isFellow               Boolean?     @default(false) @map("is_fellow")
+  isHonorary             Boolean?     @default(false) @map("is_honorary")
   trainingTrackingNumber String?      @unique @map("training_tracking_number") @db.VarChar(100)
   isEmailVerified        Boolean?     @default(false) @map("is_email_verified")
   isLocked               Boolean?     @default(false) @map("is_locked")
@@ -128,6 +149,7 @@ model Member {
   resetPasswordOtp       String?      @map("reset_password_otp") @db.VarChar(6)
   resetPasswordExpires   DateTime?    @map("reset_password_expires") @db.Timestamptz
   membershipExpiresAt    DateTime?    @map("membership_expires_at") @db.Timestamptz
+  profilePhotoUrl        String?      @map("profile_photo_url")
   createdAt              DateTime?    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt              DateTime?    @default(now()) @map("updated_at") @db.Timestamptz
 
@@ -136,6 +158,8 @@ model Member {
   financialTransactions FinancialTransaction[]
   auditLogs             AuditLog[]
   reviewedApplications  Application[]          @relation("ReviewerAssignments")
+  supportTickets        SupportTicket[]
+  ticketReplies         TicketReply[]
 
   @@map("members")
 }
@@ -403,13 +427,42 @@ model DocumentType {
 }
 
 model LogbookEntry {
-  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId           String   @map("application_id") @db.Uuid
-  period                  String   @db.VarChar(100) // e.g., "Month 1-6"
-  documentUrl             String   @map("document_url")
-  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  period        String   @db.VarChar(100) // e.g., "Month 1-6"
+  documentUrl   String   @map("document_url")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("logbook_entries")
+}
+
+model SupportTicket {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId  String   @map("member_id") @db.Uuid
+  subject   String   @db.VarChar(255)
+  category  String   @db.VarChar(100)
+  status    String   @default("Open") @db.VarChar(50)
+  priority  String   @default("Medium") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  member  Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  replies TicketReply[]
+
+  @@map("support_tickets")
+}
+
+model TicketReply {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  senderId  String   @map("sender_id") @db.Uuid
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender Member        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_replies")
 }

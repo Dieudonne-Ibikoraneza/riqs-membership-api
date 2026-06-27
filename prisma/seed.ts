@@ -304,25 +304,31 @@ async function main() {
   // });
 
   const categoriesData = [
+    // Students
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Student Member', categoryCode: 'StQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Level_1' },
     // Rwandan Individuals (Rwandan)
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GrQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GrQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00, competencyLevel: 'Level_2' },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00, competencyLevel: 'Level_2' },
     // Associate-class upgrade paths (awarded after 2-year mentorship without APC)
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AsQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AsQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist', categoryCode: 'TcQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 100000.00, annualRenewalFee: 100000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor', categoryCode: 'PrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 200000.00, annualRenewalFee: 200000.00, stampFee: 50000.00 },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveying Technologist', categoryCode: 'AsQST', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 70000.00, stampFee: 0.00, competencyLevel: 'Level_3' },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Associate Quantity Surveyor', categoryCode: 'AsQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 100000.00, stampFee: 0.00, competencyLevel: 'Level_3' },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Quantity Surveying Technologist', categoryCode: 'TcQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 100000.00, annualRenewalFee: 100000.00, stampFee: 0.00, competencyLevel: 'Level_3' },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Professional Quantity Surveyor', categoryCode: 'PrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 200000.00, annualRenewalFee: 200000.00, stampFee: 50000.00, competencyLevel: 'Level_4' },
+    // Honorable Mentions
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Life Member', categoryCode: 'LQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Not_Applicable' },
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Honorary Member', categoryCode: 'HQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Not_Applicable' },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Visiting Member', categoryCode: 'VQS', processingFee: 0.00, currency: 'USD', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Equivalent' },
     // Non-Rwandan Individuals (Non_Rwandan)
-    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'F-TcQS', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00 },
-    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'F-PrQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Quantity Surveying Technologist', categoryCode: 'F-TcQS', processingFee: 30.00, currency: 'USD', firstYearFee: 100.00, annualRenewalFee: 100.00, stampFee: 0.00, competencyLevel: 'Level_3' },
+    { location: 'Non_Rwandan', entityType: 'Individual', categoryName: 'Non-Rwandan Professional Quantity Surveyor', categoryCode: 'F-PrQS', processingFee: 50.00, currency: 'USD', firstYearFee: 200.00, annualRenewalFee: 200.00, stampFee: 0.00, competencyLevel: 'Level_4' },
     // Rwandan Firms (Rwandan)
-    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Small Firm (<50M Rwf)', categoryCode: 'LF-SM', processingFee: 50000.00, currency: 'RWF', firstYearFee: 300000.00, annualRenewalFee: 300000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Medium Firm (50-100M Rwf)', categoryCode: 'LF-MD', processingFee: 100000.00, currency: 'RWF', firstYearFee: 500000.00, annualRenewalFee: 500000.00, stampFee: 0.00 },
-    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Large Firm (>100M Rwf)', categoryCode: 'LF-LG', processingFee: 200000.00, currency: 'RWF', firstYearFee: 1000000.00, annualRenewalFee: 1000000.00, stampFee: 0.00 },
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Small Firm (<50M Rwf)', categoryCode: 'LF-SM', processingFee: 50000.00, currency: 'RWF', firstYearFee: 300000.00, annualRenewalFee: 300000.00, stampFee: 0.00, competencyLevel: 'Organization' },
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Medium Firm (50-100M Rwf)', categoryCode: 'LF-MD', processingFee: 100000.00, currency: 'RWF', firstYearFee: 500000.00, annualRenewalFee: 500000.00, stampFee: 0.00, competencyLevel: 'Organization' },
+    { location: 'Rwandan', entityType: 'Firm', categoryName: 'Rwandan Large Firm (>100M Rwf)', categoryCode: 'LF-LG', processingFee: 200000.00, currency: 'RWF', firstYearFee: 1000000.00, annualRenewalFee: 1000000.00, stampFee: 0.00, competencyLevel: 'Organization' },
     // Non-Rwandan Firms (Non_Rwandan)
-    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Small Firm (<100K USD)', categoryCode: 'FF-SM', processingFee: 100.00, currency: 'USD', firstYearFee: 1000.00, annualRenewalFee: 1000.00, stampFee: 0.00 },
-    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Medium Firm (100-500K USD)', categoryCode: 'FF-MD', processingFee: 200.00, currency: 'USD', firstYearFee: 2000.00, annualRenewalFee: 2000.00, stampFee: 0.00 },
-    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Large Firm (>500K USD)', categoryCode: 'FF-LG', processingFee: 400.00, currency: 'USD', firstYearFee: 3000.00, annualRenewalFee: 3000.00, stampFee: 0.00 },
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Small Firm (<100K USD)', categoryCode: 'FF-SM', processingFee: 100.00, currency: 'USD', firstYearFee: 1000.00, annualRenewalFee: 1000.00, stampFee: 0.00, competencyLevel: 'Organization' },
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Medium Firm (100-500K USD)', categoryCode: 'FF-MD', processingFee: 200.00, currency: 'USD', firstYearFee: 2000.00, annualRenewalFee: 2000.00, stampFee: 0.00, competencyLevel: 'Organization' },
+    { location: 'Non_Rwandan', entityType: 'Firm', categoryName: 'Non-Rwandan Large Firm (>500K USD)', categoryCode: 'FF-LG', processingFee: 400.00, currency: 'USD', firstYearFee: 3000.00, annualRenewalFee: 3000.00, stampFee: 0.00, competencyLevel: 'Organization' },
   ];
 
   for (const cat of categoriesData) {
@@ -337,6 +343,7 @@ async function main() {
         firstYearFee: cat.firstYearFee,
         annualRenewalFee: cat.annualRenewalFee,
         stampFee: cat.stampFee,
+        competencyLevel: cat.competencyLevel as any,
       },
       create: {
         ...cat,
@@ -344,6 +351,7 @@ async function main() {
         entityType: cat.entityType as any,
         requiredDocuments: docs.requiredDocuments,
         optionalDocuments: docs.optionalDocuments,
+        competencyLevel: cat.competencyLevel as any,
       }
     });
   }
