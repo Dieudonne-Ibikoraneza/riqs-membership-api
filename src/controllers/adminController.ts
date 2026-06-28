@@ -1754,3 +1754,191 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
     res.status(500).json({ error: "Failed to fetch dashboard statistics" });
   }
 };
+
+export async function changeMembershipCategory(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const { newCategoryId } = req.body;
+    
+    if (!newCategoryId) return res.status(400).json({ error: 'New category ID is required.' });
+
+    const member = await prisma.member.findUnique({
+      where: { id },
+      include: {
+        applications: { orderBy: { createdAt: 'desc' }, take: 1 }
+      }
+    });
+
+    if (!member) return res.status(404).json({ error: 'Member not found.' });
+
+    const category = await prisma.membershipCategory.findUnique({ where: { id: newCategoryId } });
+    if (!category) return res.status(404).json({ error: 'Category not found.' });
+
+    let newClass = member.membershipClass;
+    if (category.categoryName.toLowerCase().includes('professional')) newClass = 'Professional';
+    else if (category.categoryName.toLowerCase().includes('technologist')) newClass = 'Technologist';
+    else if (category.categoryName.toLowerCase().includes('graduate')) newClass = 'Graduate';
+    else if (category.categoryName.toLowerCase().includes('firm')) newClass = 'Firm_Local_Small'; // fallback mapping for firm
+
+    let newMembershipId = member.membershipId;
+    if (newMembershipId) {
+       const p = category.categoryCode;
+       // ID format is typically RIQS-YYYY-CODE-XXXX
+       const parts = newMembershipId.split('-');
+       if (parts.length === 4) {
+          parts[2] = p;
+          newMembershipId = parts.join('-');
+       } else {
+         const slashParts = newMembershipId.split('/');
+         if (slashParts.length === 3) {
+            slashParts[1] = p;
+            newMembershipId = slashParts.join('/');
+         }
+       }
+    }
+
+    if (member.applications.length > 0) {
+      await prisma.application.update({
+        where: { id: member.applications[0].id },
+        data: { categoryId: category.id }
+      });
+    }
+
+    const updatedMember = await prisma.member.update({
+      where: { id },
+      data: {
+        membershipClass: newClass as any, // bypassing strict enum check just in case
+        membershipId: newMembershipId
+      }
+    });
+
+    let invoiceUrl = '';
+    if (category.firstYearFee.toNumber() > 0) {
+      const existingTx = await prisma.financialTransaction.findFirst({
+         where: { 
+           memberId: id, 
+           txType: 'First_Year_Fee', 
+           transactionReference: { startsWith: `FYF-${newMembershipId}` }
+         }
+      });
+      if (!existingTx) {
+         const tx = await prisma.financialTransaction.create({
+           data: {
+             memberId: id,
+             amount: category.firstYearFee,
+             currency: category.currency || 'RWF',
+             txType: 'First_Year_Fee',
+             status: 'Unpaid',
+             transactionReference: `FYF-${newMembershipId}-${Date.now()}`,
+             paymentMethod: 'Bank_Transfer'
+           }
+         });
+         invoiceUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/member/invoices/${tx.id}`;
+      }
+    }
+
+    try {
+      const { sendRawMail } = await import('../config/mailer');
+      await sendRawMail({
+        to: member.email,
+        subject: 'Membership Category Updated',
+        html: `
+          <h3>Membership Update</h3>
+          <p>Dear ${member.fullName},</p>
+          <p>Your membership category has been successfully updated to <strong>${category.categoryName}</strong>.</p>
+          <p>Your new Membership Class is <strong>${newClass}</strong> and your Membership ID is <strong>${newMembershipId}</strong>.</p>
+          ${invoiceUrl ? `<p>An invoice for your new category fee has been generated. Please log in to your portal to review and pay it.</p>` : ''}
+          <br/>
+          <p>Thank you,</p>
+          <p>RIQS Administration</p>
+        `
+      });
+    } catch (emailErr: any) {
+      console.error('[Change Category] Failed to send email:', emailErr.message);
+    }
+
+    res.json({ success: true, message: 'Membership category updated successfully.', member: updatedMember });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Server error updating membership category.' });
+  }
+}
+
+export const awardFellowStatus = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const member = await prisma.member.findUnique({
+      where: { id },
+      include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, include: { category: true } } }
+    });
+
+    if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
+
+    const category = member.applications[0]?.category;
+    const honors = (category?.supportedHonors as any[]) || [];
+    if (!category || !honors.some((h: any) => h.name === 'Fellow')) {
+       return res.status(400).json({ success: false, message: "This member's category does not support the Fellow honorable mention." });
+    }
+
+    const updatedMember = await prisma.member.update({
+      where: { id },
+      data: { isFellow: true }
+    });
+
+    res.json({ success: true, message: 'Member successfully awarded Fellow status', member: updatedMember });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+export const revokeFellowStatus = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const member = await prisma.member.update({
+      where: { id },
+      data: { isFellow: false }
+    });
+    res.json({ success: true, message: 'Fellow status revoked successfully.', member });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+export const awardHonoraryStatus = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const member = await prisma.member.update({ where: { id }, data: { isHonorary: true } });
+    res.json({ success: true, message: 'Awarded Honorary status', member });
+  } catch (error: any) { res.status(500).json({ success: false, message: 'Server Error' }); }
+};
+
+export const revokeHonoraryStatus = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const member = await prisma.member.update({ where: { id }, data: { isHonorary: false } });
+    res.json({ success: true, message: 'Revoked Honorary status', member });
+  } catch (error: any) { res.status(500).json({ success: false, message: 'Server Error' }); }
+};
+
+export const createHonorableMentionMember = async (req: AuthenticatedRequest, res: Response) => {
+  res.status(501).json({ success: false, message: 'Not Implemented' });
+};
+
+
+export const getMemberById = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const member = await prisma.member.findUnique({
+      where: { id },
+      include: {
+        applications: { orderBy: { createdAt: 'desc' }, include: { category: true } },
+        financialTransactions: { orderBy: { createdAt: 'desc' } }
+      }
+    });
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+    res.json(member);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+};
