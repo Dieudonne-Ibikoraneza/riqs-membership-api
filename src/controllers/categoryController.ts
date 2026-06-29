@@ -32,6 +32,7 @@ export async function getAllCategories(req: Request, res: Response) {
       first_year_fee: cat.firstYearFee,
       annual_renewal_fee: cat.annualRenewalFee,
       stamp_fee: cat.stampFee,
+      supported_honors: cat.supportedHonors,
       required_documents: cat.requiredDocuments,
       optional_documents: cat.optionalDocuments
     }));
@@ -64,6 +65,7 @@ export async function getCategoryById(req: Request, res: Response) {
       first_year_fee: cat.firstYearFee,
       annual_renewal_fee: cat.annualRenewalFee,
       stamp_fee: cat.stampFee,
+      supported_honors: cat.supportedHonors,
       required_documents: cat.requiredDocuments,
       optional_documents: cat.optionalDocuments
     };
@@ -87,6 +89,7 @@ export async function updateCategory(req: Request, res: Response) {
       first_year_fee,
       annual_renewal_fee,
       stamp_fee,
+      supported_honors,
       required_documents,
       optional_documents
     } = req.body;
@@ -106,6 +109,7 @@ export async function updateCategory(req: Request, res: Response) {
         firstYearFee: first_year_fee !== undefined ? first_year_fee : existingCat.firstYearFee,
         annualRenewalFee: annual_renewal_fee !== undefined ? annual_renewal_fee : existingCat.annualRenewalFee,
         stampFee: stamp_fee !== undefined ? stamp_fee : existingCat.stampFee,
+        supportedHonors: supported_honors !== undefined && Array.isArray(supported_honors) ? supported_honors : (existingCat.supportedHonors as any),
         requiredDocuments: required_documents !== undefined && Array.isArray(required_documents) ? required_documents : (existingCat.requiredDocuments as any),
         optionalDocuments: optional_documents !== undefined && Array.isArray(optional_documents) ? optional_documents : (existingCat.optionalDocuments as any),
       }
@@ -124,6 +128,7 @@ export async function updateCategory(req: Request, res: Response) {
         first_year_fee: updatedCat.firstYearFee,
         annual_renewal_fee: updatedCat.annualRenewalFee,
         stamp_fee: updatedCat.stampFee,
+        supported_honors: updatedCat.supportedHonors,
         required_documents: updatedCat.requiredDocuments,
         optional_documents: updatedCat.optionalDocuments
       }
@@ -147,6 +152,7 @@ export async function createCategory(req: Request, res: Response) {
       first_year_fee,
       annual_renewal_fee,
       stamp_fee,
+      supported_honors,
       required_documents,
       optional_documents
     } = req.body;
@@ -166,6 +172,7 @@ export async function createCategory(req: Request, res: Response) {
         firstYearFee: first_year_fee,
         annualRenewalFee: annual_renewal_fee,
         stampFee: stamp_fee || 0.00,
+        supportedHonors: supported_honors || [],
         requiredDocuments: required_documents || [],
         optionalDocuments: optional_documents || [],
       }
@@ -184,6 +191,7 @@ export async function createCategory(req: Request, res: Response) {
         first_year_fee: newCat.firstYearFee,
         annual_renewal_fee: newCat.annualRenewalFee,
         stamp_fee: newCat.stampFee,
+        supported_honors: newCat.supportedHonors,
         required_documents: newCat.requiredDocuments,
         optional_documents: newCat.optionalDocuments
       }

@@ -58,6 +58,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             countryOfOrigin: true,
             membershipClass: true,
             membershipId: true,
+            profilePhotoUrl: true,
             membershipExpiresAt: true,
             systemRole: true
           }
