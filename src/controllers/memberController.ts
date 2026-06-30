@@ -50,7 +50,8 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
           fullName: true,
           membershipClass: true,
           phoneNumber: true,
-          email: true
+          email: true,
+          profilePhotoUrl: true
         }
       }),
       prisma.member.count({ where: whereClause })
@@ -63,7 +64,8 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
       full_name: m.fullName,
       membership_class: m.membershipClass,
       phone_number: m.phoneNumber,
-      email: m.email
+      email: m.email,
+      profile_photo_url: m.profilePhotoUrl
     }));
 
     return res.status(200).json({
@@ -137,7 +139,8 @@ export async function getMemberProfile(req: AuthenticatedRequest, res: Response)
         countryOfOrigin: true,
         membershipId: true,
         membershipClass: true,
-        systemRole: true
+        systemRole: true,
+        profilePhotoUrl: true
       }
     });
 
@@ -165,7 +168,8 @@ export async function updateMemberProfile(req: AuthenticatedRequest, res: Respon
     residencyAddress,
     workAddress,
     yearsInProfession,
-    countryOfOrigin
+    countryOfOrigin,
+    profilePhotoUrl
   } = req.body;
 
   try {
@@ -182,6 +186,7 @@ export async function updateMemberProfile(req: AuthenticatedRequest, res: Respon
       memberUpdateData.yearsInProfession = parseInt(String(yearsInProfession), 10);
     }
     if (countryOfOrigin !== undefined) memberUpdateData.countryOfOrigin = countryOfOrigin;
+    if (profilePhotoUrl !== undefined) memberUpdateData.profilePhotoUrl = profilePhotoUrl;
 
     const updatedProfile = await prisma.member.update({
       where: { id: req.user.id },
@@ -201,7 +206,8 @@ export async function updateMemberProfile(req: AuthenticatedRequest, res: Respon
         countryOfOrigin: true,
         membershipId: true,
         membershipClass: true,
-        systemRole: true
+        systemRole: true,
+        profilePhotoUrl: true
       }
     });
 

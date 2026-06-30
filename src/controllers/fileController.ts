@@ -167,6 +167,49 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+export async function uploadProfilePhoto(req: AuthenticatedRequest, res: Response) {
+  if (!req.file || !req.user) {
+    return res.status(400).json({ error: 'Access Denied. Active session or file payload is missing.' });
+  }
+
+  const file = req.file;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+    return res.status(400).json({ error: 'Only images (JPEG/PNG/WEBP) are allowed for profile photos.' });
+  }
+
+  const uniqueName = `profile_${req.user.id}_${Date.now()}_${file.originalname.replace(/\\s+/g, '_')}`;
+  const filePath = `profiles/${req.user.id}/${uniqueName}`;
+
+  try {
+    const { data: storageData, error: storageError } = await supabaseAdmin.storage
+      .from('riqs-membership')
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (storageError) {
+      console.error('[Supabase Storage Upload Error]:', storageError.message);
+      return res.status(500).json({ error: `Private file storage pipeline failure: ${storageError.message}` });
+    }
+
+    const updatedMember = await prisma.member.update({
+      where: { id: req.user.id },
+      data: { profilePhotoUrl: filePath },
+      select: { profilePhotoUrl: true }
+    });
+
+    return res.status(200).json({ 
+      message: 'Profile photo updated successfully', 
+      profilePhotoUrl: updatedMember.profilePhotoUrl 
+    });
+  } catch (error: any) {
+    console.error('[Upload Profile Photo Error]:', error.message);
+    return res.status(500).json({ error: 'Internal server error while uploading profile photo.' });
+  }
+}
+
 // 2. Secure Private Download - Reads raw buffer from Supabase and streams it directly to browser
 export async function downloadFile(req: AuthenticatedRequest, res: Response) {
   if (!req.user) {
