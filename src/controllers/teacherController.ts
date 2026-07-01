@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { sendMail } from '../config/mailer';
+import { sendMail, sendRawMail } from '../config/mailer';
 
 export async function registerStudent(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
@@ -20,8 +21,8 @@ export async function registerStudent(req: AuthenticatedRequest, res: Response) 
     practiceLocation
   } = req.body;
 
-  if (!email || !password || !fullName || !practiceLocation) {
-    return res.status(400).json({ error: 'Email, password, full name, and practice location are required.' });
+  if (!email || !fullName || !practiceLocation) {
+    return res.status(400).json({ error: 'Email, full name, and practice location are required.' });
   }
 
   try {
@@ -30,20 +31,22 @@ export async function registerStudent(req: AuthenticatedRequest, res: Response) 
       return res.status(409).json({ error: 'User with this email already exists.' });
     }
 
+    // Auto-generate password
+    const generatedPassword = crypto.randomBytes(4).toString('hex'); // 8 char random password
     const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    const passwordHash = await bcrypt.hash(generatedPassword, saltRounds);
 
-    // Find the category for Graduate / Individual / Location
+    // Find the category for Student / Individual / Location
     const category = await prisma.membershipCategory.findFirst({
       where: {
         entityType: 'Individual',
         location: practiceLocation,
-        categoryName: { contains: 'Graduate' }
+        categoryName: { contains: 'Student' }
       }
     });
 
     if (!category) {
-      return res.status(400).json({ error: 'System configuration error: Graduate category not found for ' + practiceLocation });
+      return res.status(400).json({ error: 'System configuration error: Student category not found for ' + practiceLocation });
     }
 
     // Create the student member account
@@ -83,6 +86,32 @@ export async function registerStudent(req: AuthenticatedRequest, res: Response) 
         details: `Teacher registered student ${fullName} (${email}) and initiated application ${application.id}`
       }
     });
+
+    // Send email with the generated password
+    try {
+      await sendRawMail({
+        to: email,
+        subject: 'RIQS Student Portal Access',
+        html: `
+          <div style="font-family: sans-serif; color: #333;">
+            <h2>Welcome to RIQS Student Portal</h2>
+            <p>Dear ${fullName},</p>
+            <p>Your teacher has created an account for you on the RIQS portal to initiate your student application.</p>
+            <p>Your login details are:</p>
+            <ul>
+              <li><strong>Email:</strong> ${email}</li>
+              <li><strong>Password:</strong> ${generatedPassword}</li>
+            </ul>
+            <p>Please log in and update your password, then complete your application.</p>
+            <br/>
+            <p>Best regards,</p>
+            <p>RIQS Administration</p>
+          </div>
+        `
+      });
+    } catch (emailError: any) {
+      console.error('Failed to send auto-generated password to student:', emailError.message);
+    }
 
     return res.status(201).json({
       message: 'Student registered and application draft created successfully.',

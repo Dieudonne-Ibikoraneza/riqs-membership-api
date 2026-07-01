@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import * as dotenv from 'dotenv';
+import dotenv from 'dotenv';
+import http from 'http';
+import { initializeSocket } from './config/socket';
 import * as path from 'path';
 import swaggerUi from 'swagger-ui-express';
 
@@ -12,6 +14,7 @@ import { swaggerSpec } from './config/swagger';
 import authRoutes from './routes/authRoutes';
 import applicantRoutes from './routes/applicantRoutes';
 import adminRoutes from './routes/adminRoutes';
+import ticketRoutes from './routes/ticketRoutes';
 import fileRoutes from './routes/fileRoutes';
 import progressionRoutes from './routes/progressionRoutes';
 import categoryRoutes from './routes/categoryRoutes';
@@ -86,6 +89,7 @@ app.use('/api/v1/teacher', teacherRoutes);
 app.use('/api/v1/templates', templateRoutes);
 app.use('/api/v1/document-types', documentTypeRoutes);
 app.use('/api/v1/logbook', logbookRoutes);
+app.use('/api/v1/tickets', ticketRoutes);
 
 // 4. Fallback Route Handler (404 Page Not Found)
 app.use((req: Request, res: Response) => {
@@ -102,11 +106,15 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 // 6. Bootstrap Server listener
 startCronJobs();
-app.listen(PORT, () => {
+const server = http.createServer(app);
+initializeSocket(server);
+
+server.listen(PORT, () => {
   console.log(`=================================================`);
   console.log(`[RIQS REST API] Standalone Backend Active.`);
   console.log(`[RIQS REST API] Server Listening: http://localhost:${PORT}`);
   console.log(`[RIQS REST API] Environment Mode: Development`);
   console.log(`[RIQS REST API] Interactive Docs: http://localhost:${PORT}/api-docs`);
+  console.log(`[RIQS REST API] WebSockets: Initialized`);
   console.log(`=================================================`);
 });
