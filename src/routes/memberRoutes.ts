@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { getPublicMembersDirectory, getMentorById, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
+import { uploadProfilePhoto } from '../controllers/fileController';
 import { requireAuth } from '../middleware/auth';
+import { sanitizeUpload } from '../middleware/sanitizer';
 
 const router = Router();
+
+router.post('/profile/photo', requireAuth, sanitizeUpload, uploadProfilePhoto);
 
 /**
  * @openapi

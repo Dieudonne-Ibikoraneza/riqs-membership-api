@@ -12,8 +12,12 @@ import {
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember,
   getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection,
-  getDashboardStats
+  getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory
 } from '../controllers/adminController';
+
+import {
+  getAdminTickets, getAdminTicketDetails, adminReplyToTicket, updateTicketStatus
+} from '../controllers/adminTicketController';
 
 const router = Router();
 
@@ -79,6 +83,53 @@ router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'approver']
  *       - Administrative Dashboard
  */
 router.get('/members', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMembersRegistry);
+router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMemberById);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/award-fellow:
+ *   post:
+ *     summary: Award Fellow Status
+ *     description: Upgrades a Professional member to Fellow status.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/revoke-fellow:
+ *   post:
+ *     summary: Revoke Fellow Status
+ *     description: Revokes Fellow status.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/award-honorary:
+ *   post:
+ *     summary: Award Honorary Status
+ *     description: Awards Honorary badge.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.post('/members/:id/award-honorary', requireAuth, requireRoles(['admin']), awardHonoraryStatus);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/revoke-honorary:
+ *   post:
+ *     summary: Revoke Honorary Status
+ *     description: Revokes Honorary badge.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin']), revokeHonoraryStatus);
+
+
 
 /**
  * @openapi
@@ -423,6 +474,21 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
  *       - Administrative Dashboard
  */
 router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
+
+router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
+router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
+router.post('/members/:id/change-category', requireAuth, requireRoles(['admin']), changeMembershipCategory);
+router.post('/members/honorable-mention', requireAuth, requireRoles(['admin']), createHonorableMentionMember);
+
+/**
+ * ----------------------------------------------------
+ * SUPPORT TICKETS MANAGEMENT
+ * ----------------------------------------------------
+ */
+router.get('/tickets', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getAdminTickets);
+router.get('/tickets/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getAdminTicketDetails);
+router.post('/tickets/:id/replies', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), adminReplyToTicket);
+router.patch('/tickets/:id/status', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), updateTicketStatus);
 
 // Mentorship Queue endpoints
 router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMentorshipQueue);
