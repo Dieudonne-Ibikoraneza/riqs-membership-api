@@ -5,7 +5,7 @@ export function startCronJobs() {
   console.log('[Cron Jobs] Initializing background tasks via node-cron...');
 
   // 1. Daily Job: Expiration Check for Locked Accounts (Runs every midnight)
-  cron.schedule('0 0 * * *', async () => {
+  cron.schedule('50 19 * * *', async () => {
     console.log('[Cron Jobs] Running expiration check for locked accounts...');
     try {
       const expiredAccounts = await prisma.member.findMany({
@@ -34,7 +34,7 @@ export function startCronJobs() {
   });
 
   // 2. Daily Job: Annual Renewal Checks
-  cron.schedule('30 16 * * *', async () => {
+  cron.schedule('50 19 * * *', async () => {
     console.log('[Cron Jobs] Running annual renewal checks...');
     try {
       const today = new Date();
@@ -142,7 +142,7 @@ export function startCronJobs() {
   });
 
   // 3. Daily Job: 2-Year Mentorship Checks
-  cron.schedule('0 0 * * *', async () => {
+  cron.schedule('50 19 * * *', async () => {
     try {
       const twoYearsAgo = new Date();
       twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);

@@ -8,6 +8,7 @@ import { MemberClass } from '@prisma/client';
  */
 const CERT_CODE_MAP: Record<string, string> = {
   // Local individuals
+  'StQS':  'StQS',
   'GrQS':  'GrQS',
   'GrQST': 'GrQS',
   'TcQS':  'TcQS',
@@ -15,6 +16,11 @@ const CERT_CODE_MAP: Record<string, string> = {
   // Associate paths
   'AsQS':  'AsQS',
   'AsQST': 'AsQS',
+  // Honorable Mentions
+  'FQS':   'FQS',
+  'LQS':   'LQS',
+  'HQS':   'HQS',
+  'VQS':   'VQS',
   // Foreign individuals
   'F-TcQS': 'TcQS',
   'F-PrQS': 'PrQS',
@@ -61,9 +67,15 @@ export function formatForDb(certificateId: string): string {
  * NOT their system role (which controls what actions they can perform).
  */
 export function deriveMemberClass(categoryCode: string): MemberClass {
-  if (['PQS', 'FPQS'].includes(categoryCode))       return MemberClass.Professional;
-  if (['QST', 'FQST'].includes(categoryCode))       return MemberClass.Technologist;
-  if (['GQS', 'GQST'].includes(categoryCode))       return MemberClass.Graduate;
+  if (['PrQS', 'F-PrQS'].includes(categoryCode))       return MemberClass.Professional;
+  if (['TcQS', 'F-TcQS'].includes(categoryCode))       return MemberClass.Technologist;
+  if (['GrQS', 'GrQST'].includes(categoryCode))        return MemberClass.Graduate;
+  if (['AsQS', 'AsQST'].includes(categoryCode))        return MemberClass.Associate;
+  if (categoryCode === 'StQS') return MemberClass.Student;
+  if (categoryCode === 'FQS')  return MemberClass.Fellow;
+  if (categoryCode === 'LQS')  return MemberClass.Life_Member;
+  if (categoryCode === 'HQS')  return MemberClass.Honorary_Member;
+  if (categoryCode === 'VQS')  return MemberClass.Visiting_Member;
   if (categoryCode === 'LF-SM') return MemberClass.Firm_Local_Small;
   if (categoryCode === 'LF-MD') return MemberClass.Firm_Local_Medium;
   if (categoryCode === 'LF-LG') return MemberClass.Firm_Local_Large;
