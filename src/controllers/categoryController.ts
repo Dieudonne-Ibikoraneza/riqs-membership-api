@@ -99,6 +99,7 @@ export async function updateCategory(req: Request, res: Response) {
       return res.status(404).json({ error: 'Membership category not found.' });
     }
 
+    
     const updatedCat = await prisma.membershipCategory.update({
       where: { id },
       data: {
@@ -114,6 +115,41 @@ export async function updateCategory(req: Request, res: Response) {
         optionalDocuments: optional_documents !== undefined && Array.isArray(optional_documents) ? optional_documents : (existingCat.optionalDocuments as any),
       }
     });
+
+    // Handle revoking removed honorable mentions from members
+    const oldHonors = ((existingCat.supportedHonors as any[]) || []).map((h: any) => typeof h === 'string' ? h : h.name);
+    const newHonors = ((updatedCat.supportedHonors as any[]) || []).map((h: any) => typeof h === 'string' ? h : h.name);
+    const removedHonors = oldHonors.filter((h: string) => !newHonors.includes(h));
+
+    if (removedHonors.length > 0) {
+      // Find members who might have these honors
+      const members = await prisma.member.findMany({});
+      for (const member of members) {
+        let currentHonors = (member.honors as string[]) || [];
+        if (!Array.isArray(currentHonors)) currentHonors = [];
+        
+        const initialLen = currentHonors.length;
+        currentHonors = currentHonors.filter((h: string) => !removedHonors.includes(h));
+        
+        if (currentHonors.length !== initialLen) {
+          let isFellow = member.isFellow;
+          let isHonorary = member.isHonorary;
+          
+          if (removedHonors.includes('Fellow')) isFellow = false;
+          if (removedHonors.includes('Honorary Member') || removedHonors.includes('Honorary')) isHonorary = false;
+
+          await prisma.member.update({
+            where: { id: member.id },
+            data: {
+              honors: currentHonors,
+              isFellow,
+              isHonorary
+            }
+          });
+        }
+      }
+    }
+
 
     return res.status(200).json({
       message: 'Category updated successfully.',

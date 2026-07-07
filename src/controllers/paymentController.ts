@@ -182,7 +182,8 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
         skip,
         take,
         include: {
-          member: { select: { fullName: true, email: true } }
+          member: { select: { fullName: true, email: true, isFellow: true, isHonorary: true, honors: true, membershipClass: true } },
+          application: { select: { category: { select: { categoryName: true } } } }
         }
       }),
       prisma.financialTransaction.count({
@@ -206,6 +207,10 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
         ...tx,
         full_name: tx.member.fullName,
         email: tx.member.email,
+        isFellow: (tx.member as any).isFellow,
+        isHonorary: (tx.member as any).isHonorary,
+        honors: (tx.member as any).honors || [],
+        category: (tx as any).application?.category?.categoryName || (tx.member as any).membershipClass || "Unknown Category",
         member: undefined,
         receiptFileName
       };
