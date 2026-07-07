@@ -12,7 +12,7 @@ import {
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember,
   getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection,
-  getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory
+  getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors
 } from '../controllers/adminController';
 
 import {
@@ -478,6 +478,7 @@ router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockSt
 router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
 router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
 router.post('/members/:id/change-category', requireAuth, requireRoles(['admin']), changeMembershipCategory);
+router.post('/members/:id/honors', requireAuth, requireRoles(['admin']), updateMemberHonors);
 router.post('/members/honorable-mention', requireAuth, requireRoles(['admin']), createHonorableMentionMember);
 
 /**

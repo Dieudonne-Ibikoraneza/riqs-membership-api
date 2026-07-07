@@ -94,7 +94,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
         take,
         orderBy: { submittedAt: 'desc' },
         include: {
-          member: { select: { fullName: true, email: true } },
+          member: { select: { fullName: true, email: true, isFellow: true, isHonorary: true, honors: true } },
           category: { select: { categoryName: true, location: true } },
           assignedReviewer: { select: { fullName: true } },
           mentorshipAssignment: true,
@@ -123,7 +123,10 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       location: app.category.location,
       reviewer: app.assignedReviewer?.fullName || 'Unassigned',
       photoId: app.uploadedDocuments?.[0]?.id,
-      apcRequested: (app as any).apcAssessments?.length > 0
+      apcRequested: (app as any).apcAssessments?.length > 0,
+      isFellow: app.member.isFellow,
+      isHonorary: app.member.isHonorary,
+      honors: (app.member as any).honors || []
     }));
 
     return res.status(200).json({
@@ -756,7 +759,7 @@ export async function getAllApc(req: AuthenticatedRequest, res: Response) {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
-          member: { select: { fullName: true, email: true, membershipId: true, membershipClass: true } },
+          member: { select: { fullName: true, email: true, membershipId: true, membershipClass: true, isFellow: true, isHonorary: true, honors: true } },
           application: {
             select: {
               id: true,
@@ -769,7 +772,14 @@ export async function getAllApc(req: AuthenticatedRequest, res: Response) {
       prisma.apcAssessment.count({ where: whereClause })
     ]);
 
-    return res.status(200).json({ assessments, pagination: { total, page: Number(page), limit: take } });
+    const formattedAssessments = assessments.map((a: any) => ({
+      ...a,
+      isFellow: a.member.isFellow,
+      isHonorary: a.member.isHonorary,
+      honors: a.member.honors || []
+    }));
+
+    return res.status(200).json({ assessments: formattedAssessments, pagination: { total, page: Number(page), limit: take } });
   } catch (error: any) {
     console.error('[Get All APC] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching all APC records.' });
@@ -932,11 +942,16 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         email: m.email,
         membershipId: m.membershipId,
         category: app?.category?.categoryName || m.membershipClass || 'N/A',
+        categoryId: app?.category?.id || null,
         practiceLocation: app?.practiceLocation || 'Rwandan',
         country: m.countryOfOrigin,
         status: memberStatus,
         expiresAt: formattedExpiry,
-        photoId: app?.uploadedDocuments?.[0]?.id
+        photoId: app?.uploadedDocuments?.[0]?.id,
+        isFellow: m.isFellow,
+        isHonorary: m.isHonorary,
+        honors: (m as any).honors || [],
+        membershipClass: m.membershipClass,
       };
     });
 
@@ -1299,7 +1314,7 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
         take,
         orderBy: { submittedAt: 'desc' },
         include: {
-          member:   { select: { fullName: true, email: true } },
+          member:   { select: { fullName: true, email: true, isFellow: true, isHonorary: true, honors: true } },
           category: { select: { categoryName: true, location: true } },
           mentorshipAssignment: {
             select: {
@@ -1335,7 +1350,10 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
       mentor_name:     app.mentorshipAssignment?.mentorName || 'Unassigned',
       apc_readiness:   app.mentorshipAssignment?.apcReadiness || 'Unknown',
       duration_months: app.mentorshipAssignment?.completedDurationMonths || 0,
-      photoId:         app.uploadedDocuments?.[0]?.id
+      photoId:         app.uploadedDocuments?.[0]?.id,
+      isFellow:        app.member.isFellow,
+      isHonorary:      app.member.isHonorary,
+      honors:          (app.member as any).honors || []
     }));
 
     return res.status(200).json({
@@ -1940,5 +1958,52 @@ export const getMemberById = async (req: AuthenticatedRequest, res: Response) =>
     res.json(member);
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+export const updateMemberHonors = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { honors } = req.body;
+    
+    if (!Array.isArray(honors)) {
+      return res.status(400).json({ success: false, message: 'Honors must be an array of strings' });
+    }
+
+    const member = await prisma.member.findUnique({
+      where: { id },
+      include: { applications: { orderBy: { createdAt: 'desc' }, take: 1, include: { category: true } } }
+    });
+
+    if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
+
+    const category = member.applications[0]?.category;
+    const supportedHonors = (category?.supportedHonors as any[]) || [];
+    const supportedNames = supportedHonors.map((h: any) => typeof h === 'string' ? h : h.name);
+
+    // Validate that all provided honors are supported by the category
+    for (const h of honors) {
+      if (!supportedNames.includes(h)) {
+        return res.status(400).json({ success: false, message: `Honor '${h}' is not supported by the member's current category.` });
+      }
+    }
+
+    // Sync legacy booleans
+    const isFellow = honors.includes('Fellow');
+    const isHonorary = honors.includes('Honorary Member') || honors.includes('Honorary');
+
+    const updatedMember = await prisma.member.update({
+      where: { id },
+      data: {
+        honors,
+        isFellow,
+        isHonorary
+      }
+    });
+
+    res.json({ success: true, message: 'Member honors successfully updated', member: updatedMember });
+  } catch (error: any) {
+    console.error('[Update Honors] Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

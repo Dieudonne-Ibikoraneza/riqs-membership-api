@@ -140,6 +140,7 @@ model Member {
   systemRole             SystemRole?  @default(Standard) @map("system_role")
   isFellow               Boolean?     @default(false) @map("is_fellow")
   isHonorary             Boolean?     @default(false) @map("is_honorary")
+  honors                 Json?        @default("[]") @map("honors")
   trainingTrackingNumber String?      @unique @map("training_tracking_number") @db.VarChar(100)
   isEmailVerified        Boolean?     @default(false) @map("is_email_verified")
   isLocked               Boolean?     @default(false) @map("is_locked")
