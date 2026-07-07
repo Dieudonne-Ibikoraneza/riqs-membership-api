@@ -51,7 +51,10 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
           membershipClass: true,
           phoneNumber: true,
           email: true,
-          profilePhotoUrl: true
+          profilePhotoUrl: true,
+          isFellow: true,
+          isHonorary: true,
+          honors: true
         }
       }),
       prisma.member.count({ where: whereClause })
@@ -65,7 +68,10 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
       membership_class: m.membershipClass,
       phone_number: m.phoneNumber,
       email: m.email,
-      profile_photo_url: m.profilePhotoUrl
+      profile_photo_url: m.profilePhotoUrl,
+      isFellow: m.isFellow,
+      isHonorary: m.isHonorary,
+      honors: m.honors
     }));
 
     return res.status(200).json({
