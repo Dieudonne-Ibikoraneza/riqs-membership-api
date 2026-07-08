@@ -171,8 +171,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   const { status = 'Pending_Verification', page = '1', limit = '20' } = req.query;
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
-
-  const whereClause = status === 'All' ? {} : { status: status as TransactionStatus };
+  const whereClause = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
 
   try {
     const [transactions, total] = await Promise.all([
