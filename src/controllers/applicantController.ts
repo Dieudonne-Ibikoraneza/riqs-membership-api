@@ -60,7 +60,10 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             membershipId: true,
             profilePhotoUrl: true,
             membershipExpiresAt: true,
-            systemRole: true
+            systemRole: true,
+            isFellow: true,
+            isHonorary: true,
+            honors: true
           }
         }
       }
@@ -84,7 +87,10 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           membershipClass: true,
           membershipId: true,
           membershipExpiresAt: true,
-          systemRole: true
+          systemRole: true,
+          isFellow: true,
+          isHonorary: true,
+          honors: true
         }
       });
       return res.status(200).json({ profile: member, application: null, message: 'No active application draft found for this member.' });

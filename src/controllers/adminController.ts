@@ -1,8 +1,9 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
-import { sendMail } from '../config/mailer';
+import { sendMail, sendRawMail } from '../config/mailer';
 import { ApplicationStatus } from '@prisma/client';
+import crypto from 'crypto';
 import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
@@ -1940,7 +1941,112 @@ export const revokeHonoraryStatus = async (req: AuthenticatedRequest, res: Respo
 };
 
 export const createHonorableMentionMember = async (req: AuthenticatedRequest, res: Response) => {
-  res.status(501).json({ success: false, message: 'Not Implemented' });
+  try {
+    const {
+      fullName,
+      email,
+      phoneNumber,
+      categoryCode,
+      nationalIdOrPassport,
+      dateOfBirth,
+      gender,
+      countryOfOrigin
+    } = req.body;
+
+    if (!fullName || !email || !categoryCode) {
+      return res.status(400).json({ error: 'Full name, email, and category code are required.' });
+    }
+
+    const existingMember = await prisma.member.findUnique({ where: { email } });
+    if (existingMember) {
+      return res.status(409).json({ error: 'A member with this email already exists.' });
+    }
+
+    let membershipClass: any = 'Visiting_Member';
+    let certCode = 'ViQS';
+    if (categoryCode === 'LQS') {
+      membershipClass = 'Life_Member';
+      certCode = 'LiQS';
+    } else if (categoryCode === 'HQS') {
+      membershipClass = 'Honorary_Member';
+      certCode = 'HonQS';
+    }
+
+    const currentYear = new Date().getFullYear();
+    const count = await prisma.member.count({
+      where: { membershipId: { startsWith: `RIQS-${currentYear}-${certCode}-` } }
+    });
+    const membershipId = `RIQS-${currentYear}-${certCode}-${String(count + 1).padStart(4, '0')}`;
+
+    const isHonorary = categoryCode === 'HQS';
+
+    // Auto-generate password
+    const generatedPassword = crypto.randomBytes(4).toString('hex'); // 8 char random password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(generatedPassword, saltRounds);
+
+    const member = await prisma.member.create({
+      data: {
+        email,
+        passwordHash,
+        fullName,
+        phoneNumber,
+        nationalIdOrPassport,
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        gender,
+        countryOfOrigin,
+        membershipClass,
+        membershipId,
+        isHonorary,
+        systemRole: 'Standard',
+        isEmailVerified: true
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        memberId: member.id,
+        actionByEmail: req.user?.email || 'admin@system.com',
+        actionType: 'Admin_Created_Member',
+        details: `Admin created ${categoryCode} member ${fullName} (${email})`
+      }
+    });
+
+    try {
+      await sendRawMail({
+        to: email,
+        subject: `Welcome to RIQS - ${categoryCode} Membership`,
+        html: `
+          <div style="font-family: sans-serif; color: #333;">
+            <h2>Welcome to RIQS</h2>
+            <p>Dear ${fullName},</p>
+            <p>An administrator has created a ${categoryCode} member account for you on the RIQS portal.</p>
+            <p>Your login details are:</p>
+            <ul>
+              <li><strong>Email:</strong> ${email}</li>
+              <li><strong>Password:</strong> ${generatedPassword}</li>
+            </ul>
+            <p>Please log in and update your password at your earliest convenience.</p>
+            <br/>
+            <p>Best regards,</p>
+            <p>RIQS Administration</p>
+          </div>
+        `
+      });
+    } catch (emailError: any) {
+      console.error('Failed to send auto-generated password:', emailError.message);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${categoryCode} Member created successfully.`,
+      membershipId: member.id,
+      temporaryPassword: generatedPassword
+    });
+  } catch (error: any) {
+    console.error('[Create Honorable Mention] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error while creating member.' });
+  }
 };
 
 
