@@ -217,7 +217,7 @@ export async function forgotPassword(req: Request, res: Response) {
 
   try {
     const member = await prisma.member.findUnique({ where: { email } });
-    if (!member) return res.status(404).json({ error: 'If this email is registered, a reset link will be sent.' }); // Generic message for security
+    if (!member) return res.status(404).json({ error: 'We could not find an account associated with this email address. Please check for typos or create a new account instead.' });
 
     const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
     const isTestEmail = testEmails.includes(email.toLowerCase());
@@ -234,7 +234,7 @@ export async function forgotPassword(req: Request, res: Response) {
       await sendMail(email, "passwordReset", { name: member.fullName, otpCode });
     }
 
-    return res.status(200).json({ message: 'If this email is registered, a reset link will be sent.' });
+    return res.status(200).json({ message: 'A 6-digit password reset code has been successfully sent to your email.' });
   } catch (error: any) {
     console.error('[Forgot Password Error]', error.message);
     return res.status(500).json({ error: 'Failed to process request.' });
