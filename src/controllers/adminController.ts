@@ -409,24 +409,22 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
       const currentYear = new Date().getFullYear();
       const certCode = getCertificateCode(app.category.categoryCode);
 
-      const count = await prisma.application.count({
-        where: {
-          status: 'Approved',
-          approvedAt: { gte: new Date(`${currentYear}-01-01`), lte: new Date(`${currentYear}-12-31`) },
-          category: {
-            categoryCode: {
-              in: Object.entries({
-                'GQS': 'GradQS', 'GQST': 'GradQS', 'QST': 'TechQS', 'FQST': 'TechQS',
-                'PQS': 'PrQS', 'FPQS': 'PrQS',
-                'LF-SM': 'LF', 'LF-MD': 'LF', 'LF-LG': 'LF',
-                'FF-SM': 'FF', 'FF-MD': 'FF', 'FF-LG': 'FF',
-              }).filter(([, v]) => v === certCode).map(([k]) => k)
-            }
-          }
-        }
+      const prefix = `RIQS-${currentYear}-${certCode}-`;
+      const lastMember = await prisma.member.findFirst({
+        where: { membershipId: { startsWith: prefix } },
+        orderBy: { membershipId: 'desc' }
       });
 
-      const generatedMembershipId = `RIQS-${currentYear}-${certCode}-${String(count + 1).padStart(4, '0')}`;
+      let nextNum = 1;
+      if (lastMember && lastMember.membershipId) {
+        const parts = lastMember.membershipId.split('-');
+        const lastPart = parts[parts.length - 1];
+        if (lastPart && !isNaN(parseInt(lastPart, 10))) {
+          nextNum = parseInt(lastPart, 10) + 1;
+        }
+      }
+
+      const generatedMembershipId = `${prefix}${String(nextNum).padStart(4, '0')}`;
       const memberClass = deriveMemberClass(app.category.categoryCode);
 
       const txOps: any[] = [
