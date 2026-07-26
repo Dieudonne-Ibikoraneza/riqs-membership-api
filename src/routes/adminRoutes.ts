@@ -10,7 +10,7 @@ import {
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
-  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember,
+  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember, promoteToHeadReviewer,
   getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection,
   getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors
 } from '../controllers/adminController';
@@ -53,7 +53,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getReviewQueue);
+router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getReviewQueue);
 
 /**
  * @openapi
@@ -71,7 +71,7 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']
  *       500:
  *         description: Internal server error
  */
-router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getDashboardStats);
+router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getDashboardStats);
 
 /**
  * @openapi
@@ -82,8 +82,8 @@ router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'approver']
  *     tags:
  *       - Administrative Dashboard
  */
-router.get('/members', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMembersRegistry);
-router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMemberById);
+router.get('/members', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMembersRegistry);
+router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMemberById);
 
 /**
  * @openapi
@@ -155,7 +155,7 @@ router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin'])
  *       500:
  *         description: Internal server error
  */
-router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getApplicationDetail);
+router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getApplicationDetail);
 
 /**
  * @openapi
@@ -196,7 +196,7 @@ router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer', 
  *       500:
  *         description: Internal server error
  */
-router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), handleReviewDecision);
+router.post('/decision', requireAuth, requireRoles(['admin']), handleReviewDecision);
 
 /**
  * @openapi
@@ -230,7 +230,7 @@ router.post('/decision', requireAuth, requireRoles(['admin', 'reviewer', 'approv
  *       500:
  *         description: Internal server error
  */
-router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), assignReviewer);
+router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), assignReviewer);
 
 /**
  * @openapi
@@ -253,7 +253,7 @@ router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer', 
  *       500:
  *         description: Internal server error
  */
-router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getStatusHistory);
+router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getStatusHistory);
 
 /**
  * @openapi
@@ -276,7 +276,7 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
  *       500:
  *         description: Internal server error
  */
-router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getApcForApplication);
+router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getApcForApplication);
 router.get('/apc', requireAuth, requireRoles(['admin']), getAllApc);
 
 /**
@@ -300,7 +300,7 @@ router.get('/apc', requireAuth, requireRoles(['admin']), getAllApc);
  *       500:
  *         description: Internal server error
  */
-router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getDocumentVersions);
+router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getDocumentVersions);
 
 /**
  * @openapi
@@ -337,7 +337,7 @@ router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admi
  *       403:
  *         description: Not a Reviewer
  */
-router.post('/reviewer-action', requireAuth, requireRoles(['admin', 'reviewer']), handleReviewerAction);
+router.post('/reviewer-action', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer']), handleReviewerAction);
 
 /**
  * @openapi
@@ -429,7 +429,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
-router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), upload.array('attachments'), sendAdminEmail);
+router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), upload.array('attachments'), sendAdminEmail);
 
 /**
  * @openapi
@@ -474,6 +474,7 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
  *       - Administrative Dashboard
  */
 router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
+router.patch('/staff/:id/promote-head-reviewer', requireAuth, requireRoles(['admin']), promoteToHeadReviewer);
 
 router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
 router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
@@ -486,14 +487,14 @@ router.post('/members/honorable-mention', requireAuth, requireRoles(['admin']), 
  * SUPPORT TICKETS MANAGEMENT
  * ----------------------------------------------------
  */
-router.get('/tickets', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getAdminTickets);
-router.get('/tickets/:id', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getAdminTicketDetails);
-router.post('/tickets/:id/replies', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), adminReplyToTicket);
-router.patch('/tickets/:id/status', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), updateTicketStatus);
+router.get('/tickets', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getAdminTickets);
+router.get('/tickets/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getAdminTicketDetails);
+router.post('/tickets/:id/replies', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), adminReplyToTicket);
+router.patch('/tickets/:id/status', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), updateTicketStatus);
 
 // Mentorship Queue endpoints
-router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), getMentorshipQueue);
+router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMentorshipQueue);
 router.post('/mentorship/approve', requireAuth, requireRoles(['admin', 'approver']), approveMentorshipUpgrade);
-router.post('/mentorship/flag', requireAuth, requireRoles(['admin', 'reviewer', 'approver']), flagMentorshipForCorrection);
+router.post('/mentorship/flag', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), flagMentorshipForCorrection);
 
 export default router;
