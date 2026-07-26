@@ -179,7 +179,7 @@ export async function login(req: Request, res: Response) {
       });
     }
 
-    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com', 'reviewer2@riqs.com'];
+    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com', 'reviewer2@riqs.com', 'reviewer3@riqs.com'];
     const isTestEmail = testEmails.includes(email.toLowerCase());
 
     // Generate 2FA OTP

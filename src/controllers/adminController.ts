@@ -339,19 +339,24 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       if (app.status !== 'Pending' && app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot add review. Application is in "${app.status}" status.` });
       }
+
+      const existingReview = await prisma.applicationReview.findUnique({
+        where: {
+          applicationId_reviewerId: {
+            applicationId,
+            reviewerId: req.user.id
+          }
+        }
+      });
+      if (existingReview) {
+        return res.status(409).json({ error: 'You have already submitted a review note for this application.' });
+      }
       
       const newStatus = app.status === 'Pending' ? 'Under_Review' : app.status;
 
       await prisma.$transaction([
-        prisma.applicationReview.upsert({
-          where: {
-            applicationId_reviewerId: {
-              applicationId,
-              reviewerId: req.user.id
-            }
-          },
-          create: { applicationId, reviewerId: req.user.id, notes },
-          update: { notes, updatedAt: new Date() }
+        prisma.applicationReview.create({
+          data: { applicationId, reviewerId: req.user.id, notes }
         }),
         prisma.application.update({
           where: { id: applicationId },
