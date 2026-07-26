@@ -35,24 +35,16 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     const isApprover = userRole === 'approver';
 
     // 2. Process View mode (Tabs)
-    if (view === 'queue') {
-      if (isApprover) {
-        if (!status) whereClause.status = 'Pending_Approval';
+    if (isApprover) {
+      if (view === 'all') {
+        if (!status) whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected', 'Correction_Required'] };
       } else {
-        if (!status) {
-          whereClause.OR = [
-            { status: 'Pending' },
-            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
-          ];
-          whereClause.assignedReviewerId = null;
-        } else {
-          whereClause.status = status;
-          whereClause.assignedReviewerId = null;
-        }
+        if (!status) whereClause.status = 'Pending_Approval';
       }
-    } else if (view === 'assigned') {
-      if (isApprover) {
-        whereClause.assignedReviewerId = '00000000-0000-0000-0000-000000000000';
+    } else {
+      // Reviewers (including Head_Reviewer) see all pending and under review apps
+      if (view === 'all') {
+        if (!status) whereClause.status = { not: 'Draft' };
       } else {
         if (!status) {
           whereClause.OR = [
@@ -61,29 +53,6 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
           ];
         } else {
           whereClause.status = status;
-        }
-        whereClause.assignedReviewerId = req.user?.id;
-      }
-    } else if (view === 'all') {
-      if (isApprover && !status) {
-        whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected'] };
-      } else if (!status) {
-        whereClause.status = { not: 'Draft' };
-      }
-    } else {
-      // Default fallback if view not provided (for backward compatibility)
-      if (isApprover) {
-        if (!status) whereClause.status = 'Pending_Approval';
-      } else {
-        if (!status) {
-          whereClause.OR = [
-            { status: 'Pending' },
-            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
-          ];
-          whereClause.assignedReviewerId = null;
-        } else {
-          whereClause.status = status;
-          whereClause.assignedReviewerId = null;
         }
       }
     }
@@ -147,6 +116,9 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
 // 2. Administrative Decision Processor (Approve / Flag / Reject)
 export async function handleReviewDecision(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
+  if (req.user.role.toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Access Denied. Only Admins can use the direct application decision action.' });
+  }
 
   const { applicationId, action, notes } = req.body; // action: 'Approve' | 'Flag' | 'Reject'
 
@@ -185,6 +157,14 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
             newStatus: 'Correction_Required',
             reviewerNotes: notes
           }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_FLAGGED',
+            details: `Admin returned application ${applicationId} for correction. Notes: ${notes}`
+          }
         })
       ]);
 
@@ -207,13 +187,53 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
             newStatus: 'Rejected',
             reviewerNotes: notes
           }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_REJECTED',
+            details: `Admin rejected application ${applicationId}. Notes: ${notes}`
+          }
         })
       ]);
 
       try { await sendMail(app.member.email, "rejected", { name: app.member.fullName, reason: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application declined. Notification sent.' });
 
-    } else if (action === 'Approve') {
+    } else if (action === 'ReturnForCorrection') {
+      if (!notes) return res.status(400).json({ error: 'Correction remarks are mandatory.' });
+
+      await prisma.$transaction([
+        prisma.application.update({
+          where: { id: applicationId },
+          data: { status: 'Correction_Required', updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId,
+            changedByEmail: req.user.email,
+            oldStatus: oldStatus || 'Draft',
+            newStatus: 'Correction_Required',
+            reviewerNotes: notes
+          }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_RETURNED_FOR_CORRECTION',
+            details: `Admin returned application ${applicationId} for correction. Notes: ${notes}`
+          }
+        })
+      ]);
+
+      try { await sendMail(app.member.email, "correctionRequired", { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
+      return res.status(200).json({ message: 'Application flagged for correction. Notification sent.' });
+
+    }
+
+    else if (action === 'Approve') {
       const currentYear = new Date().getFullYear();
 
       // Derive the certificate-friendly code (e.g. PrQS, LF, FF)
@@ -294,8 +314,8 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (!['reviewer', 'admin'].includes(userRole)) {
-    return res.status(403).json({ error: 'Access Denied. Only Reviewers can perform first-stage review actions.' });
+  if (!['reviewer', 'head_reviewer', 'admin'].includes(userRole)) {
+    return res.status(403).json({ error: 'Access Denied. Only Reviewers, Head Reviewers, or Admins can perform first-stage review actions.' });
   }
 
   const { applicationId, action, notes } = req.body;
@@ -312,55 +332,117 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
     if (!app) return res.status(404).json({ error: 'Application record not found.' });
     const oldStatus = app.status;
 
-    if (action === 'StartReview') {
-      if (app.status !== 'Pending') {
-        return res.status(400).json({ error: `Cannot start review. Application is in "${app.status}" status.` });
+    if (action === 'SubmitReviewNote') {
+      if (userRole !== 'reviewer') {
+        return res.status(403).json({ error: 'Access Denied. Only Reviewers can submit review notes.' });
       }
+      if (app.status !== 'Pending' && app.status !== 'Under_Review') {
+        return res.status(400).json({ error: `Cannot add review. Application is in "${app.status}" status.` });
+      }
+      
+      const newStatus = app.status === 'Pending' ? 'Under_Review' : app.status;
+
       await prisma.$transaction([
+        prisma.applicationReview.upsert({
+          where: {
+            applicationId_reviewerId: {
+              applicationId,
+              reviewerId: req.user.id
+            }
+          },
+          create: { applicationId, reviewerId: req.user.id, notes },
+          update: { notes, updatedAt: new Date() }
+        }),
         prisma.application.update({
           where: { id: applicationId },
-          data: { status: 'Under_Review', assignedReviewerId: req.user.id, updatedAt: new Date() }
+          data: { status: newStatus, updatedAt: new Date() }
         }),
-        prisma.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: req.user.email, oldStatus: oldStatus!, newStatus: 'Under_Review' }
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'REVIEW_NOTE_SUBMITTED',
+            details: `${req.user.role} submitted a review note for application ${applicationId}.`
+          }
         })
       ]);
-      return res.status(200).json({ message: 'Application picked up. Review has started.' });
+
+      if (app.status === 'Pending') {
+         await prisma.applicationStatusHistory.create({
+            data: { applicationId, changedByEmail: req.user.email, oldStatus: app.status, newStatus: 'Under_Review' }
+         });
+      }
+
+      return res.status(200).json({ message: 'Review notes submitted successfully.' });
 
     } else if (action === 'ReturnForCorrection') {
-      if (!notes) return res.status(400).json({ error: 'Correction remarks are mandatory.' });
-      if (app.status !== 'Under_Review') {
-        return res.status(400).json({ error: `Cannot return. Application is in "${app.status}" status.` });
+      if (userRole !== 'head_reviewer' && userRole !== 'admin') {
+        return res.status(403).json({ error: 'Access Denied. Only Head Reviewers or Admins can return an application for correction.' });
       }
-      if (app.assignedReviewerId !== req.user.id && userRole !== 'admin') {
-        return res.status(403).json({ error: 'Access Denied. You are not the assigned reviewer for this application.' });
+      if (!notes) return res.status(400).json({ error: 'Correction remarks are mandatory.' });
+      if (app.status !== 'Under_Review' && app.status !== 'Pending') {
+        return res.status(400).json({ error: `Cannot return. Application is in "${app.status}" status.` });
       }
       await prisma.$transaction([
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Correction_Required', updatedAt: new Date() } }),
         prisma.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: req.user.email, oldStatus: 'Under_Review', newStatus: 'Correction_Required', reviewerNotes: notes }
+          data: { applicationId, changedByEmail: req.user.email, oldStatus: app.status, newStatus: 'Correction_Required', reviewerNotes: notes }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_RETURNED_FOR_CORRECTION',
+            details: `${req.user.role} returned application ${applicationId} for correction. Notes: ${notes}`
+          }
         })
       ]);
       try { await sendMail(app.member.email, "correctionRequired", { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
       return res.status(200).json({ message: 'Application returned to applicant for correction.' });
 
     } else if (action === 'ForwardToApprover') {
+      if (userRole !== 'head_reviewer' && userRole !== 'admin') {
+        return res.status(403).json({ error: 'Only Head Reviewers or Admins can forward an application to the Approver.' });
+      }
+      if (!notes?.trim()) {
+        return res.status(400).json({ error: 'A forwarding note is required before sending an application to the Approver.' });
+      }
       if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
       }
-      if (app.assignedReviewerId !== req.user.id && userRole !== 'admin') {
-        return res.status(403).json({ error: 'Access Denied. You are not the assigned reviewer for this application.' });
+      
+      // Check for at least 2 reviews
+      const reviewCount = await prisma.applicationReview.count({ where: { applicationId } });
+      if (reviewCount < 2) {
+         return res.status(400).json({ error: 'At least 2 reviews are required before forwarding to the Approver.' });
       }
-      await prisma.$transaction([
-        prisma.application.update({ where: { id: applicationId }, data: { status: 'Pending_Approval', updatedAt: new Date() } }),
-        prisma.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: req.user.email, oldStatus: 'Under_Review', newStatus: 'Pending_Approval', reviewerNotes: notes || null }
-        })
-      ]);
+
+      const userEmail = req.user!.email;
+      const userId = req.user!.id;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.application.update({ where: { id: applicationId }, data: { status: 'Pending_Approval', updatedAt: new Date() } });
+        await tx.applicationStatusHistory.create({
+          data: { applicationId, changedByEmail: userEmail, oldStatus: 'Under_Review', newStatus: 'Pending_Approval', reviewerNotes: notes }
+        });
+        await tx.applicationReview.upsert({
+          where: { applicationId_reviewerId: { applicationId, reviewerId: userId } },
+          create: { applicationId, reviewerId: userId, notes },
+          update: { notes, updatedAt: new Date() }
+        });
+        await tx.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: userEmail,
+            actionType: 'APPLICATION_FORWARDED_TO_APPROVER',
+            details: `${req.user!.role} forwarded application ${applicationId} to the Approver after ${reviewCount} reviews. Notes: ${notes}`
+          }
+        });
+      });
       return res.status(200).json({ message: 'Application forwarded to Approver queue.' });
     }
 
-    return res.status(400).json({ error: 'Invalid action. Valid reviewer actions: StartReview, ReturnForCorrection, ForwardToApprover.' });
+    return res.status(400).json({ error: 'Invalid action. Valid reviewer actions: SubmitReviewNote, ReturnForCorrection, ForwardToApprover.' });
   } catch (error: any) {
     console.error('[Reviewer Action] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error processing reviewer action.' });
@@ -474,6 +556,38 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
       
       return res.status(200).json({ message: 'Application approved. Membership ID issued.', membershipId: generatedMembershipId });
 
+    } else if (action === 'ReturnForCorrection') {
+      if (!notes?.trim()) {
+        return res.status(400).json({ error: 'Correction remarks are mandatory.' });
+      }
+
+      await prisma.$transaction([
+        prisma.application.update({
+          where: { id: applicationId },
+          data: { status: 'Correction_Required', updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId,
+            changedByEmail: req.user.email,
+            oldStatus,
+            newStatus: 'Correction_Required',
+            reviewerNotes: notes
+          }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_RETURNED_FOR_CORRECTION',
+            details: `${req.user.role} returned application ${applicationId} for correction at the approval stage. Notes: ${notes}`
+          }
+        })
+      ]);
+
+      try { await sendMail(app.member.email, 'correctionRequired', { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
+      return res.status(200).json({ message: 'Application returned to the applicant for correction.' });
+
     } else if (action === 'Reject') {
       if (!notes) return res.status(400).json({ error: 'Rejection notes are mandatory.' });
 
@@ -481,6 +595,14 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Rejected', updatedAt: new Date() } }),
         prisma.applicationStatusHistory.create({
           data: { applicationId, changedByEmail: req.user.email, oldStatus, newStatus: 'Rejected', reviewerNotes: notes }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'APPLICATION_REJECTED',
+            details: `${req.user.role} rejected application ${applicationId}. Notes: ${notes}`
+          }
         })
       ]);
 
@@ -520,6 +642,14 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
           where: { txType: 'Processing_Fee' },
           orderBy: { createdAt: 'desc' },
           take: 1
+        },
+        applicationReviews: {
+          include: {
+            reviewer: {
+              select: { fullName: true }
+            }
+          },
+          orderBy: { createdAt: 'asc' }
         }
       }
     });
@@ -591,7 +721,8 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       documents: mappedDocuments,
       studentAssociation: app.studentAssociation,
       logbookEntries: app.logbookEntries,
-      statusHistory: app.statusHistory
+      statusHistory: app.statusHistory,
+      applicationReviews: app.applicationReviews
     });
   } catch (error: any) {
     console.error('[Admin Application Detail] Error:', error.message);
@@ -1098,7 +1229,7 @@ export async function getStaffMembers(req: AuthenticatedRequest, res: Response) 
     const staff = await prisma.member.findMany({
       where: {
         systemRole: {
-          in: ['Admin', 'Reviewer', 'Approver', 'Teacher']
+          in: ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher']
         }
       },
       select: {
@@ -1129,7 +1260,7 @@ export async function createStaffMember(req: AuthenticatedRequest, res: Response
     return res.status(400).json({ error: 'Missing required fields: fullName, email, systemRole' });
   }
 
-  const validRoles = ['Admin', 'Reviewer', 'Approver', 'Teacher'];
+  const validRoles = ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
   if (!validRoles.includes(systemRole)) {
     return res.status(400).json({ error: 'Invalid system role provided for staff creation.' });
   }
@@ -1192,7 +1323,7 @@ export async function lockStaffMember(req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ error: 'Staff member not found.' });
     }
 
-    const validRoles = ['Admin', 'Reviewer', 'Approver', 'Teacher'];
+    const validRoles = ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
     if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
       return res.status(400).json({ error: 'Cannot lock a non-staff member through this endpoint.' });
     }
@@ -1264,6 +1395,62 @@ export async function unlockStaffMember(req: AuthenticatedRequest, res: Response
   } catch (error: any) {
     console.error('[Unlock Staff Member Error]', error.message);
     return res.status(500).json({ error: 'Internal server error while unlocking staff member.' });
+  }
+}
+
+// Promote a Reviewer to Head_Reviewer (demotes existing Head_Reviewer to Reviewer first)
+export async function promoteToHeadReviewer(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { id } = req.params;
+
+  try {
+    const target = await prisma.member.findUnique({ where: { id } });
+    if (!target) return res.status(404).json({ error: 'Staff member not found.' });
+
+    if (target.systemRole !== 'Reviewer' && target.systemRole !== 'Head_Reviewer') {
+      return res.status(400).json({ error: 'Only Reviewers can be promoted to Head Reviewer.' });
+    }
+
+    if (target.systemRole === 'Head_Reviewer') {
+      return res.status(400).json({ error: 'This staff member is already the Head Reviewer.' });
+    }
+
+    // Find existing Head_Reviewer (if any) and demote them
+    const existingHead = await prisma.member.findFirst({
+      where: { systemRole: 'Head_Reviewer' }
+    });
+
+    await prisma.$transaction(async (tx) => {
+      // Demote existing head first
+      if (existingHead) {
+        await tx.member.update({
+          where: { id: existingHead.id },
+          data: { systemRole: 'Reviewer' }
+        });
+      }
+      // Promote target
+      await tx.member.update({
+        where: { id },
+        data: { systemRole: 'Head_Reviewer' }
+      });
+      await tx.auditLog.create({
+        data: {
+          memberId: id,
+          actionByEmail: req.user!.email,
+          actionType: 'ROLE_CHANGE',
+          details: `Promoted to Head_Reviewer${existingHead ? `. Previous head (${existingHead.email}) revoked.` : '.'}`
+        }
+      });
+    });
+
+    return res.status(200).json({
+      message: 'Head Reviewer updated successfully.',
+      previousHead: existingHead ? { id: existingHead.id, fullName: existingHead.fullName } : null
+    });
+  } catch (error: any) {
+    console.error('[Promote Head Reviewer Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while updating Head Reviewer.' });
   }
 }
 
@@ -1618,7 +1805,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       }));
     }
 
-    if (role === "Reviewer") {
+    if (role === "Reviewer" || role.toLowerCase() === "head_reviewer") {
       // Reviewer rate = how many they forwarded to Pending_Approval/Approved vs total assigned
       const myForwarded = await prisma.application.count({ where: { assignedReviewerId: userId, status: { in: ['Pending_Approval', 'Approved'] } } });
       const myTotalAssigned = await prisma.application.count({ where: { assignedReviewerId: userId } });

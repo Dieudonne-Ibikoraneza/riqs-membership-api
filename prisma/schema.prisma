@@ -60,6 +60,7 @@ enum CompetencyLevel {
 
 enum SystemRole {
   Admin
+  Head_Reviewer
   Reviewer
   Approver
   Teacher
@@ -161,6 +162,7 @@ model Member {
   reviewedApplications  Application[]          @relation("ReviewerAssignments")
   supportTickets        SupportTicket[]
   ticketReplies         TicketReply[]
+  applicationReviews    ApplicationReview[]
 
   @@map("members")
 }
@@ -203,6 +205,7 @@ model Application {
   statusHistory         ApplicationStatusHistory[]
   financialTransactions FinancialTransaction[]
   logbookEntries        LogbookEntry[]
+  applicationReviews    ApplicationReview[]
 
   @@map("applications")
 }
@@ -364,6 +367,21 @@ model ApplicationStatusHistory {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@map("application_status_history")
+}
+
+model ApplicationReview {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId  String    @map("application_id") @db.Uuid
+  reviewerId     String    @map("reviewer_id") @db.Uuid
+  notes          String?   @db.Text
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer       Member      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, reviewerId])
+  @@map("application_reviews")
 }
 
 model FinancialTransaction {
