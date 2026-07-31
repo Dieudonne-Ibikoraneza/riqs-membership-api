@@ -32,23 +32,35 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     }
 
     const userRole = req.user?.role?.toLowerCase() || '';
+    const isAdmin = userRole === 'admin';
     const isApprover = userRole === 'approver';
+    const isReviewerOrHead = userRole === 'reviewer' || userRole === 'head_reviewer';
 
-    // 2. Process View mode (Tabs)
-    if (isApprover) {
+    // 2. Apply role-based visibility: each role only sees their slice of the workflow
+    if (isAdmin) {
+      // Admin sees newly submitted apps awaiting initial review (Pending only)
+      if (view === 'all') {
+        // "All" tab — admin can see historical records too
+        if (!status) whereClause.status = { not: 'Draft' };
+      } else {
+        // Default queue tab — only Pending apps needing admin's attention
+        if (!status) whereClause.status = 'Pending';
+      }
+    } else if (isApprover) {
+      // Approver sees apps forwarded to them (Pending_Approval)
       if (view === 'all') {
         if (!status) whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected', 'Correction_Required'] };
       } else {
         if (!status) whereClause.status = 'Pending_Approval';
       }
-    } else {
-      // Reviewers (including Head_Reviewer) see all pending and under review apps
+    } else if (isReviewerOrHead) {
+      // Reviewers and Head Reviewer only see apps forwarded by admin (Under_Review and above)
       if (view === 'all') {
-        if (!status) whereClause.status = { not: 'Draft' };
+        if (!status) whereClause.status = { in: ['Under_Review', 'Pending_Approval', 'Correction_Required', 'Approved', 'Rejected'] };
       } else {
         if (!status) {
           whereClause.OR = [
-            { status: { in: ['Pending', 'Under_Review', 'Correction_Required'] } },
+            { status: { in: ['Under_Review', 'Correction_Required'] } },
             { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
           ];
         } else {
@@ -333,10 +345,10 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
     const oldStatus = app.status;
 
     if (action === 'SubmitReviewNote') {
-      if (userRole !== 'reviewer') {
-        return res.status(403).json({ error: 'Access Denied. Only Reviewers can submit review notes.' });
+      if (userRole !== 'reviewer' && userRole !== 'head_reviewer') {
+        return res.status(403).json({ error: 'Access Denied. Only Reviewers or Head Reviewers can submit review notes.' });
       }
-      if (app.status !== 'Pending' && app.status !== 'Under_Review') {
+      if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot add review. Application is in "${app.status}" status.` });
       }
 
@@ -352,15 +364,9 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
         return res.status(409).json({ error: 'You have already submitted a review note for this application.' });
       }
       
-      const newStatus = app.status === 'Pending' ? 'Under_Review' : app.status;
-
       await prisma.$transaction([
         prisma.applicationReview.create({
           data: { applicationId, reviewerId: req.user.id, notes }
-        }),
-        prisma.application.update({
-          where: { id: applicationId },
-          data: { status: newStatus, updatedAt: new Date() }
         }),
         prisma.auditLog.create({
           data: {
@@ -371,12 +377,6 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
           }
         })
       ]);
-
-      if (app.status === 'Pending') {
-         await prisma.applicationStatusHistory.create({
-            data: { applicationId, changedByEmail: req.user.email, oldStatus: app.status, newStatus: 'Under_Review' }
-         });
-      }
 
       return res.status(200).json({ message: 'Review notes submitted successfully.' });
 
@@ -406,8 +406,8 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       return res.status(200).json({ message: 'Application returned to applicant for correction.' });
 
     } else if (action === 'ForwardToApprover') {
-      if (userRole !== 'head_reviewer' && userRole !== 'admin') {
-        return res.status(403).json({ error: 'Only Head Reviewers or Admins can forward an application to the Approver.' });
+      if (userRole !== 'head_reviewer') {
+        return res.status(403).json({ error: 'Only Head Reviewers can forward an application to the Approver.' });
       }
       if (!notes?.trim()) {
         return res.status(400).json({ error: 'A forwarding note is required before sending an application to the Approver.' });
@@ -416,10 +416,10 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
       }
       
-      // Check for at least 2 reviews
+      // Check for at least 3 reviews
       const reviewCount = await prisma.applicationReview.count({ where: { applicationId } });
-      if (reviewCount < 2) {
-         return res.status(400).json({ error: 'At least 2 reviews are required before forwarding to the Approver.' });
+      if (reviewCount < 3) {
+         return res.status(400).json({ error: 'At least 3 reviews are required before forwarding to the Approver.' });
       }
 
       const userEmail = req.user!.email;
@@ -445,9 +445,34 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
         });
       });
       return res.status(200).json({ message: 'Application forwarded to Approver queue.' });
+
+    } else if (action === 'ForwardToReviewers') {
+      if (userRole !== 'admin') {
+        return res.status(403).json({ error: 'Access Denied. Only Admins can forward to reviewers.' });
+      }
+      if (app.status !== 'Pending') {
+        return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
+      }
+
+      await prisma.$transaction([
+        prisma.application.update({ where: { id: applicationId }, data: { status: 'Under_Review', updatedAt: new Date() } }),
+        prisma.applicationReview.deleteMany({ where: { applicationId } }), // Clear old review notes for the new round
+        prisma.applicationStatusHistory.create({
+          data: { applicationId, changedByEmail: req.user!.email, oldStatus: app.status, newStatus: 'Under_Review', reviewerNotes: notes || null }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: app.memberId,
+            actionByEmail: req.user!.email,
+            actionType: 'APPLICATION_FORWARDED_TO_REVIEWERS',
+            details: `${req.user!.role} forwarded application ${applicationId} to the Review Team.${notes ? ` Note: ${notes}` : ''}`
+          }
+        })
+      ]);
+      return res.status(200).json({ message: 'Application forwarded to Review Team.' });
     }
 
-    return res.status(400).json({ error: 'Invalid action. Valid reviewer actions: SubmitReviewNote, ReturnForCorrection, ForwardToApprover.' });
+    return res.status(400).json({ error: 'Invalid action. Valid reviewer actions: SubmitReviewNote, ReturnForCorrection, ForwardToApprover, ForwardToReviewers.' });
   } catch (error: any) {
     console.error('[Reviewer Action] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error processing reviewer action.' });
@@ -1793,6 +1818,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       stats.admin.recentActivity = await getEnrichedActivity({});
 
       const rawRecentAdmin = await prisma.application.findMany({
+        where: { status: { not: 'Draft' } },
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -1811,21 +1837,22 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
     }
 
     if (role === "Reviewer" || role.toLowerCase() === "head_reviewer") {
-      // Reviewer rate = how many they forwarded to Pending_Approval/Approved vs total assigned
-      const myForwarded = await prisma.application.count({ where: { assignedReviewerId: userId, status: { in: ['Pending_Approval', 'Approved'] } } });
-      const myTotalAssigned = await prisma.application.count({ where: { assignedReviewerId: userId } });
+      // For reviewers: their relevant queue is Under_Review applications
+      const myReviewNotes = await prisma.applicationReview.count({ where: { reviewerId: userId } });
+      const myForwardedToApprover = await prisma.application.count({ where: { status: { in: ['Pending_Approval', 'Approved'] } } });
+      const totalUnderReview = await prisma.application.count({ where: { status: 'Under_Review' } });
 
       const currentYear = new Date().getFullYear();
       const startOfYear = new Date(currentYear, 0, 1);
 
       const reviewerApps = await prisma.application.findMany({
-        where: { createdAt: { gte: startOfYear } },
+        where: { status: { in: ['Under_Review', 'Pending_Approval', 'Approved', 'Rejected', 'Correction_Required'] }, createdAt: { gte: startOfYear } },
         select: { createdAt: true }
       });
 
-      // Graph: applications assigned to reviewer vs ones they forwarded to Pending_Approval
+      // Graph: applications in reviewer queue vs ones forwarded to Approver
       const reviewerApprovals = await prisma.application.findMany({
-        where: { assignedReviewerId: userId, status: { in: ['Pending_Approval', 'Approved'] }, updatedAt: { gte: startOfYear } },
+        where: { status: { in: ['Pending_Approval', 'Approved'] }, updatedAt: { gte: startOfYear } },
         select: { updatedAt: true }
       });
 
@@ -1851,7 +1878,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       });
 
       const rawRecent = await prisma.application.findMany({
-        where: { OR: [{ status: 'Pending' }, { assignedReviewerId: userId }] },
+        where: { status: { in: ['Under_Review', 'Correction_Required'] } },
         take: 6,
         orderBy: { createdAt: 'desc' },
         include: {
@@ -1861,14 +1888,14 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
       });
 
       stats.reviewer = {
-        assignedApplications: await prisma.application.count({ where: { assignedReviewerId: userId, status: 'Under_Review' } }),
-        pendingReviews: await prisma.application.count({ where: { status: 'Pending' } }),
-        myReviewed: await prisma.application.count({ where: { assignedReviewerId: userId, status: { notIn: ['Under_Review', 'Pending'] } } }),
+        assignedApplications: totalUnderReview,
+        pendingReviews: totalUnderReview,
+        myReviewed: myReviewNotes,
         reviewRate: {
-          forwarded: myForwarded,
-          total: myTotalAssigned
+          forwarded: myForwardedToApprover,
+          total: await prisma.application.count({ where: { status: { notIn: ['Draft', 'Pending'] } } })
         },
-        totalReceived: await prisma.application.count(),
+        totalReceived: await prisma.application.count({ where: { status: { notIn: ['Draft', 'Pending'] } } }),
         applicationsVsApprovals: Object.values(monthlyData),
         recentApplications: rawRecent.map(app => ({
           id: app.id,
@@ -1878,7 +1905,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
           status: app.status
         })),
         recentActivity: await getEnrichedActivity({
-          actionType: { in: ['REVIEWER_ASSIGNED', 'APPROVE', 'REJECT', 'FLAG_FOR_CORRECTION', 'APPLICATION_SUBMITTED'] }
+          actionType: { in: ['REVIEWER_ASSIGNED', 'APPROVE', 'REJECT', 'FLAG_FOR_CORRECTION', 'APPLICATION_SUBMITTED', 'REVIEW_NOTE_SUBMITTED', 'APPLICATION_FORWARDED_TO_APPROVER', 'APPLICATION_FORWARDED_TO_REVIEWERS'] }
         })
       };
     }
