@@ -163,6 +163,7 @@ model Member {
   supportTickets        SupportTicket[]
   ticketReplies         TicketReply[]
   applicationReviews    ApplicationReview[]
+  mentorshipReviews     MentorshipReview[]
 
   @@map("members")
 }
@@ -206,6 +207,7 @@ model Application {
   financialTransactions FinancialTransaction[]
   logbookEntries        LogbookEntry[]
   applicationReviews    ApplicationReview[]
+  mentorshipReviews     MentorshipReview[]
 
   @@map("applications")
 }
@@ -279,9 +281,31 @@ model MentorshipAssignment {
   status                           String?   @default("In_Progress") @map("status")
   createdAt                        DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviews     MentorshipReview[]
 
   @@map("mentorship_assignments")
+}
+
+// A separate review record is kept for mentorship upgrades so the original
+// membership-application reviews are never reused for an APC decision.
+model MentorshipReview {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId          String    @map("application_id") @db.Uuid
+  mentorshipAssignmentId String    @map("mentorship_assignment_id") @db.Uuid
+  reviewerId             String    @map("reviewer_id") @db.Uuid
+  recommendation         String    @default("Recommend") @db.VarChar(50)
+  proposedAssessmentDate DateTime? @map("proposed_assessment_date") @db.Timestamptz
+  notes                  String?   @db.Text
+  createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  application          Application          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  mentorshipAssignment MentorshipAssignment @relation(fields: [mentorshipAssignmentId], references: [id], onDelete: Cascade)
+  reviewer             Member               @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, reviewerId])
+  @@map("mentorship_reviews")
 }
 
 model FirmShareholder {
@@ -370,15 +394,15 @@ model ApplicationStatusHistory {
 }
 
 model ApplicationReview {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId  String    @map("application_id") @db.Uuid
-  reviewerId     String    @map("reviewer_id") @db.Uuid
-  notes          String?   @db.Text
-  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  applicationId String    @map("application_id") @db.Uuid
+  reviewerId    String    @map("reviewer_id") @db.Uuid
+  notes         String?   @db.Text
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamptz
 
-  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  reviewer       Member      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  reviewer    Member      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, reviewerId])
   @@map("application_reviews")
