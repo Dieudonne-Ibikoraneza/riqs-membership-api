@@ -157,7 +157,9 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
       data: {
         upgradeRequested: true,
         apcReadiness: data.apcReadiness,
-        status: hasRecommendation ? "Pending_Admin_Review" : "Pending_Mentor"
+        // A complete upgrade now goes to the reviewer board before the
+        // Admin/Approver decision stage.
+        status: hasRecommendation ? "Pending_Reviewer_Board" : "Pending_Mentor"
       }
     });
     
@@ -201,7 +203,7 @@ export const submitMentorRecommendation = async (req: AuthenticatedRequest, res:
       data: {
         mentorRecommendationUrl: filePath,
         mentorNotes: data.mentorNotes,
-        status: hasRequested ? "Pending_Admin_Review" : "In_Progress"
+        status: hasRequested ? "Pending_Reviewer_Board" : "In_Progress"
       }
     });
 
@@ -254,4 +256,3 @@ export const adminReviewUpgrade = async (req: AuthenticatedRequest, res: Respons
     res.status(500).json({ error: "Failed to review upgrade" });
   }
 };
-

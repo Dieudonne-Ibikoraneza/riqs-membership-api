@@ -61,7 +61,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
         if (!status) {
           whereClause.OR = [
             { status: { in: ['Under_Review', 'Correction_Required'] } },
-            { mentorshipAssignment: { status: 'Pending_Admin_Review' } }
+            { mentorshipAssignment: { status: 'Pending_Reviewer_Board' } }
           ];
         } else {
           whereClause.status = status;
@@ -97,7 +97,7 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     const formattedQueue = queue.map(app => ({
       id: app.id,
       member_id: app.memberId,
-      status: app.mentorshipAssignment?.status === 'Pending_Admin_Review' ? 'Mentorship_Upgrade' : app.status,
+      status: ['Pending_Reviewer_Board', 'Pending_Admin_Review'].includes(app.mentorshipAssignment?.status || '') ? 'Mentorship_Upgrade' : app.status,
       submitted_at: app.submittedAt,
       full_name: app.member.fullName,
       email: app.member.email,
@@ -686,6 +686,27 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
 
     if (!app) return res.status(404).json({ error: 'Application not found.' });
 
+    // Keep legacy applications readable while a deployment is being upgraded.
+    // The reviewer-board table is additive; an old database may not have it yet.
+    let mentorshipReviews: any[] = [];
+    try {
+      mentorshipReviews = await prisma.$queryRaw<any[]>`
+        SELECT mr.id, mr.application_id AS "applicationId",
+               mr.mentorship_assignment_id AS "mentorshipAssignmentId",
+               mr.reviewer_id AS "reviewerId", mr.recommendation,
+               mr.proposed_assessment_date AS "proposedAssessmentDate",
+               mr.notes, mr.created_at AS "createdAt", mr.updated_at AS "updatedAt",
+               json_build_object('fullName', m.full_name, 'systemRole', m.system_role) AS reviewer
+        FROM mentorship_reviews mr
+        JOIN members m ON m.id = mr.reviewer_id
+        WHERE mr.application_id = ${id}::uuid
+        ORDER BY mr.created_at ASC
+      `;
+    } catch (reviewTableError: any) {
+      if (!String(reviewTableError?.message || '').toLowerCase().includes('mentorship_reviews')) throw reviewTableError;
+      console.warn('[Admin Application Detail] mentorship_reviews table is not deployed yet; returning no board reviews.');
+    }
+
     // Format to match existing payload structure for frontend compatibility
     const formattedApplication = {
       ...app,
@@ -752,7 +773,8 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       studentAssociation: app.studentAssociation,
       logbookEntries: app.logbookEntries,
       statusHistory: app.statusHistory,
-      applicationReviews: app.applicationReviews
+      applicationReviews: app.applicationReviews,
+      mentorshipReviews
     });
   } catch (error: any) {
     console.error('[Admin Application Detail] Error:', error.message);
@@ -1486,8 +1508,8 @@ export async function promoteToHeadReviewer(req: AuthenticatedRequest, res: Resp
 
 // ─── Mentorship Queue ───────────────────────────────────────────────────────
 
-// Get paginated list of Mentorship Upgrade candidates (applications whose
-// mentorshipAssignment.status === 'Pending_Admin_Review')
+// Get paginated list of Mentorship Upgrade candidates awaiting reviewer-board
+// input, final Admin/Approver review, or already completed/corrected.
 export async function getMentorshipQueue(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
@@ -1500,9 +1522,9 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
     const statusQuery = (status as string)?.toLowerCase();
 
     if (statusQuery === 'all' || !statusQuery) {
-      mentorshipStatusFilter = { in: ['Pending_Admin_Review', 'Approved', 'Correction_Required'] };
+      mentorshipStatusFilter = { in: ['Pending_Reviewer_Board', 'Pending_Admin_Review', 'Approved', 'Correction_Required'] };
     } else if (statusQuery === 'pending') {
-      mentorshipStatusFilter = 'Pending_Admin_Review';
+      mentorshipStatusFilter = { in: ['Pending_Reviewer_Board', 'Pending_Admin_Review'] };
     } else if (statusQuery === 'approved') {
       mentorshipStatusFilter = 'Approved';
     } else if (statusQuery === 'rejected' || statusQuery === 'flagged') {
@@ -1579,6 +1601,109 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
   } catch (error: any) {
     console.error('[Mentorship Queue] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching mentorship queue.' });
+  }
+}
+
+// ─── Mentorship reviewer board ─────────────────────────────────────────────
+// Reviewers recommend an APC candidate and propose a date/time. The Head
+// Reviewer is the only role that can forward a reviewed upgrade to the final
+// Admin/Approver queue, after at least three independent reviews.
+export async function submitMentorshipReview(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+  const role = req.user.role.toLowerCase();
+  if (!['reviewer', 'head_reviewer'].includes(role)) {
+    return res.status(403).json({ error: 'Only Reviewers and Head Reviewers can submit a mentorship board review.' });
+  }
+
+  const { applicationId, notes, proposedAssessmentDate, recommendation = 'Recommend' } = req.body;
+  if (!applicationId || !notes?.trim()) return res.status(400).json({ error: 'An application and review notes are required.' });
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: { mentorshipAssignment: true }
+    });
+    if (!app?.mentorshipAssignment) return res.status(404).json({ error: 'Mentorship upgrade not found.' });
+    if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
+      return res.status(400).json({ error: `This upgrade is not awaiting reviewer-board input. Current status: ${app.mentorshipAssignment.status}.` });
+    }
+    if (app.mentorshipAssignment.apcReadiness === 'Ready' && !proposedAssessmentDate) {
+      return res.status(400).json({ error: 'A proposed assessment date and time is required for an APC candidate.' });
+    }
+    const proposedDate = proposedAssessmentDate ? new Date(proposedAssessmentDate) : null;
+    if (proposedDate && Number.isNaN(proposedDate.getTime())) {
+      return res.status(400).json({ error: 'The proposed assessment date is invalid.' });
+    }
+
+    const review = await prisma.$transaction(async (tx) => {
+      const saved = await tx.mentorshipReview.upsert({
+        where: { applicationId_reviewerId: { applicationId, reviewerId: req.user!.id } },
+        create: {
+          applicationId,
+          mentorshipAssignmentId: app.mentorshipAssignment!.id,
+          reviewerId: req.user!.id,
+          recommendation,
+          proposedAssessmentDate: proposedDate,
+          notes: notes.trim()
+        },
+        update: { recommendation, proposedAssessmentDate: proposedDate, notes: notes.trim(), updatedAt: new Date() }
+      });
+      await tx.auditLog.create({
+        data: {
+          memberId: app.memberId,
+          actionByEmail: req.user!.email,
+          actionType: 'MENTORSHIP_REVIEW_SUBMITTED',
+          details: `${req.user!.role} submitted mentorship board review${proposedDate ? ` and proposed ${proposedDate.toISOString()}` : ''}.`
+        }
+      });
+      return saved;
+    });
+    return res.status(200).json({ message: 'Mentorship board review saved.', review });
+  } catch (error: any) {
+    console.error('[Mentorship Review] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error saving mentorship board review.' });
+  }
+}
+
+export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+  if (req.user.role.toLowerCase() !== 'head_reviewer') {
+    return res.status(403).json({ error: 'Only the Head Reviewer can forward a mentorship upgrade to Admin/Approver.' });
+  }
+  const { applicationId, notes } = req.body;
+  if (!applicationId || !notes?.trim()) return res.status(400).json({ error: 'A forwarding note is required.' });
+
+  try {
+    const app = await prisma.application.findUnique({
+      where: { id: applicationId },
+      include: { mentorshipAssignment: true, mentorshipReviews: true }
+    });
+    if (!app?.mentorshipAssignment) return res.status(404).json({ error: 'Mentorship upgrade not found.' });
+    if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
+      return res.status(400).json({ error: `This upgrade cannot be forwarded from status ${app.mentorshipAssignment.status}.` });
+    }
+    if (app.mentorshipReviews.length < 3) {
+      return res.status(400).json({ error: 'At least 3 reviewer-board submissions are required before forwarding.' });
+    }
+
+    await prisma.$transaction([
+      prisma.mentorshipAssignment.update({
+        where: { id: app.mentorshipAssignment.id },
+        data: { status: 'Pending_Admin_Review', adminNotes: notes.trim() }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: app.memberId,
+          actionByEmail: req.user.email,
+          actionType: 'MENTORSHIP_FORWARDED_TO_APPROVER',
+          details: `Head Reviewer forwarded mentorship upgrade to Admin/Approver after ${app.mentorshipReviews.length} board reviews. Notes: ${notes.trim()}`
+        }
+      })
+    ]);
+    return res.status(200).json({ message: 'Mentorship upgrade forwarded to the Admin/Approver queue.' });
+  } catch (error: any) {
+    console.error('[Forward Mentorship] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error forwarding mentorship upgrade.' });
   }
 }
 
