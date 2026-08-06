@@ -11,7 +11,7 @@ import {
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember, promoteToHeadReviewer,
-  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection,
+  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection, submitMentorshipReview, forwardMentorshipToApprover,
   getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors
 } from '../controllers/adminController';
 
@@ -94,7 +94,7 @@ router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
+router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin', 'approver']), awardFellowStatus);
 
 /**
  * @openapi
@@ -105,7 +105,7 @@ router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), a
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
+router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin', 'approver']), revokeFellowStatus);
 
 /**
  * @openapi
@@ -116,7 +116,7 @@ router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), 
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/members/:id/award-honorary', requireAuth, requireRoles(['admin']), awardHonoraryStatus);
+router.post('/members/:id/award-honorary', requireAuth, requireRoles(['admin', 'approver']), awardHonoraryStatus);
 
 /**
  * @openapi
@@ -127,7 +127,7 @@ router.post('/members/:id/award-honorary', requireAuth, requireRoles(['admin']),
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin']), revokeHonoraryStatus);
+router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin', 'approver']), revokeHonoraryStatus);
 
 
 
@@ -476,11 +476,11 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
 router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
 router.patch('/staff/:id/promote-head-reviewer', requireAuth, requireRoles(['admin']), promoteToHeadReviewer);
 
-router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin']), awardFellowStatus);
-router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin']), revokeFellowStatus);
-router.post('/members/:id/change-category', requireAuth, requireRoles(['admin']), changeMembershipCategory);
-router.post('/members/:id/honors', requireAuth, requireRoles(['admin']), updateMemberHonors);
-router.post('/members/honorable-mention', requireAuth, requireRoles(['admin']), createHonorableMentionMember);
+router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin', 'approver']), awardFellowStatus);
+router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin', 'approver']), revokeFellowStatus);
+router.post('/members/:id/change-category', requireAuth, requireRoles(['admin', 'approver']), changeMembershipCategory);
+router.post('/members/:id/honors', requireAuth, requireRoles(['admin', 'approver']), updateMemberHonors);
+router.post('/members/honorable-mention', requireAuth, requireRoles(['admin', 'approver']), createHonorableMentionMember);
 
 /**
  * ----------------------------------------------------
@@ -494,6 +494,8 @@ router.patch('/tickets/:id/status', requireAuth, requireRoles(['admin', 'reviewe
 
 // Mentorship Queue endpoints
 router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMentorshipQueue);
+router.post('/mentorship/review', requireAuth, requireRoles(['reviewer', 'head_reviewer']), submitMentorshipReview);
+router.post('/mentorship/forward', requireAuth, requireRoles(['head_reviewer']), forwardMentorshipToApprover);
 router.post('/mentorship/approve', requireAuth, requireRoles(['admin', 'approver']), approveMentorshipUpgrade);
 router.post('/mentorship/flag', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), flagMentorshipForCorrection);
 

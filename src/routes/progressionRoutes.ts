@@ -50,7 +50,7 @@ router.post('/apc/request', requireAuth, requestAPC);
  * @openapi
  * /api/v1/progression/apc/register:
  *   post:
- *     summary: Schedule a new APC Board (Admin only)
+ *     summary: Schedule a new APC Board (Admin or Approver)
  *     description: Schedules a date and panel examiners (Panel Chair and two external examiners) for a candidate's Assessment of Professional Competency.
  *     tags:
  *       - Progression & APC
@@ -88,13 +88,13 @@ router.post('/apc/request', requireAuth, requestAPC);
  *       500:
  *         description: Internal server error
  */
-router.post('/apc/register', requireAuth, requireRoles(['admin']), registerAPC);
+router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver']), registerAPC);
 
 /**
  * @openapi
  * /api/v1/progression/apc/grade:
  *   post:
- *     summary: Grade an APC Assessment (Admin only)
+ *     summary: Grade an APC Assessment (Admin or Approver)
  *     description: Records the pass/fail result, exam notes, and score. Passing automatically triggers a dynamic membership class upgrade in their profile database.
  *     tags:
  *       - Progression & APC
@@ -137,7 +137,7 @@ router.post('/apc/register', requireAuth, requireRoles(['admin']), registerAPC);
  *       500:
  *         description: Internal server error
  */
-router.post('/apc/grade', requireAuth, requireRoles(['admin']), gradeAPC);
+router.post('/apc/grade', requireAuth, requireRoles(['admin', 'approver']), gradeAPC);
 
 /**
  * @openapi
@@ -169,7 +169,7 @@ router.post('/apc/grade', requireAuth, requireRoles(['admin']), gradeAPC);
  *       500:
  *         description: Internal server error
  */
-router.post('/associate/award', requireAuth, requireRoles(['admin']), awardAssociate);
+router.post('/associate/award', requireAuth, requireRoles(['admin', 'approver']), awardAssociate);
 
 /**
  * @openapi
