@@ -58,10 +58,10 @@ An existing database with data but no Prisma migration history must be baselined
 The multi-stage image generates Prisma Client, installs production dependencies, includes OpenSSL, runs as a non-root user, and exposes port 5000. The database and Supabase services are external and are supplied through `.env`.
 
 ```bash
-./deploy.sh
-./deploy.sh --logs
-./deploy.sh --migrate
-./deploy.sh --down
+./scripts/deploy.sh
+./scripts/deploy.sh --logs
+./scripts/deploy.sh --migrate
+./scripts/deploy.sh --down
 ```
 
 The migration option is explicit because production databases may require baselining. Equivalent manual commands:
@@ -91,4 +91,4 @@ Route middleware enforces Applicant, Mentor, Reviewer, Head Reviewer, Approver, 
 
 ## Repository layout
 
-`src/` contains TypeScript source; `prisma/schema.prisma` and `prisma/migrations/` contain database definitions; `Dockerfile`, `docker-compose.yml`, `deploy.sh`, and `.env.example` contain deployment/configuration assets.
+`src/` contains TypeScript source; `prisma/schema.prisma` and `prisma/migrations/` contain database definitions; `Dockerfile`, `docker-compose.yml`, `scripts/deploy.sh`, and `.env.example` contain deployment/configuration assets.

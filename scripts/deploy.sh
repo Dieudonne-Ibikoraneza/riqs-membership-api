@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 MIGRATE=false
 FOLLOW_LOGS=false
@@ -10,7 +10,7 @@ ACTION=up
 
 usage() {
   cat <<'USAGE'
-Usage: ./deploy.sh [options]
+Usage: ./scripts/deploy.sh [options]
 
 Options:
   --migrate    Run Prisma migrations after the container starts.
