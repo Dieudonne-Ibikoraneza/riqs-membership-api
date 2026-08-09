@@ -1,21 +1,31 @@
-import emailjs from '@emailjs/nodejs';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
+import nodemailer from 'nodemailer';
 
 const prisma = new PrismaClient();
 
 // Load environment variables (support both local and Render env vars)
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const EMAILJS_SERVICE_ID = process.env.EMAILJS_SERVICE_ID;
-const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID;
-const EMAILJS_PUBLIC_KEY = process.env.EMAILJS_PUBLIC_KEY;
-const EMAILJS_PRIVATE_KEY = process.env.EMAILJS_PRIVATE_KEY;
+const SMTP_HOST = process.env.SMTP_HOST || 'mail.rwandaiqs.org';
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const SMTP_SECURE = String(process.env.SMTP_SECURE ?? 'true').toLowerCase() === 'true';
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASSWORD = process.env.SMTP_PASSWORD;
+const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 
-if (!EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID || !EMAILJS_PUBLIC_KEY || !EMAILJS_PRIVATE_KEY) {
-  console.warn("Warning: Missing EmailJS credentials in .env. Emails will fail to send.");
+if (!SMTP_USER || !SMTP_PASSWORD) {
+  console.warn("Warning: Missing SMTP_USER or SMTP_PASSWORD in .env. Emails will fail to send.");
 }
+
+// Exported for scheduled jobs and any callers that need direct SMTP access.
+export const transporter = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_SECURE,
+  auth: SMTP_USER && SMTP_PASSWORD ? { user: SMTP_USER, pass: SMTP_PASSWORD } : undefined,
+});
 
 /**
  * Interpolates variables into a template string
@@ -43,26 +53,11 @@ export async function sendMail(to: string, templateId: string, payload: Record<s
     const subject = interpolate(template.subject, payload);
     const html_content = interpolate(template.body, payload);
 
-    // Send via EmailJS
-    // Requires a template on EmailJS with variables: {{to_email}}, {{subject}}, {{{html_content}}}
-    const response = await emailjs.send(
-      EMAILJS_SERVICE_ID!,
-      EMAILJS_TEMPLATE_ID!,
-      {
-        to_email: to,
-        subject: subject,
-        html_content: html_content
-      },
-      {
-        publicKey: EMAILJS_PUBLIC_KEY,
-        privateKey: EMAILJS_PRIVATE_KEY
-      }
-    );
-
-    console.log(`[EmailJS] Dispatch Success to ${to}. Status: ${response.status} ${response.text}`);
+    const response = await transporter.sendMail({ from: SMTP_FROM, to, subject, html: html_content });
+    console.log(`[SMTP] Dispatch Success to ${to}. Message ID: ${response.messageId}`);
     return { success: true };
   } catch (error: any) {
-    console.error(`[EmailJS] Dispatch Failure to ${to}:`, error.message || error.text || error);
+    console.error(`[SMTP] Dispatch Failure to ${to}:`, error.message || error);
     throw error;
   }
 }
@@ -70,30 +65,17 @@ export async function sendMail(to: string, templateId: string, payload: Record<s
 // Raw Mail Dispatcher for Admin Broadcasts and Progression Notifications
 export async function sendRawMail(options: { to: string, subject: string, html: string, attachments?: any[] }) {
   try {
-    // Note: EmailJS free tier has a strict 50kb limit on attachments. 
-    // Attachments must be base64 data URIs. We map them if provided, but warn the user.
-    if (options.attachments && options.attachments.length > 0) {
-      console.warn("[EmailJS] Attachments are not fully supported on the free tier (50kb limit) and require Base64 encoding. They may be dropped.");
-    }
-
-    const response = await emailjs.send(
-      EMAILJS_SERVICE_ID!,
-      EMAILJS_TEMPLATE_ID!,
-      {
-        to_email: options.to,
-        subject: options.subject,
-        html_content: options.html
-      },
-      {
-        publicKey: EMAILJS_PUBLIC_KEY,
-        privateKey: EMAILJS_PRIVATE_KEY
-      }
-    );
-
-    console.log(`[EmailJS] Raw Dispatch Success to ${options.to}. Status: ${response.status}`);
+    const response = await transporter.sendMail({
+      from: SMTP_FROM,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      attachments: options.attachments,
+    });
+    console.log(`[SMTP] Raw Dispatch Success to ${options.to}. Message ID: ${response.messageId}`);
     return { success: true };
   } catch (error: any) {
-    console.error(`[EmailJS] Raw Dispatch Failure to ${options.to}:`, error.message || error.text || error);
+    console.error(`[SMTP] Raw Dispatch Failure to ${options.to}:`, error.message || error);
     throw error;
   }
 }

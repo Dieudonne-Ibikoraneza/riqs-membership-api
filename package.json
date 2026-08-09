@@ -21,6 +21,7 @@
   "dependencies": {
     "@emailjs/nodejs": "^5.0.2",
     "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^6.19.3",
     "@prisma/config": "^7.8.0",
     "@supabase/supabase-js": "^2.43.1",
     "@types/socket.io": "^3.0.1",
@@ -32,6 +33,7 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.5.0",
+    "nodemailer": "^9.0.5",
     "pg": "^8.11.5",
     "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.2.8",
@@ -40,7 +42,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@prisma/client": "^6.19.3",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
@@ -48,6 +49,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.12.12",
     "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.11.6",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
