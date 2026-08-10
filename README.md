@@ -59,6 +59,7 @@ The multi-stage image generates Prisma Client, installs production dependencies,
 
 ```bash
 ./scripts/deploy.sh
+./scripts/deploy.sh --pull
 ./scripts/deploy.sh --logs
 ./scripts/deploy.sh --migrate
 ./scripts/deploy.sh --down
@@ -73,6 +74,10 @@ docker compose logs -f api
 docker compose run --rm api npx prisma migrate deploy
 docker compose down
 ```
+
+`--pull` runs `git pull --ff-only` before the Docker build. It stops when the
+checkout has uncommitted or divergent changes, protecting local work. The
+backend entrypoint keeps the container immutable; migrations remain explicit.
 
 Set `API_PORT` to change the host port while the container remains on 5000. The `/health` endpoint performs a database ping and is used by the Compose health check.
 

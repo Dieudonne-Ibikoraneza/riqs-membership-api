@@ -7,12 +7,14 @@ cd "$SCRIPT_DIR/.."
 MIGRATE=false
 FOLLOW_LOGS=false
 ACTION=up
+PULL=false
 
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/deploy.sh [options]
 
 Options:
+  --pull       Fast-forward the repository before deploying.
   --migrate    Run Prisma migrations after the container starts.
   --logs       Follow API logs after deployment.
   --down       Stop the backend instead of deploying it.
@@ -25,6 +27,7 @@ USAGE
 
 while (($#)); do
   case "$1" in
+    --pull) PULL=true ;;
     --migrate) MIGRATE=true ;;
     --logs) FOLLOW_LOGS=true ;;
     --down) ACTION=down ;;
@@ -36,6 +39,12 @@ done
 
 command -v docker >/dev/null 2>&1 || { echo "Docker is required but was not found." >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required." >&2; exit 1; }
+
+if [[ "$PULL" == true ]]; then
+  command -v git >/dev/null 2>&1 || { echo "Git is required for --pull." >&2; exit 1; }
+  echo "Pulling the latest backend commit..."
+  git pull --ff-only
+fi
 
 if [[ "$ACTION" == "down" ]]; then
   docker compose down
