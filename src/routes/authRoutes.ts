@@ -1,5 +1,12 @@
 import { Router } from 'express';
 import { register, login, verifyOtp, forgotPassword, resetPassword, resendOtp } from '../controllers/authController';
+import {
+  loginRateLimiter,
+  otpRateLimiter,
+  passwordResetRateLimiter,
+  resendOtpRateLimiter,
+  registrationRateLimiter
+} from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -42,7 +49,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.post('/register', register);
+router.post('/register', registrationRateLimiter, register);
 
 /**
  * @openapi
@@ -79,7 +86,7 @@ router.post('/register', register);
  *       500:
  *         description: Internal server error
  */
-router.post('/verify-otp', verifyOtp);
+router.post('/verify-otp', otpRateLimiter, verifyOtp);
 
 /**
  * @openapi
@@ -116,7 +123,7 @@ router.post('/verify-otp', verifyOtp);
  *       500:
  *         description: Internal server error
  */
-router.post('/login', login);
+router.post('/login', loginRateLimiter, login);
 
 /**
  * @openapi
@@ -147,7 +154,7 @@ router.post('/login', login);
  *       500:
  *         description: Internal server error
  */
-router.post('/forgot-password', forgotPassword);
+router.post('/forgot-password', passwordResetRateLimiter, forgotPassword);
 
 /**
  * @openapi
@@ -186,7 +193,7 @@ router.post('/forgot-password', forgotPassword);
  *       500:
  *         description: Internal server error
  */
-router.post('/reset-password', resetPassword);
+router.post('/reset-password', otpRateLimiter, resetPassword);
 /**
  * @openapi
  * /api/v1/auth/resend-otp:
@@ -223,6 +230,6 @@ router.post('/reset-password', resetPassword);
  *       500:
  *         description: Internal server error
  */
-router.post('/resend-otp', resendOtp);
+router.post('/resend-otp', resendOtpRateLimiter, resendOtp);
 
 export default router;

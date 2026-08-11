@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { requireRoles } from '../middleware/rbac';
 import { sanitizeUpload } from '../middleware/sanitizer';
+import { uploadRateLimiter } from '../middleware/rateLimiter';
 
 import {
   registerStudent,
@@ -72,6 +73,6 @@ router.delete('/application/:id/employment/:recordId', requireAuth, requireRoles
 router.post('/application/:id/mentorship', requireAuth, requireRoles(['teacher', 'admin']), saveStudentMentorship);
 router.delete('/application/:id/mentorship/:regNumber', requireAuth, requireRoles(['teacher', 'admin']), deleteStudentMentorshipOption);
 
-router.post('/application/:id/upload', requireAuth, requireRoles(['teacher', 'admin']), sanitizeUpload, uploadStudentDocument);
+router.post('/application/:id/upload', requireAuth, requireRoles(['teacher', 'admin']), uploadRateLimiter, sanitizeUpload, uploadStudentDocument);
 
 export default router;

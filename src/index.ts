@@ -27,23 +27,37 @@ import templateRoutes from './routes/templateRoutes';
 import documentTypeRoutes from './routes/documentTypeRoutes';
 import logbookRoutes from './routes/logbookRoutes';
 import { startCronJobs } from './utils/cronJobs';
+import { apiRateLimiter } from './middleware/rateLimiter';
 
 // Load secure environment variables from .env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://ricos.rwandaiqs.org',
+  'https://riqs-membership.vercel.app'
+];
+
+// Set TRUST_PROXY=true when running behind a single trusted reverse proxy.
+// This allows rate limiting to use the real client IP instead of the proxy IP.
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : 0);
 
 // Enable CORS for decoupled Next.js frontend connection
 app.use(cors({
-  origin: '*',
+  origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Body Parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+
+// Broad protection for all API and documentation requests. Sensitive routes
+// add stricter limits in their own route modules.
+app.use(apiRateLimiter);
 
 // Express Terminal Request Logger
 app.use((req: Request, res: Response, next: NextFunction) => {

@@ -10,6 +10,7 @@ import {
   submitMentorRecommendation,
   adminReviewUpgrade
 } from "../controllers/logbookController";
+import { uploadRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -18,12 +19,12 @@ router.get("/:applicationId/entries", requireAuth, getLogbookEntries);
 router.get("/:applicationId/progress", requireAuth, getMentorshipProgress);
 
 // Mentee routes
-router.post("/entry", requireAuth, sanitizeUpload, submitLogbookEntry);
-router.post("/annual-report", requireAuth, sanitizeUpload, uploadAnnualReport);
+router.post("/entry", requireAuth, uploadRateLimiter, sanitizeUpload, submitLogbookEntry);
+router.post("/annual-report", requireAuth, uploadRateLimiter, sanitizeUpload, uploadAnnualReport);
 router.post("/request-upgrade", requireAuth, requestUpgrade);
 
 // Mentor routes
-router.post("/mentor-recommendation", requireAuth, sanitizeUpload, submitMentorRecommendation);
+router.post("/mentor-recommendation", requireAuth, uploadRateLimiter, sanitizeUpload, submitMentorRecommendation);
 
 // Admin routes
 router.put("/upgrade/:applicationId/admin-review", requireAuth, requireRole("Admin"), adminReviewUpgrade);

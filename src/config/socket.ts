@@ -5,11 +5,15 @@ import jwt from 'jsonwebtoken';
 let io: Server;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_for_development';
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://ricos.rwandaiqs.org'
+];
 
 export function initializeSocket(server: HttpServer) {
   io = new Server(server, {
     cors: {
-      origin: '*', // Same as Express config
+      origin: allowedOrigins,
       methods: ['GET', 'POST']
     }
   });

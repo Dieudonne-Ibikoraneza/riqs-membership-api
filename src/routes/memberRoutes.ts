@@ -3,10 +3,11 @@ import { getPublicMembersDirectory, getMentorById, getMemberProfile, updateMembe
 import { uploadProfilePhoto } from '../controllers/fileController';
 import { requireAuth } from '../middleware/auth';
 import { sanitizeUpload } from '../middleware/sanitizer';
+import { uploadRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
-router.post('/profile/photo', requireAuth, sanitizeUpload, uploadProfilePhoto);
+router.post('/profile/photo', requireAuth, uploadRateLimiter, sanitizeUpload, uploadProfilePhoto);
 
 /**
  * @openapi

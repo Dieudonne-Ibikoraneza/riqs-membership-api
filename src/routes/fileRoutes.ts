@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { sanitizeUpload } from '../middleware/sanitizer';
 import { uploadFile, downloadFile, downloadByUrl, deleteFileByType } from '../controllers/fileController';
+import { uploadRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -45,7 +46,7 @@ const router = Router();
  *       500:
  *         description: Storage upload failed
  */
-router.post('/upload', requireAuth, sanitizeUpload, uploadFile);
+router.post('/upload', requireAuth, uploadRateLimiter, sanitizeUpload, uploadFile);
 
 /**
  * @openapi

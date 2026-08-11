@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth';
 
 const upload = multer({ storage: multer.memoryStorage() });
 import { requireRoles } from '../middleware/rbac';
+import { uploadRateLimiter } from '../middleware/rateLimiter';
 import {
   getReviewQueue, handleReviewDecision,
   handleReviewerAction, handleApproverDecision,
@@ -429,7 +430,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
-router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), upload.array('attachments'), sendAdminEmail);
+router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), uploadRateLimiter, upload.array('attachments'), sendAdminEmail);
 
 /**
  * @openapi
