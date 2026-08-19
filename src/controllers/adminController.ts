@@ -33,11 +33,12 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
 
     const userRole = req.user?.role?.toLowerCase() || '';
     const isAdmin = userRole === 'admin';
+    const isAdminAssistant = userRole === 'admin_assistant';
     const isApprover = userRole === 'approver';
     const isReviewerOrHead = userRole === 'reviewer' || userRole === 'head_reviewer';
 
     // 2. Apply role-based visibility: each role only sees their slice of the workflow
-    if (isAdmin) {
+    if (isAdmin || isAdminAssistant) {
       // Admin sees newly submitted apps awaiting initial review (Pending only)
       if (view === 'all') {
         // "All" tab — admin can see historical records too
@@ -49,7 +50,9 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
     } else if (isApprover) {
       // Approver sees apps forwarded to them (Pending_Approval)
       if (view === 'all') {
-        if (!status) whereClause.status = { in: ['Pending_Approval', 'Approved', 'Rejected', 'Correction_Required'] };
+        // The All view exposes every submitted application for read-only
+        // oversight. Drafts remain private to applicants until submission.
+        if (!status) whereClause.status = { not: 'Draft' };
       } else {
         if (!status) whereClause.status = 'Pending_Approval';
       }
@@ -326,8 +329,8 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const userRole = req.user.role.toLowerCase();
-  if (!['reviewer', 'head_reviewer', 'admin'].includes(userRole)) {
-    return res.status(403).json({ error: 'Access Denied. Only Reviewers, Head Reviewers, or Admins can perform first-stage review actions.' });
+  if (!['reviewer', 'head_reviewer', 'admin', 'admin_assistant'].includes(userRole)) {
+    return res.status(403).json({ error: 'Access Denied. Only Reviewers, Head Reviewers, Admins, or Admin Assistants can perform first-stage application actions.' });
   }
 
   const { applicationId, action, notes } = req.body;
@@ -381,8 +384,8 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       return res.status(200).json({ message: 'Review notes submitted successfully.' });
 
     } else if (action === 'ReturnForCorrection') {
-      if (userRole !== 'head_reviewer' && userRole !== 'admin') {
-        return res.status(403).json({ error: 'Access Denied. Only Head Reviewers or Admins can return an application for correction.' });
+      if (userRole !== 'head_reviewer' && userRole !== 'admin' && userRole !== 'admin_assistant') {
+        return res.status(403).json({ error: 'Access Denied. Only Head Reviewers, Admins, or Admin Assistants can return an application for correction.' });
       }
       if (!notes) return res.status(400).json({ error: 'Correction remarks are mandatory.' });
       if (app.status !== 'Under_Review' && app.status !== 'Pending') {
@@ -447,8 +450,8 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       return res.status(200).json({ message: 'Application forwarded to Approver queue.' });
 
     } else if (action === 'ForwardToReviewers') {
-      if (userRole !== 'admin') {
-        return res.status(403).json({ error: 'Access Denied. Only Admins can forward to reviewers.' });
+      if (userRole !== 'admin' && userRole !== 'admin_assistant') {
+        return res.status(403).json({ error: 'Access Denied. Only Admins or Admin Assistants can forward applications to reviewers.' });
       }
       if (app.status !== 'Pending') {
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
@@ -1281,7 +1284,7 @@ export async function getStaffMembers(req: AuthenticatedRequest, res: Response) 
     const staff = await prisma.member.findMany({
       where: {
         systemRole: {
-          in: ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher']
+          in: ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher']
         }
       },
       select: {
@@ -1312,9 +1315,13 @@ export async function createStaffMember(req: AuthenticatedRequest, res: Response
     return res.status(400).json({ error: 'Missing required fields: fullName, email, systemRole' });
   }
 
-  const validRoles = ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+  const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
   if (!validRoles.includes(systemRole)) {
     return res.status(400).json({ error: 'Invalid system role provided for staff creation.' });
+  }
+
+  if (req.user?.role.toLowerCase() === 'approver' && systemRole !== 'Admin_Assistant') {
+    return res.status(403).json({ error: 'Approvers can only create Admin Assistant accounts.' });
   }
 
   try {
@@ -1375,7 +1382,7 @@ export async function lockStaffMember(req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ error: 'Staff member not found.' });
     }
 
-    const validRoles = ['Admin', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+    const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
     if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
       return res.status(400).json({ error: 'Cannot lock a non-staff member through this endpoint.' });
     }
@@ -1630,23 +1637,27 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
     if (app.mentorshipAssignment.apcReadiness === 'Ready' && !proposedAssessmentDate) {
       return res.status(400).json({ error: 'A proposed assessment date and time is required for an APC candidate.' });
     }
+    const existingReview = await prisma.mentorshipReview.findUnique({
+      where: { applicationId_reviewerId: { applicationId, reviewerId: req.user.id } }
+    });
+    if (existingReview) {
+      return res.status(409).json({ error: 'You have already submitted a reviewer-board recommendation for this mentorship upgrade.' });
+    }
     const proposedDate = proposedAssessmentDate ? new Date(proposedAssessmentDate) : null;
     if (proposedDate && Number.isNaN(proposedDate.getTime())) {
       return res.status(400).json({ error: 'The proposed assessment date is invalid.' });
     }
 
     const review = await prisma.$transaction(async (tx) => {
-      const saved = await tx.mentorshipReview.upsert({
-        where: { applicationId_reviewerId: { applicationId, reviewerId: req.user!.id } },
-        create: {
+      const saved = await tx.mentorshipReview.create({
+        data: {
           applicationId,
           mentorshipAssignmentId: app.mentorshipAssignment!.id,
           reviewerId: req.user!.id,
           recommendation,
           proposedAssessmentDate: proposedDate,
           notes: notes.trim()
-        },
-        update: { recommendation, proposedAssessmentDate: proposedDate, notes: notes.trim(), updatedAt: new Date() }
+        }
       });
       await tx.auditLog.create({
         data: {
@@ -1671,7 +1682,8 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
     return res.status(403).json({ error: 'Only the Head Reviewer can forward a mentorship upgrade to Admin/Approver.' });
   }
   const { applicationId, notes } = req.body;
-  if (!applicationId || !notes?.trim()) return res.status(400).json({ error: 'A forwarding note is required.' });
+  if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
+  const forwardingNotes = notes?.trim() || 'Forwarded by Head Reviewer after completion of the reviewer-board submissions.';
 
   try {
     const app = await prisma.application.findUnique({
@@ -1689,14 +1701,14 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
     await prisma.$transaction([
       prisma.mentorshipAssignment.update({
         where: { id: app.mentorshipAssignment.id },
-        data: { status: 'Pending_Admin_Review', adminNotes: notes.trim() }
+        data: { status: 'Pending_Admin_Review', adminNotes: forwardingNotes }
       }),
       prisma.auditLog.create({
         data: {
           memberId: app.memberId,
           actionByEmail: req.user.email,
           actionType: 'MENTORSHIP_FORWARDED_TO_APPROVER',
-          details: `Head Reviewer forwarded mentorship upgrade to Admin/Approver after ${app.mentorshipReviews.length} board reviews. Notes: ${notes.trim()}`
+          details: `Head Reviewer forwarded mentorship upgrade to Admin/Approver after ${app.mentorshipReviews.length} board reviews. Notes: ${forwardingNotes}`
         }
       })
     ]);
@@ -1959,6 +1971,30 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
         practiceLocation: app.practiceLocation || 'Local',
         status: app.status
       }));
+    }
+
+    if (role === "Admin_Assistant") {
+      const rawRecentAssistant = await prisma.application.findMany({
+        where: { status: { in: ['Pending', 'Correction_Required', 'Under_Review'] } },
+        take: 6,
+        orderBy: { updatedAt: 'desc' },
+        include: { member: { select: { fullName: true } }, category: { select: { categoryName: true } } }
+      });
+      stats.adminAssistant = {
+        pendingApplications: await prisma.application.count({ where: { status: 'Pending' } }),
+        correctionApplications: await prisma.application.count({ where: { status: 'Correction_Required' } }),
+        forwardedApplications: await prisma.application.count({ where: { status: { in: ['Under_Review', 'Pending_Approval', 'Approved', 'Rejected'] } } }),
+        recentApplications: rawRecentAssistant.map(app => ({
+          id: app.id,
+          applicantName: app.member?.fullName || 'Unknown',
+          category: app.category?.categoryName || 'Unknown',
+          practiceLocation: app.practiceLocation || 'Local',
+          status: app.status
+        })),
+        recentActivity: await getEnrichedActivity({
+          actionType: { in: ['APPLICATION_SUBMITTED', 'APPLICATION_RETURNED_FOR_CORRECTION', 'APPLICATION_FORWARDED_TO_REVIEWERS'] }
+        })
+      };
     }
 
     if (role === "Reviewer" || role.toLowerCase() === "head_reviewer") {

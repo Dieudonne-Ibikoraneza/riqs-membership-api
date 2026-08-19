@@ -1,0 +1,90 @@
+# RIQS Membership API Nginx site
+#
+# Install with:
+#   sudo cp riqs-membership-api /etc/nginx/sites-available/riqs-membership-api
+#
+# This site serves the Express API at api.ricos.rwandaiqs.org.
+
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name api.ricos.rwandaiqs.org;
+
+    client_max_body_size 25m;
+
+    # Nginx liveness check.
+    location = /nginx-health {
+        access_log off;
+        default_type text/plain;
+        return 200 "nginx ok\n";
+    }
+
+    # Backend/database readiness check.
+    location = /health {
+        proxy_pass http://127.0.0.1:5000/health;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 10s;
+    }
+
+    # Express REST API.
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_read_timeout 120s;
+    }
+
+    # Socket.IO/WebSocket endpoint.
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:5000/socket.io/;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+
+# NEXT STEPS:
+# 1. Create the DNS A record api.ricos.rwandaiqs.org -> this server's public IP.
+# 2. Copy this file to /etc/nginx/sites-available/riqs-membership-api.
+# 3. Enable it:
+#      sudo ln -s /etc/nginx/sites-available/riqs-membership-api \
+#        /etc/nginx/sites-enabled/riqs-membership-api
+# 4. Validate and reload:
+#      sudo nginx -t
+#      sudo systemctl enable --now nginx
+#      sudo systemctl reload nginx
+# 5. Allow HTTP/HTTPS through the firewall:
+#      sudo ufw allow 'Nginx Full'
+# 6. Install HTTPS:
+#      sudo apt update
+#      sudo apt install -y certbot python3-certbot-nginx
+#      sudo certbot --nginx -d api.ricos.rwandaiqs.org
+#    Select the HTTP-to-HTTPS redirect option.
+# 7. Verify and test renewal:
+#      curl https://api.ricos.rwandaiqs.org/nginx-health
+#      curl https://api.ricos.rwandaiqs.org/health
+#      sudo certbot renew --dry-run

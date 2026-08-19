@@ -60,6 +60,7 @@ enum CompetencyLevel {
 
 enum SystemRole {
   Admin
+  Admin_Assistant
   Head_Reviewer
   Reviewer
   Approver

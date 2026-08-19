@@ -54,7 +54,7 @@ const router = Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getReviewQueue);
+router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getReviewQueue);
 
 /**
  * @openapi
@@ -72,7 +72,7 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_revie
  *       500:
  *         description: Internal server error
  */
-router.get('/stats', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getDashboardStats);
+router.get('/stats', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getDashboardStats);
 
 /**
  * @openapi
@@ -156,7 +156,7 @@ router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin', 
  *       500:
  *         description: Internal server error
  */
-router.get('/applications/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getApplicationDetail);
+router.get('/applications/:id', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getApplicationDetail);
 
 /**
  * @openapi
@@ -254,7 +254,7 @@ router.post('/assign-reviewer', requireAuth, requireRoles(['admin', 'reviewer', 
  *       500:
  *         description: Internal server error
  */
-router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getStatusHistory);
+router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getStatusHistory);
 
 /**
  * @openapi
@@ -278,7 +278,10 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'revie
  *         description: Internal server error
  */
 router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getApcForApplication);
-router.get('/apc', requireAuth, requireRoles(['admin']), getAllApc);
+// Admins and Approvers both manage the APC queue: viewing records, scheduling
+// boards, and recording assessment results. The controller endpoints enforce
+// the same role policy for schedule/grade mutations.
+router.get('/apc', requireAuth, requireRoles(['admin', 'approver']), getAllApc);
 
 /**
  * @openapi
@@ -301,7 +304,7 @@ router.get('/apc', requireAuth, requireRoles(['admin']), getAllApc);
  *       500:
  *         description: Internal server error
  */
-router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getDocumentVersions);
+router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getDocumentVersions);
 
 /**
  * @openapi
@@ -338,7 +341,7 @@ router.get('/document-versions/:applicationId', requireAuth, requireRoles(['admi
  *       403:
  *         description: Not a Reviewer
  */
-router.post('/reviewer-action', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer']), handleReviewerAction);
+router.post('/reviewer-action', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer']), handleReviewerAction);
 
 /**
  * @openapi
@@ -441,7 +444,7 @@ router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'head
  *     tags:
  *       - Administrative Dashboard
  */
-router.get('/staff', requireAuth, requireRoles(['admin']), getStaffMembers);
+router.get('/staff', requireAuth, requireRoles(['admin', 'approver']), getStaffMembers);
 
 /**
  * @openapi
@@ -452,7 +455,7 @@ router.get('/staff', requireAuth, requireRoles(['admin']), getStaffMembers);
  *     tags:
  *       - Administrative Dashboard
  */
-router.post('/staff', requireAuth, requireRoles(['admin']), createStaffMember);
+router.post('/staff', requireAuth, requireRoles(['admin', 'approver']), createStaffMember);
 
 /**
  * @openapi

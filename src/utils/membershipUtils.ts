@@ -91,6 +91,7 @@ export function deriveMemberClass(categoryCode: string): MemberClass {
  */
 export const SYSTEM_ROLE_DESCRIPTIONS: Record<string, string> = {
   Admin:    'Full system access — can approve/reject applications, manage members, and configure the registry.',
+  Admin_Assistant: 'Front-desk application operations — verifies submissions, requests corrections, and forwards applications to the reviewer committee. Cannot approve, reject, or change system settings.',
   Reviewer: 'Can review and make decisions on submitted applications.',
   Teacher:  'Professional member who can sponsor/introduce student applicants.',
   Mentor:   'Professional member assigned to guide Graduate or Technologist applicants.',

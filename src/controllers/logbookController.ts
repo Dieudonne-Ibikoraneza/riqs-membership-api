@@ -150,17 +150,35 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
     const data = requestUpgradeSchema.parse(req.body);
     
     const assignment = await prisma.mentorshipAssignment.findUnique({ where: { applicationId: data.applicationId }});
+    if (!assignment) {
+      return res.status(404).json({ error: "Mentorship assignment not found" });
+    }
     const hasRecommendation = !!assignment?.mentorRecommendationUrl;
 
-    const updated = await prisma.mentorshipAssignment.update({
-      where: { applicationId: data.applicationId },
-      data: {
-        upgradeRequested: true,
-        apcReadiness: data.apcReadiness,
-        // A complete upgrade now goes to the reviewer board before the
-        // Admin/Approver decision stage.
-        status: hasRecommendation ? "Pending_Reviewer_Board" : "Pending_Mentor"
+    // Each membership upgrade is a new reviewer-board cycle. Never carry
+    // reviewer submissions (or the previous forwarding note) from an
+    // earlier Associate/Professional upgrade into the next request.
+    const startsNewReviewCycle = !assignment.upgradeRequested ||
+      !["Pending_Reviewer_Board", "Pending_Admin_Review"].includes(assignment.status || "");
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (startsNewReviewCycle) {
+        await tx.mentorshipReview.deleteMany({
+          where: { mentorshipAssignmentId: assignment.id }
+        });
       }
+
+      return tx.mentorshipAssignment.update({
+        where: { applicationId: data.applicationId },
+        data: {
+          upgradeRequested: true,
+          apcReadiness: data.apcReadiness,
+          ...(startsNewReviewCycle ? { adminNotes: null } : {}),
+          // A complete upgrade now goes to the reviewer board before the
+          // Admin/Approver decision stage.
+          status: hasRecommendation ? "Pending_Reviewer_Board" : "Pending_Mentor"
+        }
+      });
     });
     
     res.json(updated);

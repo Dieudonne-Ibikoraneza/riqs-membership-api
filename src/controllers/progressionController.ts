@@ -5,6 +5,31 @@ import { ApcStatus, MemberClass } from '@prisma/client';
 import { sendRawMail, sendMail } from '../config/mailer';
 import { getCertificateCode } from '../utils/membershipUtils';
 
+/**
+ * Return the next available membership number for a certificate prefix.
+ * Counting rows is unsafe because IDs can have gaps after test data is
+ * removed (for example, 0001 and 0003 would make count + 1 collide with
+ * 0003). Derive the maximum numeric suffix instead.
+ */
+async function nextMembershipId(prefix: string): Promise<string> {
+  const members = await prisma.member.findMany({
+    where: { membershipId: { startsWith: prefix } },
+    select: { membershipId: true }
+  });
+
+  let next = members.reduce((max, member) => {
+    const match = member.membershipId?.match(/-(\d+)$/);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0) + 1;
+
+  let candidate = `${prefix}${String(next).padStart(4, '0')}`;
+  while (await prisma.member.findUnique({ where: { membershipId: candidate } })) {
+    next += 1;
+    candidate = `${prefix}${String(next).padStart(4, '0')}`;
+  }
+  return candidate;
+}
+
 // 1. Fetch APC assessment tracking records
 export async function getAPCStatus(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
@@ -212,11 +237,7 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
 
       // Generate a sequential membership ID under the new cert code
       const currentYear = new Date().getFullYear();
-      const existingCount = await prisma.member.count({
-        where: { membershipId: { startsWith: `RIQS-${currentYear}-${newCertCode}-` } }
-      });
-      const paddedSequence = String(existingCount + 1).padStart(4, '0');
-      newMembershipId = `RIQS-${currentYear}-${newCertCode}-${paddedSequence}`;
+      newMembershipId = await nextMembershipId(`RIQS-${currentYear}-${newCertCode}-`);
     }
 
     let targetCategory: any = null;
@@ -395,11 +416,7 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
 
     // Generate new membership ID
     const currentYear = new Date().getFullYear();
-    const existingCount = await prisma.member.count({
-      where: { membershipId: { startsWith: `RIQS-${currentYear}-${targetCode}-` } }
-    });
-    const paddedSeq = String(existingCount + 1).padStart(4, '0');
-    const newMembershipId = `RIQS-${currentYear}-${targetCode}-${paddedSeq}`;
+    const newMembershipId = await nextMembershipId(`RIQS-${currentYear}-${targetCode}-`);
 
     await prisma.$transaction([
       prisma.member.update({

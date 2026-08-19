@@ -9,7 +9,7 @@ export interface AuthenticatedRequest extends Request {
     id: string;
     email: string;
     /** SystemRole — controls what actions this user can perform in the system.
-     *  Values: Admin | Reviewer | Teacher | Mentor | Standard | Student
+     *  Values: Admin | Admin_Assistant | Reviewer | Head_Reviewer | Approver | Teacher | Mentor | Standard | Student
      */
     role: string;
     /** MemberClass — professional tier based on years of experience.

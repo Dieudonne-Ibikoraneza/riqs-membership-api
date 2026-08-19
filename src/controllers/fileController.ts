@@ -245,7 +245,7 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || ['admin', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
+    const isAuthorized = isOwner || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
