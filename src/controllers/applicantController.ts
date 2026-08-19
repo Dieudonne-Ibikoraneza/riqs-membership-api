@@ -212,6 +212,13 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
   }
 
   try {
+    if (entityType === 'Individual') {
+      const category = await prisma.membershipCategory.findUnique({ where: { id: categoryId } });
+      if (!category || !['GrQST', 'GrQS'].includes(category.categoryCode)) {
+        return res.status(400).json({ error: 'Individual applications are currently accepted only for Graduate QS or Graduate QS Technologist.' });
+      }
+    }
+
     const existingApp = await prisma.application.findFirst({
       where: { memberId: req.user.id }
     });
