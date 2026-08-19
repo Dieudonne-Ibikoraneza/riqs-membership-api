@@ -1,5 +1,5 @@
 import { Request } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 
 const windowMs = 15 * 60 * 1000;
 
@@ -10,7 +10,9 @@ function keyWithEmail(req: Request): string {
 
   // Keep the IP component so one user cannot evade the limit by changing
   // the email address, while the email component limits attacks on one account.
-  return `${req.ip}:${email}`;
+  // Normalize IPv6 addresses to a subnet key so users cannot bypass the
+  // limiter by cycling through addresses within the same IPv6 allocation.
+  return `${ipKeyGenerator(req.ip || 'unknown')}:${email}`;
 }
 
 const limitResponse = {
