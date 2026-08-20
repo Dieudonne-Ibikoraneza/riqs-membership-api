@@ -57,6 +57,10 @@ export async function requestAPC(req: AuthenticatedRequest, res: Response) {
       where: {
         memberId: req.user.id,
         status: 'Approved',
+        mentorshipAssignment: {
+          status: 'Approved',
+          mentorRecommended: true
+        },
         apcAssessments: {
           none: { status: { in: ['Passed', 'Failed', 'No_Show'] } }
         }
@@ -65,7 +69,7 @@ export async function requestAPC(req: AuthenticatedRequest, res: Response) {
     });
 
     if (!app) {
-      return res.status(404).json({ error: 'No approved application found for this member. If you have already completed an APC for your current application, please submit a new application for the next membership tier.' });
+      return res.status(404).json({ error: 'No approved mentorship upgrade is ready for APC. The assigned mentor, reviewer board, and approver must complete their steps first.' });
     }
 
     const existing = await prisma.apcAssessment.findFirst({
@@ -574,15 +578,28 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
                 fullName: true,
                 email: true,
                 phoneNumber: true,
+                dateOfBirth: true,
+                gender: true,
+                nationality: true,
+                nationalIdOrPassport: true,
+                residencyAddress: true,
+                workAddress: true,
                 membershipClass: true,
                 createdAt: true
               }
             },
+            category: {
+              select: { categoryName: true, categoryCode: true, location: true }
+            },
+            educationRecords: true,
+            employmentRecords: true,
             uploadedDocuments: {
-              where: { documentType: 'MentorRecommendation' },
               select: {
                 id: true,
+                documentType: true,
                 fileName: true,
+                fileUrl: true,
+                fileSizeBytes: true,
                 uploadedAt: true
               }
             }
@@ -616,9 +633,19 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
         upgradeRequested: a.upgradeRequested,
         apcReadiness: a.apcReadiness,
         assignmentStatus: a.status,
+        mentorRecommended: a.mentorRecommended,
+        mentorNotes: a.mentorNotes,
         yearOneReportUrl: a.yearOneReportUrl,
         yearTwoReportUrl: a.yearTwoReportUrl,
-        mentorRecommendationUrl: a.mentorRecommendationUrl
+        mentorRecommendationUrl: a.mentorRecommendationUrl,
+        applicant: {
+          ...mentee,
+          category: a.application.category,
+          education: a.application.educationRecords,
+          employment: a.application.employmentRecords,
+          documents: a.application.uploadedDocuments
+        },
+        logbooks: relatedLogs
       };
     });
 

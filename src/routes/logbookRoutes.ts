@@ -24,7 +24,7 @@ router.post("/annual-report", requireAuth, uploadRateLimiter, sanitizeUpload, up
 router.post("/request-upgrade", requireAuth, requestUpgrade);
 
 // Mentor routes
-router.post("/mentor-recommendation", requireAuth, uploadRateLimiter, sanitizeUpload, submitMentorRecommendation);
+router.post("/mentor-recommendation", requireAuth, submitMentorRecommendation);
 
 // Admin routes
 router.put("/upgrade/:applicationId/admin-review", requireAuth, requireRole("Admin"), adminReviewUpgrade);

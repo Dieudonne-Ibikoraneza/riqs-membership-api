@@ -149,11 +149,16 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
   try {
     const data = requestUpgradeSchema.parse(req.body);
     
-    const assignment = await prisma.mentorshipAssignment.findUnique({ where: { applicationId: data.applicationId }});
+    const assignment = await prisma.mentorshipAssignment.findUnique({
+      where: { applicationId: data.applicationId },
+      include: { application: true }
+    });
     if (!assignment) {
       return res.status(404).json({ error: "Mentorship assignment not found" });
     }
-    const hasRecommendation = !!assignment?.mentorRecommendationUrl;
+    if (!req.user || assignment.application.memberId !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized access to mentorship upgrade" });
+    }
 
     // Each membership upgrade is a new reviewer-board cycle. Never carry
     // reviewer submissions (or the previous forwarding note) from an
@@ -173,10 +178,9 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
         data: {
           upgradeRequested: true,
           apcReadiness: data.apcReadiness,
+          mentorRecommended: false,
           ...(startsNewReviewCycle ? { adminNotes: null } : {}),
-          // A complete upgrade now goes to the reviewer board before the
-          // Admin/Approver decision stage.
-          status: hasRecommendation ? "Pending_Reviewer_Board" : "Pending_Mentor"
+          status: "Pending_Mentor"
         }
       });
     });
@@ -190,38 +194,40 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
 
 const submitMentorRecSchema = z.object({
   applicationId: z.string().uuid(),
+  recommend: z.boolean(),
   mentorNotes: z.string().optional()
 });
 
 export const submitMentorRecommendation = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "Recommendation letter is missing." });
-    }
-    
     const data = submitMentorRecSchema.parse(req.body);
-    const file = req.file;
-    const uniqueName = `mentor_rec_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
-    const filePath = `applications/${data.applicationId}/${uniqueName}`;
+    if (!req.user) return res.status(401).json({ error: "Authentication required." });
+    const assignment = await prisma.mentorshipAssignment.findUnique({
+      where: { applicationId: data.applicationId },
+      include: { application: true }
+    });
+    if (!assignment) return res.status(404).json({ error: "Mentorship assignment not found." });
 
-    const { error: storageError } = await supabaseAdmin.storage
-      .from("riqs-membership")
-      .upload(filePath, file.buffer, {
-        contentType: file.mimetype,
-        upsert: true
-      });
-
-    if (storageError) throw storageError;
-
-    const assignment = await prisma.mentorshipAssignment.findUnique({ where: { applicationId: data.applicationId }});
-    const hasRequested = !!assignment?.upgradeRequested;
+    const mentor = await prisma.member.findUnique({
+      where: { id: req.user.id },
+      select: { membershipId: true, systemRole: true }
+    });
+    if (mentor?.systemRole !== "Mentor" || !mentor.membershipId || assignment.mentorRegistrationNumber !== mentor.membershipId) {
+      return res.status(403).json({ error: "Only the assigned mentor can submit this recommendation." });
+    }
+    if (!assignment.upgradeRequested) {
+      return res.status(400).json({ error: "The applicant has not submitted an upgrade request yet." });
+    }
+    if (assignment.status !== "Pending_Mentor") {
+      return res.status(400).json({ error: `This recommendation is not awaiting mentor action. Current status: ${assignment.status}.` });
+    }
 
     const updated = await prisma.mentorshipAssignment.update({
       where: { applicationId: data.applicationId },
       data: {
-        mentorRecommendationUrl: filePath,
-        mentorNotes: data.mentorNotes,
-        status: hasRequested ? "Pending_Reviewer_Board" : "In_Progress"
+        mentorRecommended: data.recommend,
+        mentorNotes: data.mentorNotes?.trim() || null,
+        status: data.recommend ? "Pending_Reviewer_Board" : "Pending_Mentor"
       }
     });
 

@@ -275,6 +275,8 @@ model MentorshipAssignment {
   completedDurationMonths          Int?      @default(0) @map("completed_duration_months")
   yearOneReportUrl                 String?   @map("year_one_report_url")
   yearTwoReportUrl                 String?   @map("year_two_report_url")
+  mentorRecommended                Boolean?  @default(false) @map("mentor_recommended")
+  // Retained for backward compatibility with recommendation letters already uploaded.
   mentorRecommendationUrl          String?   @map("mentor_recommendation_url")
   mentorNotes                      String?   @map("mentor_notes") @db.Text
   adminNotes                       String?   @map("admin_notes") @db.Text
