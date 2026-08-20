@@ -250,48 +250,11 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
 
     else if (action === 'Approve') {
       const currentYear = new Date().getFullYear();
-
-      // Derive the certificate-friendly code (e.g. PrQS, LF, FF)
-      const certCode = getCertificateCode(app.category.categoryCode);
-
-      // To prevent duplicate IDs, find the latest membership ID assigned this year for this certCode
-      const prefix = `RIQS-${currentYear}-${certCode}-`;
-      const latestMember = await prisma.member.findFirst({
-        where: {
-          membershipId: { startsWith: prefix }
-        },
-        orderBy: { membershipId: 'desc' }
-      });
-
-      let sequenceNumber = 1;
-      if (latestMember && latestMember.membershipId) {
-        const parts = latestMember.membershipId.split('-');
-        const lastSeq = parseInt(parts[parts.length - 1], 10);
-        if (!isNaN(lastSeq)) {
-          sequenceNumber = lastSeq + 1;
-        }
-      }
-
-      const paddedSequence = String(sequenceNumber).padStart(4, '0');
-      // DB format uses dashes (safe for unique constraint); certificate displays slashes
-      const generatedMembershipId = `${prefix}${paddedSequence}`;
-
-      // Derive the professional tier (MemberClass) from the category code
-      const memberClass = deriveMemberClass(app.category.categoryCode);
-
-      await prisma.$transaction([
+      const transactionReference = `INV-${applicationId.slice(0, 8)}-${currentYear}`;
+      const txOps: any[] = [
         prisma.application.update({
           where: { id: applicationId },
           data: { status: 'Approved', approvedAt: new Date(), updatedAt: new Date() }
-        }),
-        prisma.member.update({
-          where: { id: app.memberId },
-          data: { 
-            membershipId: generatedMembershipId, 
-            membershipClass: memberClass, 
-            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-            updatedAt: new Date() 
-          }
         }),
         prisma.applicationStatusHistory.create({
           data: {
@@ -299,7 +262,7 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
             changedByEmail: req.user.email,
             oldStatus: oldStatus || 'Draft',
             newStatus: 'Approved',
-            reviewerNotes: 'Application formally approved by Registrar.'
+            reviewerNotes: 'Application approved.'
           }
         }),
         prisma.auditLog.create({
@@ -307,13 +270,28 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
             memberId: app.memberId,
             actionByEmail: req.user.email,
             actionType: 'APPROVE',
-            details: `Approved application. Membership ID: ${generatedMembershipId}`
+            details: 'Application approved. Membership credentials will be issued after first-year fee clearance.'
           }
         })
-      ]);
-
-      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, membershipId: generatedMembershipId, category: app.category.categoryName }); } catch (e) {}
-      return res.status(200).json({ message: 'Application successfully approved.', membershipId: generatedMembershipId });
+      ];
+      if (app.category.firstYearFee && Number(app.category.firstYearFee) > 0) {
+        txOps.push(prisma.financialTransaction.create({
+          data: {
+            memberId: app.memberId,
+            applicationId,
+            amount: app.category.firstYearFee,
+            currency: app.category.currency || 'RWF',
+            txType: 'First_Year_Fee',
+            paymentMethod: 'Bank_Transfer',
+            transactionReference,
+            status: 'Unpaid'
+          }
+        }));
+      }
+      await prisma.$transaction(txOps);
+      const paymentsUrl = 'https://ricos.rwandaiqs.org/dashboard/payments';
+      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, category: app.category.categoryName, paymentsUrl }); } catch (e) {}
+      return res.status(200).json({ message: 'Application approved. First-year fee invoice created; membership credentials will be issued after payment clearance.' });
     }
 
     return res.status(400).json({ error: 'Invalid action. Only Approve, Flag, or Reject allowed.' });
@@ -538,44 +516,13 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
 
     if (action === 'Approve') {
 
-      const currentYear = new Date().getFullYear();
-      const certCode = getCertificateCode(app.category.categoryCode);
-
-      const prefix = `RIQS-${currentYear}-${certCode}-`;
-      const lastMember = await prisma.member.findFirst({
-        where: { membershipId: { startsWith: prefix } },
-        orderBy: { membershipId: 'desc' }
-      });
-
-      let nextNum = 1;
-      if (lastMember && lastMember.membershipId) {
-        const parts = lastMember.membershipId.split('-');
-        const lastPart = parts[parts.length - 1];
-        if (lastPart && !isNaN(parseInt(lastPart, 10))) {
-          nextNum = parseInt(lastPart, 10) + 1;
-        }
-      }
-
-      const generatedMembershipId = `${prefix}${String(nextNum).padStart(4, '0')}`;
-      const memberClass = deriveMemberClass(app.category.categoryCode);
-
       const txOps: any[] = [
         prisma.application.update({ where: { id: applicationId }, data: { status: 'Approved', approvedAt: new Date(), updatedAt: new Date() } }),
-        prisma.member.update({ 
-          where: { id: app.memberId }, 
-          data: { 
-            membershipId: generatedMembershipId, 
-            membershipClass: memberClass, 
-            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-            ...(app.member.systemRole === 'Standard' && (memberClass.includes('Technologist') || memberClass.includes('Professional')) ? { systemRole: 'Mentor' } : {}),
-            updatedAt: new Date() 
-          } 
-        }),
         prisma.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: req.user.email, oldStatus, newStatus: 'Approved', reviewerNotes: notes || 'Approved by Approver.' }
+          data: { applicationId, changedByEmail: req.user.email, oldStatus, newStatus: 'Approved', reviewerNotes: notes || 'Application approved.' }
         }),
         prisma.auditLog.create({
-          data: { memberId: app.memberId, actionByEmail: req.user.email, actionType: 'APPROVE', details: `Final approval. Membership ID: ${generatedMembershipId}` }
+          data: { memberId: app.memberId, actionByEmail: req.user.email, actionType: 'APPROVE', details: 'Application approved. Membership credentials will be issued after first-year fee clearance.' }
         })
       ];
 
@@ -589,7 +536,7 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
               currency: (app.category.currency || 'RWF') as string,
               txType: 'First_Year_Fee',
               paymentMethod: 'Bank_Transfer',
-              transactionReference: `INV-${generatedMembershipId}-${currentYear}`,
+              transactionReference: `INV-${applicationId.slice(0, 8)}-${new Date().getFullYear()}`,
               status: 'Unpaid'
             }
           })
@@ -598,13 +545,14 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
 
       await prisma.$transaction(txOps);
 
-      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, membershipId: generatedMembershipId, category: app.category.categoryName }); } catch (e) {}
+      const paymentsUrl = 'https://ricos.rwandaiqs.org/dashboard/payments';
+      try { await sendMail(app.member.email, "approved", { name: app.member.fullName, category: app.category.categoryName, paymentsUrl }); } catch (e) {}
       
       if (app.category.firstYearFee && Number(app.category.firstYearFee) > 0) {
-        try { await sendMail(app.member.email, "invoice_generated", { name: app.member.fullName, txType: "First Year Membership Fee", amount: app.category.firstYearFee, currency: app.category.currency || 'RWF', reference: `INV-${generatedMembershipId}-${currentYear}` }); } catch (e) {}
+        try { await sendMail(app.member.email, "invoice_generated", { name: app.member.fullName, txType: "First Year Membership Fee", amount: app.category.firstYearFee, currency: app.category.currency || 'RWF', reference: `INV-${applicationId.slice(0, 8)}-${new Date().getFullYear()}`, paymentsUrl }); } catch (e) {}
       }
       
-      return res.status(200).json({ message: 'Application approved. Membership ID issued.', membershipId: generatedMembershipId });
+      return res.status(200).json({ message: 'Application approved. The first-year fee invoice is ready; membership credentials will be issued after payment clearance.' });
 
     } else if (action === 'ReturnForCorrection') {
       if (!notes?.trim()) {

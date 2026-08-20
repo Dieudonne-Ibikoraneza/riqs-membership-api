@@ -88,22 +88,26 @@ const templates = [
     id: "approved",
     name: "Application Approved",
     category: "Applications",
-    subject: "CONGRATULATIONS! Your RIQS Membership is Approved",
-    description: "Sent when an application is fully approved.",
+    subject: "RIQS Application Approved - First-Year Fee Required",
+    description: "Sent when an application is approved and the first-year fee is required before membership credentials are issued.",
     body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-  <h2 style="color: #16a34a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Congratulations! Membership Approved</h2>
+  <h2 style="color: #16a34a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Application Approved</h2>
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are pleased to inform you that your application for admission to the **{{category}}** category of the Rwanda Institute of Quantity Surveyors (RIQS) has been officially approved.</p>
-  <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 18px; margin: 20px 0; border-radius: 6px;">
-    <p style="margin: 0; font-size: 13px; font-weight: 500; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">Your Assigned Professional RIQS ID:</p>
-    <p style="margin: 8px 0 0 0; font-size: 20px; font-weight: 700; color: #14532d; letter-spacing: 1px;">{{membershipId}}</p>
-  </div>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your portal profile has transitioned to Phase B (Locked Registry Status). You can now log in to generate invoices for your annual subscription fees, download your e-certificate, or manage APC progressions.</p>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Welcome to the institute!</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are pleased to inform you that your application for the <strong>{{category}}</strong> category of the Rwanda Institute of Quantity Surveyors (RIQS) has been approved.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">To complete your registration, please pay and submit proof of payment for the first-year membership fee through the Members Portal. Your membership credentials will be issued after the payment is verified.</p>
+  <p style="margin: 24px 0; text-align: center;"><a href="{{paymentsUrl}}" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: 600;">Proceed to Payments</a></p>
   <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
     RIQS Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
   </p>
 </div>`
+  },
+  {
+    id: "membershipActivated",
+    name: "Membership Credentials Issued",
+    category: "Applications",
+    subject: "RIQS Membership Credentials Issued",
+    description: "Sent after the first-year membership fee is cleared and credentials are issued.",
+    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">Your first-year membership fee has been verified and your RIQS membership credentials have now been issued.</p>\n<p class="mb-4"><strong>Membership ID:</strong> {{membershipId}}<br/><strong>Category:</strong> {{category}}</p>\n<p class="mb-4">Please log in to the <strong>RIQS Members Portal</strong> to access your membership certificate and other available services.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
   },
   {
     id: "rejected",

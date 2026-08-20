@@ -2,6 +2,8 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
 import { TransactionType, PaymentMethod, TransactionStatus } from '@prisma/client';
+import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils';
+import { sendMail } from '../config/mailer';
 
 // 1. Submit a payment transaction record (manual receipt reference)
 export async function submitPayment(req: AuthenticatedRequest, res: Response) {
@@ -112,11 +114,33 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
 
   try {
     const existingTransaction = await prisma.financialTransaction.findUnique({
-      where: { id: transactionId }
+      where: { id: transactionId },
+      include: {
+        member: true,
+        application: { include: { category: true } }
+      }
     });
 
     if (!existingTransaction || existingTransaction.status !== 'Pending_Verification') {
       return res.status(400).json({ error: 'Transaction not found or already verified.' });
+    }
+
+    const isFirstYearFee = existingTransaction.txType === 'First_Year_Fee';
+    let generatedMembershipId: string | null = null;
+    let generatedMembershipClass: string | null = null;
+
+    if (action === 'Cleared' && isFirstYearFee && existingTransaction.application?.category && !existingTransaction.member.membershipId) {
+      const currentYear = new Date().getFullYear();
+      const certCode = getCertificateCode(existingTransaction.application.category.categoryCode);
+      const prefix = `RIQS-${currentYear}-${certCode}-`;
+      const lastMember = await prisma.member.findFirst({
+        where: { membershipId: { startsWith: prefix } },
+        orderBy: { membershipId: 'desc' }
+      });
+      const lastNumber = lastMember?.membershipId?.split('-').pop();
+      const nextNumber = lastNumber && !isNaN(Number(lastNumber)) ? Number(lastNumber) + 1 : 1;
+      generatedMembershipId = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+      generatedMembershipClass = deriveMemberClass(existingTransaction.application.category.categoryCode);
     }
 
     const transactionQueries: any[] = [
@@ -155,9 +179,40 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       );
     }
 
+    if (generatedMembershipId && generatedMembershipClass) {
+      transactionQueries.push(
+        prisma.member.update({
+          where: { id: existingTransaction.memberId },
+          data: {
+            membershipId: generatedMembershipId,
+            membershipClass: generatedMembershipClass as any,
+            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
+            ...(existingTransaction.member.systemRole === 'Standard' && (generatedMembershipClass.includes('Technologist') || generatedMembershipClass.includes('Professional'))
+              ? { systemRole: 'Mentor' }
+              : {}),
+            updatedAt: new Date()
+          }
+        })
+      );
+    }
+
     const [updatedTransaction] = await prisma.$transaction(transactionQueries);
 
-    return res.status(200).json({ message: `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
+    if (generatedMembershipId) {
+      try {
+        await sendMail(existingTransaction.member.email, 'membershipActivated', {
+          name: existingTransaction.member.fullName,
+          membershipId: generatedMembershipId,
+          category: existingTransaction.application?.category?.categoryName || ''
+        });
+      } catch (mailErr: any) {
+        console.warn('[Verify Payment] Membership activation email failed:', mailErr.message);
+      }
+    }
+
+    return res.status(200).json({ message: generatedMembershipId
+      ? 'Payment cleared and membership credentials issued.'
+      : `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
   } catch (error: any) {
     console.error('[Verify Payment] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error verifying payment.' });
