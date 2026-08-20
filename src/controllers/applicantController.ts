@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
 import { PracticeLocation, EntityType } from '@prisma/client';
+import { sendMail } from '../config/mailer';
 
 // 1. Fetch complete application packet (including educations, documents, mentorships, and shareholders)
 export async function getApplication(req: AuthenticatedRequest, res: Response) {
@@ -201,6 +202,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     firmCountryOfIncorporation,
     firmPrincipalPlaceOfBusiness,
     agreedToMentorshipIntent,
+    hasNoEmployment,
     agreedToDeclarations,
     competenceSummary,
     studentAssociation,
@@ -269,6 +271,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
             firmCountryOfIncorporation,
             firmPrincipalPlaceOfBusiness,
             agreedToMentorshipIntent: agreedToMentorshipIntent ?? existingApp.agreedToMentorshipIntent,
+            hasNoEmployment: hasNoEmployment ?? existingApp.hasNoEmployment,
             agreedToDeclarations: agreedToDeclarations ?? existingApp.agreedToDeclarations,
             competenceSummary: competenceSummary ?? existingApp.competenceSummary,
             currentStep: currentStep !== undefined ? currentStep : existingApp.currentStep,
@@ -334,6 +337,7 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
         firmCountryOfIncorporation,
         firmPrincipalPlaceOfBusiness,
         agreedToMentorshipIntent: agreedToMentorshipIntent || false,
+        hasNoEmployment: hasNoEmployment || false,
         agreedToDeclarations: agreedToDeclarations || false,
         competenceSummary: competenceSummary || null,
         currentStep: currentStep || 0,
@@ -457,6 +461,9 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
     return res.status(400).json({ error: 'Missing applicationId in submission request.' });
   }
 
+  const applicantUserId = req.user.id;
+  const applicantUserEmail = req.user.email;
+
   try {
     const existingApp = await prisma.application.findFirst({
       where: {
@@ -464,7 +471,10 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
         memberId: req.user.id,
         status: { in: ['Draft', 'Correction_Required'] }
       },
-      include: { category: true }
+      include: {
+        category: true,
+        member: { select: { fullName: true, email: true } }
+      }
     });
 
     if (!existingApp) {
@@ -570,26 +580,69 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       }
     }
 
-    const updatedApp = await prisma.application.update({
-      where: { id: applicationId },
-      data: {
-        status: 'Pending',
-        submittedAt: new Date(),
-        updatedAt: new Date()
+    const wasReturnedForCorrection = existingApp.status === 'Correction_Required';
+    const submissionStatus = wasReturnedForCorrection ? 'Under_Review' : 'Pending';
+    const submissionTime = new Date();
+
+    const updatedApp = await prisma.$transaction(async (tx) => {
+      const updated = await tx.application.update({
+        where: { id: applicationId },
+        data: {
+          // Fresh applications go to the front-desk queue. Corrected
+          // applications return directly to the reviewer committee.
+          status: submissionStatus,
+          submittedAt: submissionTime,
+          updatedAt: submissionTime
+        }
+      });
+
+      if (wasReturnedForCorrection) {
+        // A correction starts a new review round; previous reviewer notes
+        // must not count toward the new assessment.
+        await tx.applicationReview.deleteMany({ where: { applicationId } });
       }
+
+      await tx.applicationStatusHistory.create({
+        data: {
+          applicationId,
+          changedByEmail: applicantUserEmail,
+          oldStatus: existingApp.status,
+          newStatus: submissionStatus,
+          reviewerNotes: null
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          memberId: applicantUserId,
+          actionByEmail: applicantUserEmail,
+          actionType: wasReturnedForCorrection
+            ? 'APPLICATION_RESUBMITTED_TO_REVIEWERS'
+            : 'APPLICATION_SUBMITTED',
+          details: wasReturnedForCorrection
+            ? `Corrected application resubmitted directly to the reviewer committee for category: ${existingApp.category?.categoryName || 'Unknown'}.`
+            : `Application submitted for category: ${existingApp.category?.categoryName || 'Unknown'}.`
+        }
+      });
+
+      return updated;
     });
 
-    await prisma.auditLog.create({
-      data: {
-        memberId: req.user.id,
-        actionByEmail: req.user.email,
-        actionType: 'APPLICATION_SUBMITTED',
-        details: `Application submitted for category: ${existingApp.category?.categoryName || 'Unknown'}.`
-      }
-    });
+    const notificationTemplate = wasReturnedForCorrection
+      ? 'applicationResubmitted'
+      : 'applicationSubmitted';
+      try {
+        await sendMail(applicantUserEmail, notificationTemplate, {
+        name: existingApp.member?.fullName || applicantUserEmail,
+      });
+    } catch (mailErr: any) {
+      console.warn(`[Submit Application] ${notificationTemplate} email failed:`, mailErr.message);
+    }
 
     return res.status(200).json({
-      message: 'Application locked and successfully submitted to review queue.',
+      message: wasReturnedForCorrection
+        ? 'Corrected application resubmitted directly to the reviewer committee.'
+        : 'Application locked and successfully submitted to review queue.',
       application: updatedApp
     });
   } catch (error: any) {

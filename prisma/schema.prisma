@@ -184,6 +184,7 @@ model Application {
   firmPrincipalPlaceOfBusiness  String?            @map("firm_principal_place_of_business") @db.VarChar(255)
   agreedToMentorshipIntent      Boolean?           @default(false) @map("agreed_to_mentorship_intent")
   agreedToDeclarations          Boolean?           @default(false) @map("agreed_to_declarations")
+  hasNoEmployment               Boolean?           @default(false) @map("has_no_employment")
   competenceSummary             Json?              @map("competence_summary")
   status                        ApplicationStatus? @default(Draft)
   assignedReviewerId            String?            @map("assigned_reviewer_id") @db.Uuid
@@ -398,6 +399,8 @@ model ApplicationReview {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   applicationId String    @map("application_id") @db.Uuid
   reviewerId    String    @map("reviewer_id") @db.Uuid
+  reviewRound   Int       @default(1) @map("review_round")
+  complianceStatus String? @map("compliance_status") @db.VarChar(20)
   notes         String?   @db.Text
   createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamptz
@@ -405,7 +408,7 @@ model ApplicationReview {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   reviewer    Member      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
 
-  @@unique([applicationId, reviewerId])
+  @@unique([applicationId, reviewerId, reviewRound])
   @@map("application_reviews")
 }
 

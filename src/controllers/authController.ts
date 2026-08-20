@@ -91,8 +91,6 @@ export async function verifyOtp(req: Request, res: Response) {
       return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
     }
 
-    const wasUnverified = !member.isEmailVerified;
-
     // Mark as verified and clear OTP
     const updatedMember = await prisma.member.update({
       where: { email },
@@ -102,15 +100,6 @@ export async function verifyOtp(req: Request, res: Response) {
         otpExpiresAt: null
       }
     });
-
-    // Send the welcome email ONLY if this was their first time verifying
-    if (wasUnverified) {
-      try {
-        await sendMail(email, "welcome", { name: updatedMember.fullName });
-      } catch (mailErr: any) {
-        console.warn('[Auth Controller Verify] Welcome email failed to send:', mailErr.message);
-      }
-    }
 
     // Create JWT — role = systemRole (what actions they can do), membershipClass = professional tier
     const token = jwt.sign(

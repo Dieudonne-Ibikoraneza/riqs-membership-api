@@ -333,7 +333,7 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
     return res.status(403).json({ error: 'Access Denied. Only Reviewers, Head Reviewers, Admins, or Admin Assistants can perform first-stage application actions.' });
   }
 
-  const { applicationId, action, notes } = req.body;
+  const { applicationId, action, notes, complianceStatus } = req.body;
   if (!applicationId || !action) {
     return res.status(400).json({ error: 'Missing mandatory parameters: applicationId and action.' });
   }
@@ -354,14 +354,23 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot add review. Application is in "${app.status}" status.` });
       }
+      if (!['Compliant', 'Non-compliant'].includes(complianceStatus)) {
+        return res.status(400).json({ error: 'Select whether the application is Compliant or Non-compliant.' });
+      }
+      if (complianceStatus === 'Non-compliant' && !notes?.trim()) {
+        return res.status(400).json({ error: 'Review notes are required when the application is Non-compliant.' });
+      }
 
+      const approverReturnCount = await prisma.applicationStatusHistory.count({
+        where: { applicationId, oldStatus: 'Pending_Approval', newStatus: 'Under_Review' }
+      });
+      const reviewRound = approverReturnCount + 1;
       const existingReview = await prisma.applicationReview.findUnique({
-        where: {
-          applicationId_reviewerId: {
-            applicationId,
-            reviewerId: req.user.id
-          }
-        }
+        where: { applicationId_reviewerId_reviewRound: {
+          applicationId,
+          reviewerId: req.user.id,
+          reviewRound
+        } }
       });
       if (existingReview) {
         return res.status(409).json({ error: 'You have already submitted a review note for this application.' });
@@ -369,19 +378,19 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       
       await prisma.$transaction([
         prisma.applicationReview.create({
-          data: { applicationId, reviewerId: req.user.id, notes }
+          data: { applicationId, reviewerId: req.user.id, reviewRound, complianceStatus, notes: notes?.trim() || null }
         }),
         prisma.auditLog.create({
           data: {
             memberId: app.memberId,
             actionByEmail: req.user.email,
             actionType: 'REVIEW_NOTE_SUBMITTED',
-            details: `${req.user.role} submitted a review note for application ${applicationId}.`
+            details: `${req.user.role} submitted a ${complianceStatus} review for application ${applicationId}.`
           }
         })
       ]);
 
-      return res.status(200).json({ message: 'Review notes submitted successfully.' });
+      return res.status(200).json({ message: 'Review submitted successfully.' });
 
     } else if (action === 'ReturnForCorrection') {
       if (userRole !== 'head_reviewer' && userRole !== 'admin' && userRole !== 'admin_assistant') {
@@ -412,15 +421,16 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       if (userRole !== 'head_reviewer') {
         return res.status(403).json({ error: 'Only Head Reviewers can forward an application to the Approver.' });
       }
-      if (!notes?.trim()) {
-        return res.status(400).json({ error: 'A forwarding note is required before sending an application to the Approver.' });
-      }
       if (app.status !== 'Under_Review') {
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
       }
       
       // Check for at least 3 reviews
-      const reviewCount = await prisma.applicationReview.count({ where: { applicationId } });
+      const approverReturnCount = await prisma.applicationStatusHistory.count({
+        where: { applicationId, oldStatus: 'Pending_Approval', newStatus: 'Under_Review' }
+      });
+      const reviewRound = approverReturnCount + 1;
+      const reviewCount = await prisma.applicationReview.count({ where: { applicationId, reviewRound } });
       if (reviewCount < 3) {
          return res.status(400).json({ error: 'At least 3 reviews are required before forwarding to the Approver.' });
       }
@@ -431,11 +441,11 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       await prisma.$transaction(async (tx) => {
         await tx.application.update({ where: { id: applicationId }, data: { status: 'Pending_Approval', updatedAt: new Date() } });
         await tx.applicationStatusHistory.create({
-          data: { applicationId, changedByEmail: userEmail, oldStatus: 'Under_Review', newStatus: 'Pending_Approval', reviewerNotes: notes }
+          data: { applicationId, changedByEmail: userEmail, oldStatus: 'Under_Review', newStatus: 'Pending_Approval', reviewerNotes: notes?.trim() || null }
         });
         await tx.applicationReview.upsert({
-          where: { applicationId_reviewerId: { applicationId, reviewerId: userId } },
-          create: { applicationId, reviewerId: userId, notes },
+          where: { applicationId_reviewerId_reviewRound: { applicationId, reviewerId: userId, reviewRound } },
+          create: { applicationId, reviewerId: userId, reviewRound, notes, complianceStatus: 'Compliant' },
           update: { notes, updatedAt: new Date() }
         });
         await tx.auditLog.create({
@@ -443,7 +453,7 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
             memberId: app.memberId,
             actionByEmail: userEmail,
             actionType: 'APPLICATION_FORWARDED_TO_APPROVER',
-            details: `${req.user!.role} forwarded application ${applicationId} to the Approver after ${reviewCount} reviews. Notes: ${notes}`
+            details: `${req.user!.role} forwarded application ${applicationId} to the Approver after ${reviewCount} reviews.${notes?.trim() ? ` Notes: ${notes.trim()}` : ''}`
           }
         });
       });
@@ -472,6 +482,13 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
           }
         })
       ]);
+      try {
+        await sendMail(app.member.email, 'applicationForwardedToCommittee', {
+          name: app.member.fullName,
+        });
+      } catch (mailErr: any) {
+        console.warn('[Reviewer Action] Committee forwarding email failed:', mailErr.message);
+      }
       return res.status(200).json({ message: 'Application forwarded to Review Team.' });
     }
 
@@ -597,14 +614,16 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
       await prisma.$transaction([
         prisma.application.update({
           where: { id: applicationId },
-          data: { status: 'Correction_Required', updatedAt: new Date() }
+          // Approval-stage corrections go back to the reviewer committee.
+          // Reviewers decide whether a correction must be requested from the applicant.
+          data: { status: 'Under_Review', updatedAt: new Date() }
         }),
         prisma.applicationStatusHistory.create({
           data: {
             applicationId,
             changedByEmail: req.user.email,
             oldStatus,
-            newStatus: 'Correction_Required',
+            newStatus: 'Under_Review',
             reviewerNotes: notes
           }
         }),
@@ -612,14 +631,13 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
           data: {
             memberId: app.memberId,
             actionByEmail: req.user.email,
-            actionType: 'APPLICATION_RETURNED_FOR_CORRECTION',
-            details: `${req.user.role} returned application ${applicationId} for correction at the approval stage. Notes: ${notes}`
+            actionType: 'APPLICATION_RETURNED_TO_REVIEWERS',
+            details: `${req.user.role} returned application ${applicationId} to the reviewer committee for reassessment. Notes: ${notes}`
           }
         })
       ]);
 
-      try { await sendMail(app.member.email, 'correctionRequired', { name: app.member.fullName, reviewerNotes: notes }); } catch (e) {}
-      return res.status(200).json({ message: 'Application returned to the applicant for correction.' });
+      return res.status(200).json({ message: 'Application returned to the reviewer committee for reassessment.' });
 
     } else if (action === 'Reject') {
       if (!notes) return res.status(400).json({ error: 'Rejection notes are mandatory.' });
@@ -773,6 +791,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       shareholders: app.firmShareholders,
       mentorship: app.mentorshipAssignment,
       documents: mappedDocuments,
+      categoryDocuments: categoryDocsWithUid,
       studentAssociation: app.studentAssociation,
       logbookEntries: app.logbookEntries,
       statusHistory: app.statusHistory,
@@ -1974,6 +1993,38 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
     }
 
     if (role === "Admin_Assistant") {
+      const currentYear = new Date().getFullYear();
+      const startOfYear = new Date(currentYear, 0, 1);
+      const assistantApps = await prisma.application.findMany({
+        where: { createdAt: { gte: startOfYear } },
+        select: { createdAt: true }
+      });
+      const assistantForwards = await prisma.auditLog.findMany({
+        where: {
+          actionType: 'APPLICATION_FORWARDED_TO_REVIEWERS',
+          createdAt: { gte: startOfYear }
+        },
+        select: { createdAt: true }
+      });
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const monthlyData: Record<string, { month: string, applications: number, approved: number }> = {};
+
+      for (let i = 0; i < 12; i++) {
+        monthlyData[`${currentYear}-${i}`] = { month: monthNames[i], applications: 0, approved: 0 };
+      }
+
+      assistantApps.forEach(app => {
+        if (!app.createdAt) return;
+        const key = `${app.createdAt.getFullYear()}-${app.createdAt.getMonth()}`;
+        if (monthlyData[key]) monthlyData[key].applications++;
+      });
+
+      assistantForwards.forEach(forward => {
+        if (!forward.createdAt) return;
+        const key = `${forward.createdAt.getFullYear()}-${forward.createdAt.getMonth()}`;
+        if (monthlyData[key]) monthlyData[key].approved++;
+      });
+
       const rawRecentAssistant = await prisma.application.findMany({
         where: { status: { in: ['Pending', 'Correction_Required', 'Under_Review'] } },
         take: 6,
@@ -1984,6 +2035,7 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
         pendingApplications: await prisma.application.count({ where: { status: 'Pending' } }),
         correctionApplications: await prisma.application.count({ where: { status: 'Correction_Required' } }),
         forwardedApplications: await prisma.application.count({ where: { status: { in: ['Under_Review', 'Pending_Approval', 'Approved', 'Rejected'] } } }),
+        applicationsVsApprovals: Object.values(monthlyData),
         recentApplications: rawRecentAssistant.map(app => ({
           id: app.id,
           applicantName: app.member?.fullName || 'Unknown',

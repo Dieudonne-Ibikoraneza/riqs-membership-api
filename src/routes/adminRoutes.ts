@@ -163,7 +163,7 @@ router.get('/applications/:id', requireAuth, requireRoles(['admin', 'admin_assis
  * /api/v1/admin/decision:
  *   post:
  *     summary: Commit Reviewer Decision (Admin/Reviewer only)
- *     description: Commit reviewer outcome (Approve, Flag, Reject). Approving generates dynamic sequence ID "RIQS-[YEAR]-[CODE]-[SEQ]" and upgrades member roll class under single transaction, sending automated welcome template emails.
+ *     description: Commit reviewer outcome (Approve, Flag, Reject). Approving generates dynamic sequence ID "RIQS-[YEAR]-[CODE]-[SEQ]" and upgrades member roll class under a single transaction, sending the application decision email.
  *     tags:
  *       - Administrative Dashboard
  *     requestBody:

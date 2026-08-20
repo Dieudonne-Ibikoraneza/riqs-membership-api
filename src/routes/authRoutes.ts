@@ -56,7 +56,7 @@ router.post('/register', registrationRateLimiter, register);
  * /api/v1/auth/verify-otp:
  *   post:
  *     summary: Verify email using OTP
- *     description: Verifies a member's email using the 6-digit OTP sent during registration or login. Returns the JWT token upon success. For first-time verification, it also marks the email as verified and sends a welcome email.
+ *     description: Verifies a member's email using the 6-digit OTP sent during registration or login and returns the JWT token upon success.
  *     tags:
  *       - Authentication
  *     security: []

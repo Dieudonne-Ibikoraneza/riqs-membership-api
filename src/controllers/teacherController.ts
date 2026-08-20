@@ -94,7 +94,7 @@ export async function registerStudent(req: AuthenticatedRequest, res: Response) 
         subject: 'RIQS Student Portal Access',
         html: `
           <div style="font-family: sans-serif; color: #333;">
-            <h2>Welcome to RIQS Student Portal</h2>
+            <h2>RIQS Student Portal Access</h2>
             <p>Dear ${fullName},</p>
             <p>Your teacher has created an account for you on the RIQS portal to initiate your student application.</p>
             <p>Your login details are:</p>
@@ -187,12 +187,6 @@ export async function submitStudentApplication(req: AuthenticatedRequest, res: R
         }
       })
     ]);
-
-    try {
-      await sendMail(app.member.email, "welcome", { name: app.member.fullName });
-    } catch (e) {
-      console.error('Failed to send confirmation email', e);
-    }
 
     return res.status(200).json({ message: 'Student application submitted and forwarded to Approver.' });
   } catch (error: any) {

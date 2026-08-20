@@ -5,14 +5,6 @@ const prisma = new PrismaClient();
 
 const templates = [
   {
-    id: "welcome",
-    name: "Welcome to RIQS",
-    category: "Onboarding",
-    subject: "Welcome to the Rwanda Institute of Quantity Surveyors",
-    description: "Sent to newly approved members after their application is accepted.",
-    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">On behalf of the Council and entire membership of the <strong>Rwanda Institute of Quantity Surveyors (RIQS)</strong>, we are delighted to officially welcome you as a registered member of the Institute.</p>\n<p class="mb-4">Your application has been <strong>reviewed and approved</strong>. You are now entitled to all privileges associated with your membership category, including:</p>\n<ul class="list-disc pl-5 mb-4 space-y-2">\n  <li>Access to your <strong>digital Annual Practicing License</strong> and verifiable certificate</li>\n  <li>Participation in <strong>Continuing Professional Development (CPD)</strong> events and workshops</li>\n  <li>Listing in the <strong>RIQS public members directory</strong></li>\n  <li>Eligibility to bid on <strong>government and private sector QS tenders</strong></li>\n  <li>Access to the <strong>mentorship programme</strong> for career advancement</li>\n</ul>\n<p class="mb-4">Please log in to the <strong>RIQS Members Portal</strong> to download your certificate, update your profile, and explore upcoming CPD opportunities.</p>\n<p class="mb-4">We look forward to your active participation in advancing the Quantity Surveying profession in Rwanda.</p>\n<p class="mb-4">Warm regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
-  },
-  {
     id: "otpVerification",
     name: "OTP Email Verification",
     category: "Auth",
@@ -69,15 +61,39 @@ const templates = [
 </div>`
   },
   {
+    id: "applicationSubmitted",
+    name: "Application Submitted",
+    category: "Applications",
+    subject: "RIQS Application Received",
+    description: "Sent after an applicant submits an application for the first time.",
+    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">Your RIQS membership application has been successfully submitted and is now in the Secretariat review queue.</p>\n<p class="mb-4">Our team will review your application and notify you when it is forwarded to the Assessment Committee or if additional information is required.</p>\n<p class="mb-4">You can track your application status at any time from the <strong>RIQS Members Portal</strong>.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
+  },
+  {
+    id: "applicationResubmitted",
+    name: "Application Resubmitted",
+    category: "Applications",
+    subject: "RIQS Corrected Application Sent for Assessment",
+    description: "Sent after an applicant resubmits an application returned for correction.",
+    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">Your corrected RIQS membership application has been successfully resubmitted.</p>\n<p class="mb-4">The updated application has been sent directly to the Assessment Committee for technical assessment. We will notify you when the next decision or action is available.</p>\n<p class="mb-4">You can track your application status from the <strong>RIQS Members Portal</strong>.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
+  },
+  {
+    id: "applicationForwardedToCommittee",
+    name: "Application Forwarded to Assessment Committee",
+    category: "Applications",
+    subject: "RIQS Application Forwarded for Assessment",
+    description: "Sent when the Secretariat forwards an application to the Assessment Committee.",
+    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">Your RIQS membership application has been reviewed by the Secretariat and forwarded to the Assessment Committee for technical assessment.</p>\n<p class="mb-4">The committee will assess your application and supporting documents. We will notify you when the next decision or action is available.</p>\n<p class="mb-4">You can continue tracking your application from the <strong>RIQS Members Portal</strong>.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
+  },
+  {
     id: "approved",
     name: "Application Approved",
     category: "Applications",
     subject: "CONGRATULATIONS! Your RIQS Membership is Approved",
-    description: "Sent when an application is fully approved by the board.",
+    description: "Sent when an application is fully approved.",
     body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
   <h2 style="color: #16a34a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Congratulations! Membership Approved</h2>
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are pleased to inform you that the board has officially approved your application for admission to the **{{category}}** category of the Rwanda Institute of Quantity Surveyors (RIQS).</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are pleased to inform you that your application for admission to the **{{category}}** category of the Rwanda Institute of Quantity Surveyors (RIQS) has been officially approved.</p>
   <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 18px; margin: 20px 0; border-radius: 6px;">
     <p style="margin: 0; font-size: 13px; font-weight: 500; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">Your Assigned Professional RIQS ID:</p>
     <p style="margin: 8px 0 0 0; font-size: 20px; font-weight: 700; color: #14532d; letter-spacing: 1px;">{{membershipId}}</p>
@@ -85,7 +101,7 @@ const templates = [
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your portal profile has transitioned to Phase B (Locked Registry Status). You can now log in to generate invoices for your annual subscription fees, download your e-certificate, or manage APC progressions.</p>
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Welcome to the institute!</p>
   <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-    Office of the Board, Rwanda Institute of Quantity Surveyors (RIQS).
+    RIQS Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
   </p>
 </div>`
   },
@@ -98,14 +114,14 @@ const templates = [
     body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
   <h2 style="color: #dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Application Status Update</h2>
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are writing to notify you that after a formal review by the administrative board, your application for RIQS membership has been declined.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We are writing to notify you that after formal administrative review, your application for RIQS membership has been declined.</p>
   <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 18px; margin: 20px 0; border-radius: 6px;">
     <h4 style="margin: 0 0 10px 0; color: #991b1b; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Rejection Rationale:</h4>
     <p style="margin: 0; font-size: 14px; color: #7f1d1d; line-height: 1.6; white-space: pre-line;">{{reason}}</p>
   </div>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">If you have any questions or wish to request an appeal, please reach out to the board secretary office directly.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">If you have any questions or wish to request an appeal, please reach out to the RIQS Secretariat directly.</p>
   <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
-    Board of Quantity Surveyors, Rwanda.
+    RIQS Secretariat, Rwanda.
   </p>
 </div>`
   },
@@ -455,6 +471,8 @@ async function main() {
   console.log(`Checked/Seeded ${documentTypeBuckets.length} document type buckets.`);
 
 
+
+  await prisma.emailTemplate.deleteMany({ where: { id: 'welcome' } });
 
   for (const t of templates) {
     await prisma.emailTemplate.upsert({

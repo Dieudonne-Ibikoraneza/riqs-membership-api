@@ -112,7 +112,7 @@ router.get('/history', requireAuth, getPaymentHistory);
  *       500:
  *         description: Internal server error
  */
-router.post('/verify', requireAuth, requireRoles(['admin', 'finance']), verifyPayment);
+router.post('/verify', requireAuth, requireRoles(['admin', 'admin_assistant', 'finance']), verifyPayment);
 
 /**
  * @openapi
@@ -147,6 +147,6 @@ router.post('/verify', requireAuth, requireRoles(['admin', 'finance']), verifyPa
  *       500:
  *         description: Internal server error
  */
-router.get('/queue', requireAuth, requireRoles(['admin', 'finance']), getPendingPayments);
+router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'finance']), getPendingPayments);
 
 export default router;
