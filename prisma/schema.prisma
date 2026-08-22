@@ -165,8 +165,37 @@ model Member {
   ticketReplies         TicketReply[]
   applicationReviews    ApplicationReview[]
   mentorshipReviews     MentorshipReview[]
+  educationRecords      EducationRecord[]
+  employmentRecords     EmploymentRecord[]
+  profileEditRequests   ProfileEditRequest[]
 
   @@map("members")
+}
+
+// A member-submitted request to change locked/compliance profile fields
+// (name, addresses, photo) or add new education/employment history after
+// their original application has already been approved. Nothing is applied
+// to the Member record until an Admin/Admin Assistant approves it.
+model ProfileEditRequest {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId                  String    @map("member_id") @db.Uuid
+  status                    String    @default("Pending") @db.VarChar(20)
+  proposedFullName          String?   @map("proposed_full_name") @db.VarChar(255)
+  proposedResidencyAddress  Json?     @map("proposed_residency_address")
+  proposedWorkAddress       Json?     @map("proposed_work_address")
+  proposedProfilePhotoUrl   String?   @map("proposed_profile_photo_url")
+  proposedEducation         Json?     @map("proposed_education")
+  proposedEmployment        Json?     @map("proposed_employment")
+  memberNotes               String?   @map("member_notes") @db.Text
+  reviewNotes                String?  @map("review_notes") @db.Text
+  reviewedByEmail           String?   @map("reviewed_by_email") @db.VarChar(255)
+  reviewedAt                DateTime? @map("reviewed_at") @db.Timestamptz
+  createdAt                 DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("profile_edit_requests")
 }
 
 model Application {
@@ -216,22 +245,26 @@ model Application {
 
 model EducationRecord {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId     String    @map("application_id") @db.Uuid
+  applicationId     String?   @map("application_id") @db.Uuid
+  memberId          String?   @map("member_id") @db.Uuid
   institution       String    @db.VarChar(255)
   qualificationType String    @map("qualification_type") @db.VarChar(100)
   fieldOfStudy      String    @map("field_of_study") @db.VarChar(255)
   startDate         DateTime  @map("start_date") @db.Date
   endDate           DateTime  @map("end_date") @db.Date
+  certificateUrl    String?   @map("certificate_url")
   createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  member      Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@map("education_records")
 }
 
 model EmploymentRecord {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  applicationId String    @map("application_id") @db.Uuid
+  applicationId String?   @map("application_id") @db.Uuid
+  memberId      String?   @map("member_id") @db.Uuid
   companyName   String    @map("company_name") @db.VarChar(255)
   jobTitle      String    @map("job_title") @db.VarChar(100)
   startDate     DateTime  @map("start_date") @db.Date
@@ -239,7 +272,8 @@ model EmploymentRecord {
   isCurrent     Boolean   @default(false) @map("is_current")
   createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  member      Member?      @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@map("employment_records")
 }
@@ -279,6 +313,9 @@ model MentorshipAssignment {
   // Retained for backward compatibility with recommendation letters already uploaded.
   mentorRecommendationUrl          String?   @map("mentor_recommendation_url")
   mentorNotes                      String?   @map("mentor_notes") @db.Text
+  agreedReviewPeriodStart          DateTime? @map("agreed_review_period_start") @db.Date
+  agreedReviewPeriodEnd            DateTime? @map("agreed_review_period_end") @db.Date
+  agreedReviewPeriodMonths         Int?      @map("agreed_review_period_months")
   adminNotes                       String?   @map("admin_notes") @db.Text
   upgradeRequested                 Boolean?  @default(false) @map("upgrade_requested")
   apcReadiness                     String?   @default("Unknown") @map("apc_readiness")
@@ -299,6 +336,9 @@ model MentorshipReview {
   mentorshipAssignmentId String    @map("mentorship_assignment_id") @db.Uuid
   reviewerId             String    @map("reviewer_id") @db.Uuid
   recommendation         String    @default("Recommend") @db.VarChar(50)
+  reviewPeriodStart      DateTime? @map("review_period_start") @db.Date
+  reviewPeriodEnd        DateTime? @map("review_period_end") @db.Date
+  reviewPeriodMonths     Int?      @map("review_period_months")
   proposedAssessmentDate DateTime? @map("proposed_assessment_date") @db.Timestamptz
   notes                  String?   @db.Text
   createdAt              DateTime? @default(now()) @map("created_at") @db.Timestamptz
@@ -359,10 +399,12 @@ model DocumentVersion {
 }
 
 model ApcAssessment {
-  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId        String     @map("member_id") @db.Uuid
-  applicationId   String     @map("application_id") @db.Uuid
-  assessmentDate  DateTime?  @map("assessment_date") @db.Date
+  id                      String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId                String     @map("member_id") @db.Uuid
+  applicationId           String     @map("application_id") @db.Uuid
+  assessmentPeriodStart   DateTime?  @map("assessment_period_start") @db.Date
+  assessmentPeriodEnd     DateTime?  @map("assessment_period_end") @db.Date
+  assessmentDate          DateTime?  @map("assessment_date") @db.Date
   panelChairName  String?    @map("panel_chair_name") @db.VarChar(255)
   panelChairEmail String?    @map("panel_chair_email") @db.VarChar(255)
   examiner1Name   String?    @map("examiner_1_name") @db.VarChar(255)

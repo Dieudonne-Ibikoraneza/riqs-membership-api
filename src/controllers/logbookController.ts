@@ -227,7 +227,9 @@ export const submitMentorRecommendation = async (req: AuthenticatedRequest, res:
       data: {
         mentorRecommended: data.recommend,
         mentorNotes: data.mentorNotes?.trim() || null,
-        status: data.recommend ? "Pending_Reviewer_Board" : "Pending_Mentor"
+        status: data.recommend
+          ? (assignment.apcReadiness === "Ready" ? "Pending_Reviewer_Board" : "Pending_Admin_Review")
+          : "Pending_Mentor"
       }
     });
 

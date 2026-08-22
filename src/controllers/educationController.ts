@@ -79,6 +79,9 @@ export async function deleteEducationRecord(req: AuthenticatedRequest, res: Resp
     });
 
     if (!record) return res.status(404).json({ error: 'Education record not found.' });
+    if (!record.application) {
+      return res.status(400).json({ error: 'This education record was added via an approved profile update and cannot be edited here.' });
+    }
     if (record.application.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
     if (record.application.status === 'Approved') {
       return res.status(400).json({ error: 'Cannot delete education records post-approval. You may only add new qualifications.' });
@@ -105,6 +108,9 @@ export async function updateEducationRecord(req: AuthenticatedRequest, res: Resp
     });
 
     if (!record) return res.status(404).json({ error: 'Education record not found.' });
+    if (!record.application) {
+      return res.status(400).json({ error: 'This education record was added via an approved profile update and cannot be edited here.' });
+    }
     if (record.application.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
     if (record.application.status === 'Approved') {
       return res.status(400).json({ error: 'Cannot edit education records post-approval. You may only add new qualifications.' });
@@ -189,7 +195,21 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
     if (!app) return res.status(404).json({ error: 'Application not found.' });
     if (app.memberId !== req.user.id && req.user.role.toLowerCase() !== 'teacher' && req.user.role.toLowerCase() !== 'admin') return res.status(403).json({ error: 'Access Denied.' });
 
-    let filledOptions: any[] = [];
+    const existing = await prisma.mentorshipAssignment.findUnique({ where: { applicationId } });
+
+    // `options` is omitted on plan-text-only auto-saves (e.g. editing the
+    // mentorship plan without touching mentor selection). Only recompute the
+    // mentor-selection fields when the caller actually submitted options —
+    // otherwise an already-established mentor link would be silently wiped
+    // out by every unrelated auto-save.
+    let filledOptions: any[] = existing?.preferredMentors as any[] || [];
+    let mentorData = {
+      mentorRegistrationNumber: existing?.mentorRegistrationNumber ?? null,
+      mentorName: existing?.mentorName ?? null,
+      mentorContact: existing?.mentorContact ?? null,
+    };
+    let isSelfAssigned = existing?.isSelfAssigned ?? true;
+    let requestedInstitutionalAssignment = existing?.requestedInstitutionalAssignment ?? false;
 
     if (options && Array.isArray(options)) {
       filledOptions = await Promise.all(
@@ -208,34 +228,25 @@ export async function upsertMentorship(req: AuthenticatedRequest, res: Response)
           return pm;
         })
       );
+
+      mentorData = { mentorRegistrationNumber: null, mentorName: null, mentorContact: null };
+      if (filledOptions.length > 0) {
+        mentorData.mentorRegistrationNumber = filledOptions[0].regNumber || null;
+        mentorData.mentorName = filledOptions[0].name || null;
+        mentorData.mentorContact = filledOptions[0].contact || null;
+      }
+      isSelfAssigned = filledOptions.length > 0;
+      requestedInstitutionalAssignment = filledOptions.length === 0;
     }
-
-    let mentorData = {
-      mentorRegistrationNumber: null as string | null,
-      mentorName: null as string | null,
-      mentorContact: null as string | null,
-    };
-
-    if (filledOptions && filledOptions.length > 0) {
-      mentorData.mentorRegistrationNumber = filledOptions[0].regNumber || null;
-      mentorData.mentorName = filledOptions[0].name || null;
-      mentorData.mentorContact = filledOptions[0].contact || null;
-    }
-
-    const isSelfAssigned = filledOptions.length > 0;
-    const requestedInstitutionalAssignment = filledOptions.length === 0;
 
     const newRecord = await prisma.mentorshipAssignment.upsert({
       where: { applicationId },
       update: {
         preferredMentors: filledOptions,
-        mentorshipPlan: mentorshipPlan || null,
+        mentorshipPlan: mentorshipPlan ?? existing?.mentorshipPlan ?? null,
         mentorRegistrationNumber: mentorData.mentorRegistrationNumber,
         mentorName: mentorData.mentorName,
         mentorContact: mentorData.mentorContact,
-        mentorQualification: null,
-        mentorClass: null,
-        mentorEmployer: null,
         isSelfAssigned,
         requestedInstitutionalAssignment
       },
@@ -286,13 +297,16 @@ export async function deleteMentorshipOption(req: AuthenticatedRequest, res: Res
     let options = (mentorship.preferredMentors as any[]) || [];
     options = options.filter(opt => opt.regNumber !== regNumber);
 
+    // Only clear the active mentor link if the option being removed is the
+    // one currently assigned — removing an unrelated preferred option must
+    // not disturb an already-established mentorship.
+    const isRemovingActiveMentor = mentorship.mentorRegistrationNumber === regNumber;
+
     const updated = await prisma.mentorshipAssignment.update({
       where: { id: mentorship.id },
       data: {
         preferredMentors: options,
-        mentorRegistrationNumber: null,
-        mentorName: null,
-        mentorContact: null
+        ...(isRemovingActiveMentor ? { mentorRegistrationNumber: null, mentorName: null, mentorContact: null } : {})
       }
     });
 

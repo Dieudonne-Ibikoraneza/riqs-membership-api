@@ -1,13 +1,44 @@
 import { Router } from 'express';
 import { getPublicMembersDirectory, getMentorById, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
 import { uploadProfilePhoto } from '../controllers/fileController';
+import { submitProfileEditRequest, getMyProfileEditRequests } from '../controllers/profileEditController';
 import { requireAuth } from '../middleware/auth';
 import { sanitizeUpload } from '../middleware/sanitizer';
+import { profileEditUpload } from '../middleware/profileEditUpload';
 import { uploadRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 router.post('/profile/photo', requireAuth, uploadRateLimiter, sanitizeUpload, uploadProfilePhoto);
+
+/**
+ * @openapi
+ * /api/v1/members/profile/edit-request:
+ *   post:
+ *     summary: Submit a profile update request (Member)
+ *     description: Proposes changes to name, addresses, profile photo, and/or new education/employment history. Nothing is applied until an Admin/Admin Assistant approves it.
+ *     tags:
+ *       - Member Profile
+ *     responses:
+ *       201:
+ *         description: Request submitted
+ *       409:
+ *         description: A pending request already exists
+ */
+router.post('/profile/edit-request', requireAuth, uploadRateLimiter, profileEditUpload, submitProfileEditRequest);
+
+/**
+ * @openapi
+ * /api/v1/members/profile/edit-request:
+ *   get:
+ *     summary: List my profile update requests (Member)
+ *     tags:
+ *       - Member Profile
+ *     responses:
+ *       200:
+ *         description: List of the logged-in member's profile update requests
+ */
+router.get('/profile/edit-request', requireAuth, getMyProfileEditRequests);
 
 /**
  * @openapi

@@ -91,10 +91,15 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           systemRole: true,
           isFellow: true,
           isHonorary: true,
-          honors: true
+          honors: true,
+          profilePhotoUrl: true
         }
       });
-      return res.status(200).json({ profile: member, application: null, message: 'No active application draft found for this member.' });
+      const [memberLinkedEducation, memberLinkedEmployment] = await Promise.all([
+        prisma.educationRecord.findMany({ where: { memberId: req.user.id }, orderBy: { startDate: 'desc' } }),
+        prisma.employmentRecord.findMany({ where: { memberId: req.user.id }, orderBy: { startDate: 'desc' } })
+      ]);
+      return res.status(200).json({ profile: member, application: null, education: memberLinkedEducation, employment: memberLinkedEmployment, message: 'No active application draft found for this member.' });
     }
 
     let currentCategory = null;
@@ -134,6 +139,15 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
 
     const memberProfile = app.member;
 
+    // Education/employment approved via a post-membership profile update
+    // request are linked directly to the Member, not this Application.
+    const [memberLinkedEducation, memberLinkedEmployment] = await Promise.all([
+      prisma.educationRecord.findMany({ where: { memberId: req.user.id }, orderBy: { startDate: 'desc' } }),
+      prisma.employmentRecord.findMany({ where: { memberId: req.user.id }, orderBy: { startDate: 'desc' } })
+    ]);
+    const allEducation = [...app.educationRecords, ...memberLinkedEducation];
+    const allEmployment = [...app.employmentRecords, ...memberLinkedEmployment];
+
     const categoryDocs = [
       ...(Array.isArray(app.category.requiredDocuments) ? app.category.requiredDocuments as any[] : []),
       ...(Array.isArray(app.category.optionalDocuments) ? app.category.optionalDocuments as any[] : [])
@@ -162,8 +176,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
     return res.status(200).json({
       profile: memberProfile,
       application: formattedApplication,
-      education: app.educationRecords,
-      employment: app.employmentRecords,
+      education: allEducation,
+      employment: allEmployment,
       studentAssociation: app.studentAssociation,
       shareholders: app.firmShareholders,
       mentorship: formattedMentorship,

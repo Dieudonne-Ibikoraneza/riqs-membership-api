@@ -4,9 +4,13 @@ import { prisma } from '../config/db';
 import { sendMail, sendRawMail } from '../config/mailer';
 import { ApplicationStatus } from '@prisma/client';
 import crypto from 'crypto';
-import { getCertificateCode, deriveMemberClass } from '../utils/membershipUtils';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+
+function parseReviewMonth(value: unknown): Date | null {
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
+  return new Date(`${value}-01T00:00:00.000Z`);
+}
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
@@ -152,6 +156,10 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
 
     if (!app) {
       return res.status(404).json({ error: 'Application record not found.' });
+    }
+
+    if (app.status && ['Approved', 'Rejected', 'Correction_Required'].includes(app.status)) {
+      return res.status(400).json({ error: `This application has already been processed (current status: "${app.status}").` });
     }
 
     const oldStatus = app.status;
@@ -663,6 +671,9 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         SELECT mr.id, mr.application_id AS "applicationId",
                mr.mentorship_assignment_id AS "mentorshipAssignmentId",
                mr.reviewer_id AS "reviewerId", mr.recommendation,
+               mr.review_period_start AS "reviewPeriodStart",
+               mr.review_period_end AS "reviewPeriodEnd",
+               mr.review_period_months AS "reviewPeriodMonths",
                mr.proposed_assessment_date AS "proposedAssessmentDate",
                mr.notes, mr.created_at AS "createdAt", mr.updated_at AS "updatedAt",
                json_build_object('fullName', m.full_name, 'systemRole', m.system_role) AS reviewer
@@ -916,7 +927,8 @@ export async function getAllApc(req: AuthenticatedRequest, res: Response) {
             select: {
               id: true,
               category: { select: { categoryName: true, categoryCode: true, stampFee: true } },
-              uploadedDocuments: true
+              uploadedDocuments: true,
+              mentorshipAssignment: { select: { agreedReviewPeriodStart: true, agreedReviewPeriodEnd: true } }
             }
           }
         }
@@ -928,7 +940,9 @@ export async function getAllApc(req: AuthenticatedRequest, res: Response) {
       ...a,
       isFellow: a.member.isFellow,
       isHonorary: a.member.isHonorary,
-      honors: a.member.honors || []
+      honors: a.member.honors || [],
+      boardRecommendedPeriodStart: a.application?.mentorshipAssignment?.agreedReviewPeriodStart || null,
+      boardRecommendedPeriodEnd: a.application?.mentorshipAssignment?.agreedReviewPeriodEnd || null
     }));
 
     return res.status(200).json({ assessments: formattedAssessments, pagination: { total, page: Number(page), limit: take } });
@@ -1589,8 +1603,16 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
     return res.status(403).json({ error: 'Only Reviewers and Head Reviewers can submit a mentorship board review.' });
   }
 
-  const { applicationId, notes, proposedAssessmentDate, recommendation = 'Recommend' } = req.body;
+  const { applicationId, notes, proposedAssessmentDate, recommendation = 'Recommend', reviewPeriodStart, reviewPeriodEnd } = req.body;
   if (!applicationId || !notes?.trim()) return res.status(400).json({ error: 'An application and review notes are required.' });
+  const periodStart = parseReviewMonth(reviewPeriodStart);
+  const periodEnd = reviewPeriodEnd ? parseReviewMonth(reviewPeriodEnd) : null;
+  if (!periodStart || (reviewPeriodEnd && !periodEnd)) {
+    return res.status(400).json({ error: 'Select a valid review start month and optional end month.' });
+  }
+  if (periodEnd && periodEnd < periodStart) {
+    return res.status(400).json({ error: 'The review end month cannot be before the start month.' });
+  }
 
   try {
     const app = await prisma.application.findUnique({
@@ -1601,8 +1623,8 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
     if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
       return res.status(400).json({ error: `This upgrade is not awaiting reviewer-board input. Current status: ${app.mentorshipAssignment.status}.` });
     }
-    if (app.mentorshipAssignment.apcReadiness === 'Ready' && !proposedAssessmentDate) {
-      return res.status(400).json({ error: 'A proposed assessment date and time is required for an APC candidate.' });
+    if (app.mentorshipAssignment.apcReadiness !== 'Ready') {
+      return res.status(400).json({ error: 'Associate-route upgrades proceed directly from the mentor to the Approver and do not require reviewer-board assessment periods.' });
     }
     const existingReview = await prisma.mentorshipReview.findUnique({
       where: { applicationId_reviewerId: { applicationId, reviewerId: req.user.id } }
@@ -1622,6 +1644,8 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
           mentorshipAssignmentId: app.mentorshipAssignment!.id,
           reviewerId: req.user!.id,
           recommendation,
+          reviewPeriodStart: periodStart,
+          reviewPeriodEnd: periodEnd,
           proposedAssessmentDate: proposedDate,
           notes: notes.trim()
         }
@@ -1648,8 +1672,16 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
   if (req.user.role.toLowerCase() !== 'head_reviewer') {
     return res.status(403).json({ error: 'Only the Head Reviewer can forward a mentorship upgrade to Admin/Approver.' });
   }
-  const { applicationId, notes } = req.body;
+  const { applicationId, notes, agreedReviewPeriodStart, agreedReviewPeriodEnd } = req.body;
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
+  const agreedPeriodStart = parseReviewMonth(agreedReviewPeriodStart);
+  const agreedPeriodEnd = agreedReviewPeriodEnd ? parseReviewMonth(agreedReviewPeriodEnd) : null;
+  if (!agreedPeriodStart || (agreedReviewPeriodEnd && !agreedPeriodEnd)) {
+    return res.status(400).json({ error: 'Select a valid final start month and optional end month.' });
+  }
+  if (agreedPeriodEnd && agreedPeriodEnd < agreedPeriodStart) {
+    return res.status(400).json({ error: 'The final end month cannot be before the start month.' });
+  }
   const forwardingNotes = notes?.trim() || 'Forwarded by Head Reviewer after completion of the reviewer-board submissions.';
 
   try {
@@ -1661,6 +1693,9 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
     if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
       return res.status(400).json({ error: `This upgrade cannot be forwarded from status ${app.mentorshipAssignment.status}.` });
     }
+    if (app.mentorshipAssignment.apcReadiness !== 'Ready') {
+      return res.status(400).json({ error: 'Associate-route upgrades proceed directly to the Approver and do not require reviewer-board forwarding.' });
+    }
     if (app.mentorshipReviews.length < 3) {
       return res.status(400).json({ error: 'At least 3 reviewer-board submissions are required before forwarding.' });
     }
@@ -1668,7 +1703,12 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
     await prisma.$transaction([
       prisma.mentorshipAssignment.update({
         where: { id: app.mentorshipAssignment.id },
-        data: { status: 'Pending_Admin_Review', adminNotes: forwardingNotes }
+        data: {
+          status: 'Pending_Admin_Review',
+          adminNotes: forwardingNotes,
+          agreedReviewPeriodStart: agreedPeriodStart,
+          agreedReviewPeriodEnd: agreedPeriodEnd
+        }
       }),
       prisma.auditLog.create({
         data: {
@@ -1759,13 +1799,6 @@ export async function approveMentorshipUpgrade(req: AuthenticatedRequest, res: R
         details:         `Mentorship upgrade approved. APC assessment ${apcAssessment.id} created/reused.`
       }
     });
-
-    // 4. Notify the candidate
-    try {
-      await sendMail(app.member.email, 'mentorship_approved', {
-        name: app.member.fullName
-      });
-    } catch (e) {}
 
     return res.status(200).json({
       message:         'Mentorship upgrade approved. Candidate moved to APC queue.',

@@ -204,21 +204,55 @@ const templates = [
     id: "apc_scheduled",
     name: "APC Board Scheduled",
     category: "Assessment",
-    subject: "Your APC Board Assessment is Scheduled",
-    description: "Sent automatically when an admin schedules an APC board assessment.",
+    subject: "RIQS Mentorship Upgrade Approved — APC Assessment Period Confirmed",
+    description: "Sent automatically when an admin schedules a candidate's APC assessment period.",
     body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-  <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">APC Board Scheduled</h2>
+  <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Congratulations, {{name}}!</h2>
   <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your Assessment of Professional Competence (APC) Board review has been officially scheduled.</p>
-  
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your membership upgrade has been approved, and as a result, you will be participating in the Assessment of Professional Competence (APC) Board review within the period below.</p>
+
   <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px; margin: 20px 0; border-radius: 6px;">
-    <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase;">Assessment Details:</p>
-    <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: 600; color: #1e3a8a;">Date: {{date}}</p>
-    <p style="margin: 8px 0 0 0; font-size: 15px; color: #334155;">Panel Chair: {{chair}}</p>
-    <p style="margin: 4px 0 0 0; font-size: 15px; color: #334155;">Examiners: {{examiner1}}, {{examiner2}}</p>
+    <p style="margin: 0; font-size: 13px; font-weight: 500; color: #64748b; text-transform: uppercase;">Assessment Period</p>
+    <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: 600; color: #1e3a8a;">{{date}}</p>
   </div>
-  
-  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please ensure you arrive on time and have all necessary documentation prepared. Best of luck!</p>
+
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">The exact date, time, and venue will be shared with you shortly by the Secretariat. In the meantime, please use this period to prepare thoroughly by reviewing your practical experience, logbook records, and professional competencies.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We wish you the very best of luck in your assessment.</p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
+  </p>
+</div>`
+  },
+  {
+    id: "profile_edit_approved",
+    name: "Profile Update Approved",
+    category: "Membership",
+    subject: "Your RIQS Profile Update Has Been Approved",
+    description: "Sent when an Admin/Admin Assistant approves a member's profile update request.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #0f172a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Profile Update Approved</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your recent profile update request has been reviewed and approved. The changes you submitted — including any updated details, education, or employment history — are now reflected on your RIQS profile.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">You can view the updated information at any time from your Member Dashboard.</p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
+  </p>
+</div>`
+  },
+  {
+    id: "profile_edit_rejected",
+    name: "Profile Update Rejected",
+    category: "Membership",
+    subject: "Your RIQS Profile Update Request Requires Attention",
+    description: "Sent when an Admin/Admin Assistant rejects a member's profile update request.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #0f172a; border-bottom: 2px solid #dc2626; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Profile Update Request Rejected</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Your recent profile update request could not be approved. The reviewer provided the following reason:</p>
+  <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 18px; margin: 20px 0; border-radius: 6px;">
+    <p style="margin: 0; font-size: 15px; color: #7f1d1d;">{{reason}}</p>
+  </div>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">You may submit a new profile update request with the necessary corrections from your Member Dashboard.</p>
   <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
     Secretariat, Rwanda Institute of Quantity Surveyors (RIQS).
   </p>

@@ -96,13 +96,42 @@ export async function requestAPC(req: AuthenticatedRequest, res: Response) {
 }
 
 // 3. Schedule APC Assessment (Registers graduates for examinations)
+function parseAssessmentPeriod(periodStr?: string): Date | null {
+  if (!periodStr) return null;
+  const match = periodStr.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  if (month < 1 || month > 12) return null;
+  return new Date(`${match[1]}-${match[2]}-01T00:00:00.000Z`);
+}
+
+function formatAssessmentPeriod(periodStart: Date, periodEnd: Date | null): string {
+  const startMonth = periodStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  if (periodEnd) {
+    const endMonth = periodEnd.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    return `${startMonth} – ${endMonth}`;
+  }
+  return startMonth;
+}
+
 export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
 
-  const { applicationId, assessmentDate, panelChair, panelChairEmail, examiner1, examiner1Email, examiner2, examiner2Email } = req.body;
+  const { applicationId, assessmentPeriodStart, assessmentPeriodEnd } = req.body;
 
-  if (!applicationId || !assessmentDate) {
-    return res.status(400).json({ error: 'Missing required parameters: applicationId and assessmentDate.' });
+  if (!applicationId || !assessmentPeriodStart) {
+    return res.status(400).json({ error: 'Missing required parameters: applicationId and assessmentPeriodStart.' });
+  }
+
+  const periodStart = parseAssessmentPeriod(assessmentPeriodStart);
+  const periodEnd = assessmentPeriodEnd ? parseAssessmentPeriod(assessmentPeriodEnd) : null;
+
+  if (!periodStart || (assessmentPeriodEnd && !periodEnd)) {
+    return res.status(400).json({ error: 'Invalid period format. Use YYYY-MM.' });
+  }
+  if (periodEnd && periodEnd < periodStart) {
+    return res.status(400).json({ error: 'Period end cannot be before period start.' });
   }
 
   try {
@@ -118,13 +147,8 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
       assessment = await prisma.apcAssessment.update({
         where: { id: existingReq.id },
         data: {
-          assessmentDate: new Date(assessmentDate),
-          panelChairName: panelChair || 'Board Chair TBD',
-          panelChairEmail: panelChairEmail || null,
-          examiner1Name: examiner1 || 'Examiner 1 TBD',
-          examiner1Email: examiner1Email || null,
-          examiner2Name: examiner2 || 'Examiner 2 TBD',
-          examiner2Email: examiner2Email || null,
+          assessmentPeriodStart: periodStart,
+          assessmentPeriodEnd: periodEnd,
           status: 'Scheduled',
           updatedAt: new Date()
         }
@@ -134,13 +158,8 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
         data: {
           memberId: app.memberId,
           applicationId,
-          assessmentDate: new Date(assessmentDate),
-          panelChairName: panelChair || 'Board Chair TBD',
-          panelChairEmail: panelChairEmail || null,
-          examiner1Name: examiner1 || 'Examiner 1 TBD',
-          examiner1Email: examiner1Email || null,
-          examiner2Name: examiner2 || 'Examiner 2 TBD',
-          examiner2Email: examiner2Email || null,
+          assessmentPeriodStart: periodStart,
+          assessmentPeriodEnd: periodEnd,
           status: 'Scheduled'
         }
       });
@@ -148,42 +167,10 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
 
     const member = await prisma.member.findUnique({ where: { id: app.memberId } });
     if (member) {
-      const formattedDate = new Date(assessmentDate).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       sendMail(member.email, 'apc_scheduled', {
         name: member.fullName,
-        date: formattedDate,
-        chair: panelChair || 'TBD',
-        examiner1: examiner1 || 'TBD',
-        examiner2: examiner2 || 'TBD'
+        date: formatAssessmentPeriod(periodStart, periodEnd)
       }).catch(console.error);
-
-      const generateHtmlTemplate = (examinerName: string) => `
-        <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
-          <p>Dear ${examinerName},</p>
-          <p>I hope you are doing well. I am pleased to inform you that you have been selected to serve as an Examiner for the APC Assessment of the <strong>${member?.fullName || 'candidate'}</strong>.</p>
-          <p>The panel schedule is as follows:</p>
-          <ul style="list-style-type: none; padding-left: 0;">
-            <li><strong>Date & Time:</strong> ${formattedDate}</li>
-            <li><strong>Panel Chair:</strong> ${panelChair || 'TBD'}</li>
-            <li><strong>Examination/Candidate:</strong> ${member?.fullName || 'TBD'}</li>
-            <li><strong>Examiners:</strong> ${examiner1 || 'TBD'}, ${examiner2 || 'TBD'}</li>
-          </ul>
-          <p>Kindly proceed with your preparations in line with the assessment requirements and any instructions already communicated by the RIQS Secretariat.</p>
-          <p>Please acknowledge receipt of this message at your earliest convenience.</p>
-          <p>Regards,<br/><strong>RIQS Board</strong></p>
-        </div>
-      `;
-      const emailSubject = `Appointment Confirmation – APC Assessment for ${member?.fullName || 'candidate'}`;
-
-      if (panelChairEmail) {
-        sendRawMail({ to: panelChairEmail, subject: emailSubject, html: generateHtmlTemplate(panelChair || 'Panel Chair') }).catch(console.error);
-      }
-      if (examiner1Email) {
-        sendRawMail({ to: examiner1Email, subject: emailSubject, html: generateHtmlTemplate(examiner1 || 'Examiner') }).catch(console.error);
-      }
-      if (examiner2Email) {
-        sendRawMail({ to: examiner2Email, subject: emailSubject, html: generateHtmlTemplate(examiner2 || 'Examiner') }).catch(console.error);
-      }
     }
 
     return res.status(201).json({
@@ -409,8 +396,10 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     // Route 2 (GradQS)  → Associate Quantity Surveyor (AsQS)
     let targetCode: string;
     let newClass: MemberClass;
-    if (code === 'GradQST') { targetCode = 'AsQST'; newClass = 'Associate'; }
-    else if (code === 'GradQS') { targetCode = 'AsQS'; newClass = 'Associate'; }
+    // The seeded graduate routes use the `Gr*` category codes. Keep the
+    // legacy `Grad*` aliases supported for older applications as well.
+    if (['GrQST', 'GradQST'].includes(code)) { targetCode = 'AsQST'; newClass = 'Associate'; }
+    else if (['GrQS', 'GradQS'].includes(code)) { targetCode = 'AsQS'; newClass = 'Associate'; }
     else return res.status(400).json({ error: `Associate class is only applicable to Route 1 (GradQST) or Route 2 (GradQS). Current category: ${code}` });
 
     const targetCategory = await prisma.membershipCategory.findFirst({
@@ -578,12 +567,6 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
                 fullName: true,
                 email: true,
                 phoneNumber: true,
-                dateOfBirth: true,
-                gender: true,
-                nationality: true,
-                nationalIdOrPassport: true,
-                residencyAddress: true,
-                workAddress: true,
                 membershipClass: true,
                 createdAt: true
               }
@@ -653,5 +636,92 @@ export async function getMentees(req: AuthenticatedRequest, res: Response) {
   } catch (error: any) {
     console.error('[Get Mentees] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching mentees list.' });
+  }
+}
+
+export async function bulkScheduleApc(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
+
+  const { applicationIds, assessmentPeriodStart, assessmentPeriodEnd } = req.body;
+
+  if (!applicationIds || !Array.isArray(applicationIds) || applicationIds.length === 0 || !assessmentPeriodStart) {
+    return res.status(400).json({ error: 'Missing required parameters: applicationIds (array) and assessmentPeriodStart.' });
+  }
+
+  const periodStart = parseAssessmentPeriod(assessmentPeriodStart);
+  const periodEnd = assessmentPeriodEnd ? parseAssessmentPeriod(assessmentPeriodEnd) : null;
+
+  if (!periodStart || (assessmentPeriodEnd && !periodEnd)) {
+    return res.status(400).json({ error: 'Invalid period format. Use YYYY-MM.' });
+  }
+  if (periodEnd && periodEnd < periodStart) {
+    return res.status(400).json({ error: 'Period end cannot be before period start.' });
+  }
+
+  try {
+    const uniqueIds = Array.from(new Set(applicationIds as string[]));
+
+    const [apps, existingAssessments] = await Promise.all([
+      prisma.application.findMany({ where: { id: { in: uniqueIds } } }),
+      prisma.apcAssessment.findMany({ where: { applicationId: { in: uniqueIds } } })
+    ]);
+
+    const appById = new Map(apps.map(a => [a.id, a]));
+    const existingByAppId = new Map(existingAssessments.map(a => [a.applicationId, a]));
+
+    const results = uniqueIds.map(appId => {
+      const app = appById.get(appId);
+      if (!app) return { applicationId: appId, success: false, error: 'Application not found.' };
+      return { applicationId: appId, success: true, memberId: app.memberId };
+    });
+
+    const validApps = results.filter((r): r is { applicationId: string; success: true; memberId: string } => r.success);
+    const toUpdateIds = validApps
+      .filter(r => existingByAppId.has(r.applicationId))
+      .map(r => existingByAppId.get(r.applicationId)!.id);
+    const toCreate = validApps.filter(r => !existingByAppId.has(r.applicationId));
+
+    await Promise.all([
+      toUpdateIds.length > 0 ? prisma.apcAssessment.updateMany({
+        where: { id: { in: toUpdateIds } },
+        data: {
+          assessmentPeriodStart: periodStart,
+          assessmentPeriodEnd: periodEnd,
+          status: 'Scheduled',
+          updatedAt: new Date()
+        }
+      }) : Promise.resolve(),
+      toCreate.length > 0 ? prisma.apcAssessment.createMany({
+        data: toCreate.map(r => ({
+          memberId: r.memberId,
+          applicationId: r.applicationId,
+          assessmentPeriodStart: periodStart,
+          assessmentPeriodEnd: periodEnd,
+          status: 'Scheduled' as const
+        }))
+      }) : Promise.resolve()
+    ]);
+
+    const memberIds = Array.from(new Set(validApps.map(r => r.memberId)));
+    const members = await prisma.member.findMany({ where: { id: { in: memberIds } } });
+    const memberById = new Map(members.map(m => [m.id, m]));
+    for (const r of validApps) {
+      const member = memberById.get(r.memberId);
+      if (member) {
+        sendMail(member.email, 'apc_scheduled', {
+          name: member.fullName,
+          date: formatAssessmentPeriod(periodStart, periodEnd)
+        }).catch(console.error);
+      }
+    }
+
+    const successful = results.filter(r => r.success).length;
+    return res.status(200).json({
+      message: `Scheduled ${successful} of ${results.length} assessments.`,
+      results
+    });
+  } catch (error: any) {
+    console.error('[Bulk Schedule APC] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error during bulk scheduling.' });
   }
 }

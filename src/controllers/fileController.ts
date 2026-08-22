@@ -257,7 +257,11 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
       .download(doc.fileUrl);
 
     if (error || !data) {
-      console.error('[Supabase Storage Download Error]:', error?.message);
+      const notFound = (error as any)?.statusCode === '404' || (error as any)?.status === 400;
+      console.error('[Supabase Storage Download Error]:', doc.fileUrl, error?.message);
+      if (notFound) {
+        return res.status(404).json({ error: 'This document was not found in storage. It may not have been uploaded successfully.' });
+      }
       return res.status(500).json({ error: 'Unable to stream binary object from private storage.' });
     }
 
@@ -348,12 +352,54 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
   }
 
   try {
+    // Storage paths for application-scoped documents (uploaded documents,
+    // logbook entries, annual reports, recommendation letters) follow the
+    // convention `applications/{applicationId}/...`. Enforce the same
+    // ownership/mentor/staff authorization used by downloadFile for these —
+    // other prefixes (e.g. `profiles/{userId}/...`) are intentionally left
+    // as-is since they're already scoped to viewer-agnostic public assets.
+    const applicationMatch = url.match(/^applications\/([0-9a-fA-F-]{36})\//);
+    if (applicationMatch) {
+      const applicationId = applicationMatch[1];
+      const app = await prisma.application.findUnique({
+        where: { id: applicationId },
+        select: { memberId: true }
+      });
+
+      if (app) {
+        const isOwner = app.memberId === req.user.id;
+
+        let isAssignedMentor = false;
+        if (req.user.role.toLowerCase() === 'mentor') {
+          const mentorship = await prisma.mentorshipAssignment.findUnique({
+            where: { applicationId }
+          });
+          const member = await prisma.member.findUnique({ where: { id: req.user.id } });
+          if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+            isAssignedMentor = true;
+          }
+        }
+
+        const isAuthorized = isOwner
+          || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase())
+          || isAssignedMentor;
+
+        if (!isAuthorized) {
+          return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
+        }
+      }
+    }
+
     const { data, error } = await supabaseAdmin.storage
       .from('riqs-membership')
       .download(url);
 
     if (error || !data) {
-      console.error('[Supabase Storage Download Error]:', error?.message);
+      const notFound = (error as any)?.statusCode === '404' || (error as any)?.status === 400;
+      console.error('[Supabase Storage Download Error]:', url, error?.message);
+      if (notFound) {
+        return res.status(404).json({ error: 'This document was not found in storage. It may not have been uploaded successfully.' });
+      }
       return res.status(500).json({ error: 'Unable to stream binary object from private storage.' });
     }
 

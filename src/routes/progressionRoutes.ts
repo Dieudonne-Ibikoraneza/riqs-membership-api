@@ -9,7 +9,8 @@ import {
   updateMemberProfile,
   getMentorshipProgress,
   getMentees,
-  requestAPC
+  requestAPC,
+  bulkScheduleApc
 } from '../controllers/progressionController';
 
 const router = Router();
@@ -50,8 +51,8 @@ router.post('/apc/request', requireAuth, requestAPC);
  * @openapi
  * /api/v1/progression/apc/register:
  *   post:
- *     summary: Schedule a new APC Board (Admin or Approver)
- *     description: Schedules a date and panel examiners (Panel Chair and two external examiners) for a candidate's Assessment of Professional Competency.
+ *     summary: Schedule a new APC Board (Admin, Approver, or Admin Assistant)
+ *     description: Assigns a candidate an assessment period (one month, or a month range) for their Assessment of Professional Competency. The exact date and time are confirmed separately by the Secretariat.
  *     tags:
  *       - Progression & APC
  *     requestBody:
@@ -62,24 +63,17 @@ router.post('/apc/request', requireAuth, requestAPC);
  *             type: object
  *             required:
  *               - applicationId
- *               - assessmentDate
+ *               - assessmentPeriodStart
  *             properties:
  *               applicationId:
  *                 type: string
  *                 format: uuid
- *               assessmentDate:
+ *               assessmentPeriodStart:
  *                 type: string
- *                 format: date
- *                 example: "2026-08-20"
- *               panelChair:
+ *                 example: "2026-09"
+ *               assessmentPeriodEnd:
  *                 type: string
- *                 example: "Dr. Alexis N."
- *               examiner1:
- *                 type: string
- *                 example: "QS Jean Pierre M."
- *               examiner2:
- *                 type: string
- *                 example: "QS Fiona U."
+ *                 example: "2026-10"
  *     responses:
  *       201:
  *         description: APC Board scheduled successfully
@@ -88,7 +82,7 @@ router.post('/apc/request', requireAuth, requestAPC);
  *       500:
  *         description: Internal server error
  */
-router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver']), registerAPC);
+router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver', 'admin_assistant']), registerAPC);
 
 /**
  * @openapi
@@ -137,7 +131,46 @@ router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver']), r
  *       500:
  *         description: Internal server error
  */
-router.post('/apc/grade', requireAuth, requireRoles(['admin', 'approver']), gradeAPC);
+router.post('/apc/grade', requireAuth, requireRoles(['admin', 'approver', 'admin_assistant']), gradeAPC);
+
+/**
+ * @openapi
+ * /api/v1/progression/apc/bulk-schedule:
+ *   post:
+ *     summary: Bulk schedule APC assessments (Admin, Approver, or Admin Assistant)
+ *     description: Schedule multiple APC assessments with a common assessment period.
+ *     tags:
+ *       - Progression & APC
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - applicationIds
+ *               - assessmentPeriodStart
+ *             properties:
+ *               applicationIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *               assessmentPeriodStart:
+ *                 type: string
+ *                 example: "2026-09"
+ *               assessmentPeriodEnd:
+ *                 type: string
+ *                 example: "2026-10"
+ *     responses:
+ *       200:
+ *         description: Bulk scheduling completed
+ *       400:
+ *         description: Invalid parameters
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/apc/bulk-schedule', requireAuth, requireRoles(['admin', 'approver', 'admin_assistant']), bulkScheduleApc);
 
 /**
  * @openapi

@@ -20,6 +20,10 @@ import {
   getAdminTickets, getAdminTicketDetails, adminReplyToTicket, updateTicketStatus
 } from '../controllers/adminTicketController';
 
+import {
+  getProfileEditRequests, reviewProfileEditRequest
+} from '../controllers/profileEditController';
+
 const router = Router();
 
 /**
@@ -277,11 +281,37 @@ router.get('/history/:applicationId', requireAuth, requireRoles(['admin', 'admin
  *       500:
  *         description: Internal server error
  */
-router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getApcForApplication);
-// Admins and Approvers both manage the APC queue: viewing records, scheduling
+router.get('/apc/:applicationId', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver', 'admin_assistant']), getApcForApplication);
+// Admins, Approvers, and Admin Assistants manage the APC queue: viewing records, scheduling
 // boards, and recording assessment results. The controller endpoints enforce
 // the same role policy for schedule/grade mutations.
-router.get('/apc', requireAuth, requireRoles(['admin', 'approver']), getAllApc);
+router.get('/apc', requireAuth, requireRoles(['admin', 'approver', 'admin_assistant']), getAllApc);
+
+/**
+ * @openapi
+ * /api/v1/admin/profile-edit-requests:
+ *   get:
+ *     summary: Paginated queue of member profile update requests (Admin/Admin Assistant)
+ *     tags:
+ *       - Profile Edit Requests
+ *     responses:
+ *       200:
+ *         description: List of profile update requests
+ */
+router.get('/profile-edit-requests', requireAuth, requireRoles(['admin', 'admin_assistant']), getProfileEditRequests);
+
+/**
+ * @openapi
+ * /api/v1/admin/profile-edit-requests/{id}/decision:
+ *   post:
+ *     summary: Approve or reject a member profile update request (Admin/Admin Assistant)
+ *     tags:
+ *       - Profile Edit Requests
+ *     responses:
+ *       200:
+ *         description: Request approved and applied, or rejected
+ */
+router.post('/profile-edit-requests/:id/decision', requireAuth, requireRoles(['admin', 'admin_assistant']), reviewProfileEditRequest);
 
 /**
  * @openapi
