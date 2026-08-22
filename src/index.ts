@@ -26,6 +26,7 @@ import teacherRoutes from './routes/teacherRoutes';
 import templateRoutes from './routes/templateRoutes';
 import documentTypeRoutes from './routes/documentTypeRoutes';
 import logbookRoutes from './routes/logbookRoutes';
+import intouchPayRoutes from './routes/intouchPayRoutes';
 import { startCronJobs } from './utils/cronJobs';
 import { apiRateLimiter } from './middleware/rateLimiter';
 
@@ -37,7 +38,8 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
   'http://localhost:3000',
   'https://ricos.rwandaiqs.org',
-  'https://riqs-membership.vercel.app'
+  'https://riqs-membership.vercel.app',
+  'https://cursor-antelope-spendable.ngrok-free.dev'
 ];
 
 // Set TRUST_PROXY=true when running behind a single trusted reverse proxy.
@@ -104,6 +106,7 @@ app.use('/api/v1/templates', templateRoutes);
 app.use('/api/v1/document-types', documentTypeRoutes);
 app.use('/api/v1/logbook', logbookRoutes);
 app.use('/api/v1/tickets', ticketRoutes);
+app.use('/api/v1/payments', intouchPayRoutes);
 
 // 4. Fallback Route Handler (404 Page Not Found)
 app.use((req: Request, res: Response) => {
