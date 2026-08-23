@@ -11,7 +11,7 @@ import { getCertificateCode } from '../utils/membershipUtils';
  * removed (for example, 0001 and 0003 would make count + 1 collide with
  * 0003). Derive the maximum numeric suffix instead.
  */
-async function nextMembershipId(prefix: string): Promise<string> {
+export async function nextMembershipId(prefix: string): Promise<string> {
   const members = await prisma.member.findMany({
     where: { membershipId: { startsWith: prefix } },
     select: { membershipId: true }
@@ -213,7 +213,6 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     if (!apc) return res.status(404).json({ error: 'APC assessment not found.' });
 
     let newClass: MemberClass | undefined = undefined;
-    let newMembershipId: string | undefined = undefined;
     let newCertCode: string | undefined = undefined;
 
     if (mappedStatus === 'Passed') {
@@ -225,10 +224,6 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       // Determine the new certificate code based on new class
       if (newClass === 'Technologist') newCertCode = 'TechQS';
       else newCertCode = 'PrQS';
-
-      // Generate a sequential membership ID under the new cert code
-      const currentYear = new Date().getFullYear();
-      newMembershipId = await nextMembershipId(`RIQS-${currentYear}-${newCertCode}-`);
     }
 
     let targetCategory: any = null;
@@ -267,71 +262,49 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    if (newClass && newMembershipId) {
-      // Upgrade member class + issue new membership ID and upgrade system role to Mentor
+    // Rather than upgrading the member immediately, hold the upgrade pending
+    // payment of the new category's first-year fee. The membershipClass,
+    // membershipId and Mentor role are only applied once that fee's
+    // FinancialTransaction is cleared (see verifyPayment in paymentController.ts).
+    if (newClass && targetCategory) {
+      const transactionReference = `UPG-${apc.applicationId.slice(0, 8)}-${Date.now()}`;
+
       transactions.push(
-        prisma.member.update({
-          where: { id: apc.memberId },
-          data: { 
-            membershipClass: newClass, 
-            membershipId: newMembershipId, 
-            systemRole: 'Mentor',
-            updatedAt: new Date() 
+        prisma.application.update({
+          where: { id: apc.applicationId },
+          data: {
+            pendingUpgradeClass: newClass,
+            pendingUpgradeCategoryId: targetCategory.id,
+            pendingUpgradeCertCode: newCertCode,
+            pendingUpgradePromoteToMentor: true
           }
         })
       );
 
-      // Upgrade the application category so future renewals have the escalated fee
-      if (targetCategory) {
-        transactions.push(
-          prisma.application.update({
-            where: { id: apc.applicationId },
-            data: { categoryId: targetCategory.id }
-          })
-        );
-        
-        // Also update any currently unpaid annual renewal invoices to the new fee amount
-        if (targetCategory.annualRenewalFee) {
-          transactions.push(
-            prisma.financialTransaction.updateMany({
-              where: {
-                memberId: apc.memberId,
-                txType: "Annual_Renewal",
-                status: "Unpaid"
-              },
-              data: { amount: targetCategory.annualRenewalFee }
-            })
-          );
-        }
-      }
-
-      // Create unpaid Stamp Fee invoice if applicable
-      const stampFeeAmount = apc.application.category.stampFee ?? 0;
-      if (Number(stampFeeAmount) > 0) {
+      if (targetCategory.firstYearFee && Number(targetCategory.firstYearFee) > 0) {
         transactions.push(
           prisma.financialTransaction.create({
             data: {
               memberId: apc.memberId,
               applicationId: apc.applicationId,
-              amount: stampFeeAmount,
-              currency: apc.application.category.currency || 'RWF',
-              txType: 'Stamp_Fee',
+              amount: targetCategory.firstYearFee,
+              currency: targetCategory.currency || 'RWF',
+              txType: 'First_Year_Fee',
               paymentMethod: 'Bank_Transfer',
-              transactionReference: `STAMP-${newMembershipId}-${Date.now()}`,
-              status: 'Unpaid',
+              transactionReference,
+              status: 'Unpaid'
             }
           })
         );
       }
 
-      // Audit the upgrade
       transactions.push(
         prisma.auditLog.create({
           data: {
             memberId: apc.memberId,
             actionByEmail: req.user.email,
-            actionType: 'APC_UPGRADE',
-            details: `Membership upgraded to ${newClass}. New ID: ${newMembershipId}. Stamp fee invoice created.`
+            actionType: 'APC_UPGRADE_PENDING_PAYMENT',
+            details: `APC passed. Upgrade to ${newClass} (${targetCategory.categoryName}) approved, pending payment of the first-year fee before the new membership ID is issued.`
           }
         })
       );
@@ -349,15 +322,14 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
           <p>The results for your recent APC board assessment have been finalized.</p>
           <p><strong>Final Outcome:</strong> ${mappedStatus}</p>
           ${scorePercentage ? `<p><strong>Score:</strong> ${scorePercentage}%</p>` : ''}
-          ${newClass ? `<p style="color: #059669; font-weight: bold;">Congratulations! Your membership class has been upgraded to ${newClass}.</p>` : ''}
-          ${newMembershipId ? `<p><strong>Your new Membership ID:</strong> ${newMembershipId}</p><p>A stamp fee invoice has been raised on your account. Please log in to your dashboard to complete payment.</p>` : ''}
+          ${newClass && targetCategory ? `<p style="color: #059669; font-weight: bold;">Congratulations! You have been approved for an upgrade to ${newClass} (${targetCategory.categoryName}).</p><p>To be recognized under this new class and receive your new membership ID, please pay the first-year membership fee for this category through your RIQS dashboard Payments page. Your new membership ID and the benefits of this class will be issued once payment is verified.</p>` : ''}
           <p>Please log in to your RIQS dashboard to view any specific feedback or notes from your examiners.</p>
           <br/>
           <p>Best regards,</p>
           <p>RIQS Registration Board</p>
         </div>
       `;
-      
+
       sendRawMail({
         to: apc.member.email,
         subject: emailSubject,
@@ -407,39 +379,61 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     });
     if (!targetCategory) return res.status(500).json({ error: `Associate category (${targetCode}) not found in database. Please re-run seed.` });
 
-    // Generate new membership ID
-    const currentYear = new Date().getFullYear();
-    const newMembershipId = await nextMembershipId(`RIQS-${currentYear}-${targetCode}-`);
+    // Rather than upgrading the member immediately, hold the upgrade pending
+    // payment of the Associate category's first-year fee. The membershipClass
+    // and membershipId are only applied once that fee's FinancialTransaction is
+    // cleared (see verifyPayment in paymentController.ts).
+    const transactionReference = `UPG-${applicationId.slice(0, 8)}-${Date.now()}`;
 
-    await prisma.$transaction([
-      prisma.member.update({
-        where: { id: app.memberId },
-        data: { membershipClass: newClass, membershipId: newMembershipId, updatedAt: new Date() }
-      }),
+    const upgradeOps: any[] = [
       prisma.application.update({
         where: { id: applicationId },
-        data: { categoryId: targetCategory.id }
+        data: {
+          pendingUpgradeClass: newClass,
+          pendingUpgradeCategoryId: targetCategory.id,
+          pendingUpgradeCertCode: targetCode,
+          pendingUpgradePromoteToMentor: false
+        }
       }),
       prisma.auditLog.create({
         data: {
           memberId: app.memberId,
           actionByEmail: req.user.email,
-          actionType: 'ASSOCIATE_AWARDED',
-          details: `Associate class awarded to ${app.member.fullName}. New membership ID issued.`
+          actionType: 'ASSOCIATE_AWARD_PENDING_PAYMENT',
+          details: `Associate class approved for ${app.member.fullName}, pending payment of the first-year fee before the new membership ID is issued.`
         }
       })
-    ]);
+    ];
+
+    if (targetCategory.firstYearFee && Number(targetCategory.firstYearFee) > 0) {
+      upgradeOps.push(
+        prisma.financialTransaction.create({
+          data: {
+            memberId: app.memberId,
+            applicationId,
+            amount: targetCategory.firstYearFee,
+            currency: targetCategory.currency || 'RWF',
+            txType: 'First_Year_Fee',
+            paymentMethod: 'Bank_Transfer',
+            transactionReference,
+            status: 'Unpaid'
+          }
+        })
+      );
+    }
+
+    await prisma.$transaction(upgradeOps);
 
     // Email notification
     sendRawMail({
       to: app.member.email,
-      subject: 'RIQS Membership Upgrade: Associate Class Awarded',
+      subject: 'RIQS Membership Upgrade: Associate Class Approved — Payment Required',
       html: `
         <div style="font-family: sans-serif; color: #333;">
-          <h2>Congratulations — Associate Membership Awarded</h2>
+          <h2>Congratulations — Associate Membership Approved</h2>
           <p>Dear ${app.member.fullName},</p>
-          <p>We are pleased to inform you that upon review of your completed 2-year mentorship period, the RIQS Board has awarded you the <strong>${targetCategory.categoryName}</strong> membership class.</p>
-          <p><strong>Your New Membership ID:</strong> ${newMembershipId}</p>
+          <p>We are pleased to inform you that upon review of your completed 2-year mentorship period, the RIQS Board has approved you for the <strong>${targetCategory.categoryName}</strong> membership class.</p>
+          <p>To be recognized under this new class and receive your new membership ID, please pay the first-year membership fee for this category through your RIQS dashboard Payments page. Your new membership ID and the benefits of this class will be issued once payment is verified.</p>
           <p>You may continue your professional journey by requesting an APC assessment at any time to upgrade to full Technologist or Professional membership.</p>
           <br/><p>Best regards,</p><p>RIQS Registration Board</p>
         </div>
@@ -447,8 +441,7 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     }).catch((err: any) => console.error('[Award Associate] Failed to send email:', err.message));
 
     return res.status(200).json({
-      message: `Associate class successfully awarded. New membership ID: ${newMembershipId}`,
-      membershipId: newMembershipId,
+      message: `Associate class approved for ${targetCategory.categoryName}. Membership ID will be issued once the first-year fee is paid.`,
       memberClass: newClass
     });
   } catch (error: any) {

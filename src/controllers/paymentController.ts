@@ -4,6 +4,7 @@ import { prisma } from '../config/db';
 import { TransactionType, PaymentMethod, TransactionStatus } from '@prisma/client';
 import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils';
 import { sendMail } from '../config/mailer';
+import { nextMembershipId } from './progressionController';
 
 // 1. Submit a payment transaction record (manual receipt reference)
 export async function submitPayment(req: AuthenticatedRequest, res: Response) {
@@ -117,7 +118,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       where: { id: transactionId },
       include: {
         member: true,
-        application: { include: { category: true } }
+        application: { include: { category: true, pendingUpgradeCategory: true } }
       }
     });
 
@@ -141,6 +142,18 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       const nextNumber = lastNumber && !isNaN(Number(lastNumber)) ? Number(lastNumber) + 1 : 1;
       generatedMembershipId = `${prefix}${String(nextNumber).padStart(4, '0')}`;
       generatedMembershipClass = deriveMemberClass(existingTransaction.application.category.categoryCode);
+    }
+
+    // Membership-class upgrade (APC pass or Associate award) held pending this
+    // exact fee. Only apply the class/ID/role change once it clears.
+    const pendingUpgrade = existingTransaction.application?.pendingUpgradeClass
+      ? existingTransaction.application
+      : null;
+    let upgradeMembershipId: string | null = null;
+
+    if (action === 'Cleared' && isFirstYearFee && pendingUpgrade && pendingUpgrade.pendingUpgradeCertCode) {
+      const currentYear = new Date().getFullYear();
+      upgradeMembershipId = await nextMembershipId(`RIQS-${currentYear}-${pendingUpgrade.pendingUpgradeCertCode}-`);
     }
 
     const transactionQueries: any[] = [
@@ -196,6 +209,70 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       );
     }
 
+    if (upgradeMembershipId && pendingUpgrade) {
+      transactionQueries.push(
+        prisma.member.update({
+          where: { id: existingTransaction.memberId },
+          data: {
+            membershipId: upgradeMembershipId,
+            membershipClass: pendingUpgrade.pendingUpgradeClass as any,
+            membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
+            ...(pendingUpgrade.pendingUpgradePromoteToMentor ? { systemRole: 'Mentor' } : {}),
+            updatedAt: new Date()
+          }
+        }),
+        prisma.application.update({
+          where: { id: pendingUpgrade.id },
+          data: {
+            categoryId: pendingUpgrade.pendingUpgradeCategoryId!,
+            pendingUpgradeClass: null,
+            pendingUpgradeCategoryId: null,
+            pendingUpgradeCertCode: null,
+            pendingUpgradePromoteToMentor: false
+          }
+        }),
+        prisma.auditLog.create({
+          data: {
+            memberId: existingTransaction.memberId,
+            actionByEmail: req.user.email,
+            actionType: 'MEMBERSHIP_UPGRADE_ACTIVATED',
+            details: `First-year fee cleared. Membership upgraded to ${pendingUpgrade.pendingUpgradeClass}. New ID: ${upgradeMembershipId}.`
+          }
+        })
+      );
+
+      if (pendingUpgrade.pendingUpgradeCategory?.annualRenewalFee) {
+        transactionQueries.push(
+          prisma.financialTransaction.updateMany({
+            where: {
+              memberId: existingTransaction.memberId,
+              txType: 'Annual_Renewal',
+              status: 'Unpaid'
+            },
+            data: { amount: pendingUpgrade.pendingUpgradeCategory.annualRenewalFee }
+          })
+        );
+      }
+
+      const stampFeeAmount = pendingUpgrade.pendingUpgradeCategory?.stampFee ?? 0;
+      if (Number(stampFeeAmount) > 0) {
+        transactionQueries.push(
+          prisma.financialTransaction.create({
+            data: {
+              memberId: existingTransaction.memberId,
+              applicationId: pendingUpgrade.id,
+              amount: stampFeeAmount,
+              currency: pendingUpgrade.pendingUpgradeCategory?.currency || 'RWF',
+              txType: 'Stamp_Fee',
+              paymentMethod: 'Bank_Transfer',
+              transactionReference: `STAMP-${upgradeMembershipId}-${Date.now()}`,
+              status: 'Unpaid'
+            }
+          })
+        );
+      }
+    }
+
     const [updatedTransaction] = await prisma.$transaction(transactionQueries);
 
     if (generatedMembershipId) {
@@ -210,7 +287,19 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    return res.status(200).json({ message: generatedMembershipId
+    if (upgradeMembershipId && pendingUpgrade) {
+      try {
+        await sendMail(existingTransaction.member.email, 'membershipActivated', {
+          name: existingTransaction.member.fullName,
+          membershipId: upgradeMembershipId,
+          category: pendingUpgrade.pendingUpgradeCategory?.categoryName || ''
+        });
+      } catch (mailErr: any) {
+        console.warn('[Verify Payment] Upgrade activation email failed:', mailErr.message);
+      }
+    }
+
+    return res.status(200).json({ message: (generatedMembershipId || upgradeMembershipId)
       ? 'Payment cleared and membership credentials issued.'
       : `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
   } catch (error: any) {

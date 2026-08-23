@@ -119,6 +119,7 @@ model MembershipCategory {
   competencyLevel   CompetencyLevel? @map("competency_level")
 
   applications Application[]
+  pendingUpgradeApplications Application[] @relation("PendingUpgradeCategory")
 
   @@map("membership_categories")
 }
@@ -223,8 +224,17 @@ model Application {
   createdAt                     DateTime?          @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                     DateTime?          @default(now()) @map("updated_at") @db.Timestamptz
 
+  // Set when an APC pass or Associate award has been decided but is held pending
+  // the member paying the new category's first-year fee. Applied to the Member
+  // (and cleared here) once that FinancialTransaction is marked Cleared.
+  pendingUpgradeClass           MemberClass?       @map("pending_upgrade_class")
+  pendingUpgradeCategoryId      String?            @map("pending_upgrade_category_id") @db.Uuid
+  pendingUpgradeCertCode        String?            @map("pending_upgrade_cert_code") @db.VarChar(10)
+  pendingUpgradePromoteToMentor Boolean            @default(false) @map("pending_upgrade_promote_to_mentor")
+
   member                Member                     @relation(fields: [memberId], references: [id], onDelete: Cascade)
   category              MembershipCategory         @relation(fields: [categoryId], references: [id])
+  pendingUpgradeCategory MembershipCategory?       @relation("PendingUpgradeCategory", fields: [pendingUpgradeCategoryId], references: [id])
   assignedReviewer      Member?                    @relation("ReviewerAssignments", fields: [assignedReviewerId], references: [id])
   educationRecords      EducationRecord[]
   employmentRecords     EmploymentRecord[]
