@@ -69,6 +69,14 @@ const templates = [
     body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">Your RIQS membership application has been successfully submitted and is now in the Secretariat review queue.</p>\n<p class="mb-4">Our team will review your application and notify you when it is forwarded to the Assessment Committee or if additional information is required.</p>\n<p class="mb-4">You can track your application status at any time from the <strong>RIQS Members Portal</strong>.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
   },
   {
+    id: "paymentReceipt",
+    name: "Payment Receipt",
+    category: "Payments",
+    subject: "Your Receipt from RIQS — {{receiptNumber}}",
+    description: "Sent whenever a payment is confirmed Paid, with the PDF receipt attached.",
+    body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">We've received your payment of <strong>{{currency}} {{amount}}</strong> for your {{txTypeLabel}}. Your official receipt (<strong>{{receiptNumber}}</strong>) is attached to this email.</p>\n<p class="mb-4">Thank you for your payment.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
+  },
+  {
     id: "applicationResubmitted",
     name: "Application Resubmitted",
     category: "Applications",
@@ -269,6 +277,9 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
       if (catName.includes("Associate")) {
         // Associate categories are system placeholders. No application documents required.
       } else if (catName.includes("Graduate")) {
+        // No "Proof of Momo Payment" document here — the Processing Fee for Graduate
+        // categories is now collected (and verified) directly through the in-app
+        // IntouchPay Mobile Money flow, not a manually-uploaded payment screenshot.
         list.push({ name: "Notarized Degree/Diploma (HEC equivalency if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects (Optional)", typeCode: "transcript" });
         list.push({ name: "Certificate of RQSSA (or equivalent student membership proof)", typeCode: "student_association" });
@@ -276,7 +287,6 @@ const getDefaultDocuments = (draft: { entityType: string, location: string, cate
         list.push({ name: "Copy of ID / Passport", typeCode: "id_passport" });
         list.push({ name: "Passport size photo", typeCode: "photo" });
         list.push({ name: "Curriculum Vitae (CV) (Optional)", typeCode: "cv" });
-        list.push({ name: "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)", typeCode: "payment" });
       } else if (catName.includes("Technologist") && !catName.includes("Associate")) {
         list.push({ name: "Diploma Certificate (HEC equivalency if foreign)", typeCode: "degree" });
         list.push({ name: "Notarized Academic Transcripts showing subjects", typeCode: "transcript" });

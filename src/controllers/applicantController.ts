@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
-import { PracticeLocation, EntityType } from '@prisma/client';
+import { PracticeLocation, EntityType, Prisma } from '@prisma/client';
 import { sendMail } from '../config/mailer';
 
 // 1. Fetch complete application packet (including educations, documents, mentorships, and shareholders)
@@ -336,28 +336,60 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
       });
     }
 
-    // Create fresh Application Draft
-    const newApp = await prisma.application.create({
-      data: {
-        memberId: req.user.id,
-        practiceLocation: practiceLocation as PracticeLocation,
-        entityType: entityType as EntityType,
-        categoryId,
-        firmName,
-        firmAddress,
-        firmContactRegistrationNumber,
-        firmContactResidence,
-        firmMainBusinessActivity,
-        firmCountryOfIncorporation,
-        firmPrincipalPlaceOfBusiness,
-        agreedToMentorshipIntent: agreedToMentorshipIntent || false,
-        hasNoEmployment: hasNoEmployment || false,
-        agreedToDeclarations: agreedToDeclarations || false,
-        competenceSummary: competenceSummary || null,
-        currentStep: currentStep || 0,
-        status: 'Draft'
+    // Create fresh Application Draft. The unique constraint on memberId is the real
+    // guard against a member ending up with two rows (e.g. two auto-saves racing on
+    // the very first save, both seeing existingApp === null) — if we lose that race,
+    // fall back to updating the row the other request just inserted instead of 500ing.
+    let newApp;
+    try {
+      newApp = await prisma.application.create({
+        data: {
+          memberId: req.user.id,
+          practiceLocation: practiceLocation as PracticeLocation,
+          entityType: entityType as EntityType,
+          categoryId,
+          firmName,
+          firmAddress,
+          firmContactRegistrationNumber,
+          firmContactResidence,
+          firmMainBusinessActivity,
+          firmCountryOfIncorporation,
+          firmPrincipalPlaceOfBusiness,
+          agreedToMentorshipIntent: agreedToMentorshipIntent || false,
+          hasNoEmployment: hasNoEmployment || false,
+          agreedToDeclarations: agreedToDeclarations || false,
+          competenceSummary: competenceSummary || null,
+          currentStep: currentStep || 0,
+          status: 'Draft'
+        }
+      });
+    } catch (createErr: any) {
+      if (createErr instanceof Prisma.PrismaClientKnownRequestError && createErr.code === 'P2002') {
+        newApp = await prisma.application.update({
+          where: { memberId: req.user.id },
+          data: {
+            practiceLocation: practiceLocation as PracticeLocation,
+            entityType: entityType as EntityType,
+            categoryId,
+            firmName,
+            firmAddress,
+            firmContactRegistrationNumber,
+            firmContactResidence,
+            firmMainBusinessActivity,
+            firmCountryOfIncorporation,
+            firmPrincipalPlaceOfBusiness,
+            agreedToMentorshipIntent: agreedToMentorshipIntent || false,
+            hasNoEmployment: hasNoEmployment || false,
+            agreedToDeclarations: agreedToDeclarations || false,
+            competenceSummary: competenceSummary || null,
+            currentStep: currentStep || 0,
+            updatedAt: new Date()
+          }
+        });
+      } else {
+        throw createErr;
       }
-    });
+    }
 
     if (studentAssociation && studentAssociation.associationName) {
       await prisma.studentAssociationRecord.create({
@@ -475,9 +507,6 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
     return res.status(400).json({ error: 'Missing applicationId in submission request.' });
   }
 
-  const applicantUserId = req.user.id;
-  const applicantUserEmail = req.user.email;
-
   try {
     const existingApp = await prisma.application.findFirst({
       where: {
@@ -485,16 +514,95 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
         memberId: req.user.id,
         status: { in: ['Draft', 'Correction_Required'] }
       },
-      include: {
-        category: true,
-        member: { select: { fullName: true, email: true } }
-      }
+      include: { category: true }
     });
 
     if (!existingApp) {
       return res.status(400).json({ error: 'Invalid submission request. Application is not in Draft or Correction state.' });
     }
 
+    const isRoute3Or4 = existingApp.category &&
+      (existingApp.category.categoryName.toLowerCase().includes('route 3') ||
+       existingApp.category.categoryName.toLowerCase().includes('route 4') ||
+       existingApp.category.categoryCode === 'QST' ||
+       existingApp.category.categoryCode === 'PQS');
+
+    // Processing-Fee Payment Gate — categories that owe a processing fee must pay it
+    // (via the member-initiated Mobile Money flow, see paymentController.initiateProcessingFeePayment)
+    // before submission is allowed to proceed. The Route 3/4 waiver below is the one exception.
+    const processingFeeAmount = Number(existingApp.category?.processingFee || 0);
+    if (!isRoute3Or4 && processingFeeAmount > 0) {
+      // Must match the CURRENT category's fee — if the member switched categories (e.g. a
+      // Firm changing size tier) after paying for a cheaper one, that older payment doesn't
+      // cover this category and shouldn't waive the gate.
+      const clearedFee = await prisma.financialTransaction.findFirst({
+        where: { applicationId, txType: 'Processing_Fee', status: 'Paid', amount: processingFeeAmount }
+      });
+      if (!clearedFee) {
+        return res.status(402).json({
+          error: 'Processing fee payment is required before this application can be submitted.',
+          code: 'PAYMENT_REQUIRED'
+        });
+      }
+    }
+
+    // Route 3/4 Fee Bypass Logic
+    if (isRoute3Or4) {
+      const existingFee = await prisma.financialTransaction.findFirst({
+        where: { applicationId, txType: 'Processing_Fee' }
+      });
+      if (!existingFee) {
+        await prisma.financialTransaction.create({
+          data: {
+            memberId: existingApp.memberId,
+            applicationId: applicationId,
+            amount: 0,
+            currency: 'RWF',
+            txType: 'Processing_Fee',
+            paymentMethod: 'Bank_Transfer',
+            transactionReference: `AUTO-WAIVED-${Date.now()}`,
+            status: 'Paid'
+          }
+        });
+      }
+    }
+
+    const result = await finalizeApplicationSubmission(applicationId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error('[Submit Application] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error locking application.' });
+  }
+}
+
+// Shared finalize step: transitions a Draft/Correction_Required application into the
+// review queue (mentor auto-assignment, status transition, audit trail, notification email).
+// Called directly by submitApplication (free/waived categories) and, for paid categories,
+// by the payment layer once the Processing_Fee transaction actually clears — whether that
+// happens via the IntouchPay callback or the status-poll fallback (see paymentController.ts).
+// Idempotent: a second call after the application has already left Draft/Correction_Required
+// is a safe no-op, since payment confirmation can race the member's own poll.
+export async function finalizeApplicationSubmission(applicationId: string) {
+  const existingApp = await prisma.application.findUnique({
+    where: { id: applicationId },
+    include: {
+      category: true,
+      member: { select: { id: true, fullName: true, email: true } }
+    }
+  });
+
+  if (!existingApp || !existingApp.member) {
+    return { message: 'Application not found.', application: null, alreadyFinalized: true };
+  }
+
+  if (!existingApp.status || !['Draft', 'Correction_Required'].includes(existingApp.status)) {
+    return { message: 'Application already submitted.', application: existingApp, alreadyFinalized: true };
+  }
+
+  const applicantUserId = existingApp.memberId;
+  const applicantUserEmail = existingApp.member.email;
+
+  try {
     // Mentor Auto-Assignment Logic
     let mentorship = await prisma.mentorshipAssignment.findUnique({
       where: { applicationId }
@@ -567,33 +675,6 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
         }
     }
 
-    const isRoute3Or4 = existingApp.category && 
-      (existingApp.category.categoryName.toLowerCase().includes('route 3') || 
-       existingApp.category.categoryName.toLowerCase().includes('route 4') ||
-       existingApp.category.categoryCode === 'QST' ||
-       existingApp.category.categoryCode === 'PQS');
-
-    // Route 3/4 Fee Bypass Logic
-    if (isRoute3Or4) {
-      const existingFee = await prisma.financialTransaction.findFirst({
-        where: { applicationId, txType: 'Processing_Fee' }
-      });
-      if (!existingFee) {
-        await prisma.financialTransaction.create({
-          data: {
-            memberId: existingApp.memberId,
-            applicationId: applicationId,
-            amount: 0,
-            currency: 'RWF',
-            txType: 'Processing_Fee',
-            paymentMethod: 'Bank_Transfer',
-            transactionReference: `AUTO-WAIVED-${Date.now()}`,
-            status: 'Cleared'
-          }
-        });
-      }
-    }
-
     const wasReturnedForCorrection = existingApp.status === 'Correction_Required';
     const submissionStatus = wasReturnedForCorrection ? 'Under_Review' : 'Pending';
     const submissionTime = new Date();
@@ -653,14 +734,15 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       console.warn(`[Submit Application] ${notificationTemplate} email failed:`, mailErr.message);
     }
 
-    return res.status(200).json({
+    return {
       message: wasReturnedForCorrection
         ? 'Corrected application resubmitted directly to the reviewer committee.'
         : 'Application locked and successfully submitted to review queue.',
-      application: updatedApp
-    });
+      application: updatedApp,
+      alreadyFinalized: false
+    };
   } catch (error: any) {
-    console.error('[Submit Application] Error:', error.message);
-    return res.status(500).json({ error: 'Internal server error locking application.' });
+    console.error('[Finalize Application Submission] Error:', error.message);
+    throw error;
   }
 }

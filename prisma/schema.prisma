@@ -97,7 +97,7 @@ enum PaymentMethod {
 enum TransactionStatus {
   Unpaid
   Pending_Verification
-  Cleared
+  Paid
   Failed
   Refunded
 }
@@ -201,7 +201,7 @@ model ProfileEditRequest {
 
 model Application {
   id                            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  memberId                      String             @map("member_id") @db.Uuid
+  memberId                      String             @unique @map("member_id") @db.Uuid
   practiceLocation              PracticeLocation   @map("practice_location")
   entityType                    EntityType         @map("entity_type")
   categoryId                    String             @map("category_id") @db.Uuid
@@ -475,6 +475,7 @@ model FinancialTransaction {
   txType               TransactionType    @map("tx_type")
   paymentMethod        PaymentMethod      @map("payment_method")
   transactionReference String             @unique @map("transaction_reference") @db.VarChar(255)
+  providerTransactionId String?           @unique @map("provider_transaction_id") @db.VarChar(100)
   status               TransactionStatus? @default(Pending_Verification)
   verifiedByEmail      String?            @map("verified_by_email") @db.VarChar(255)
   rejectionReason      String?            @map("rejection_reason")

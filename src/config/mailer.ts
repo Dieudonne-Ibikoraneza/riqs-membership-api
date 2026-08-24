@@ -38,7 +38,7 @@ function interpolate(template: string, variables: Record<string, any>): string {
 }
 
 // Mail Send Dispatcher using EmailJS
-export async function sendMail(to: string, templateId: string, payload: Record<string, any>) {
+export async function sendMail(to: string, templateId: string, payload: Record<string, any>, attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>) {
   try {
     // Fetch template from database
     const template = await prisma.emailTemplate.findUnique({
@@ -53,7 +53,7 @@ export async function sendMail(to: string, templateId: string, payload: Record<s
     const subject = interpolate(template.subject, payload);
     const html_content = interpolate(template.body, payload);
 
-    const response = await transporter.sendMail({ from: SMTP_FROM, to, subject, html: html_content });
+    const response = await transporter.sendMail({ from: SMTP_FROM, to, subject, html: html_content, attachments });
     console.log(`[SMTP] Dispatch Success to ${to}. Message ID: ${response.messageId}`);
     return { success: true };
   } catch (error: any) {

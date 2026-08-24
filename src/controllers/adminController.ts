@@ -713,7 +713,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       currency: app.category.currency,
       location: app.category.location,
       cat_entity_type: app.category.entityType,
-      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Cleared',
+      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Paid',
       processing_fee_tx_id: app.financialTransactions?.[0]?.id || null,
       processing_fee_status: app.financialTransactions?.[0]?.status || null
     };
@@ -1075,7 +1075,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
           _count: {
             select: {
               financialTransactions: {
-                where: { txType: 'Annual_Renewal', status: 'Cleared' }
+                where: { txType: 'Annual_Renewal', status: 'Paid' }
               }
             }
           }
@@ -1087,7 +1087,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
     const mapped = members.map(m => {
       const app = m.applications[0];
       const processingFeeTx = m.financialTransactions?.[0];
-      const memberStatus = processingFeeTx?.status === 'Cleared' ? 'Active' : 'Pending Payment';
+      const memberStatus = processingFeeTx?.status === 'Paid' ? 'Active' : 'Pending Payment';
 
       // FOR TESTING: Dynamic Expiry Calculation: 5 minutes from approval + 5 minutes for each cleared renewal
       const baseDate = app?.approvedAt || m.createdAt || new Date();

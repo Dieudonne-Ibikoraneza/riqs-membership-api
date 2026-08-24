@@ -1,10 +1,13 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
-import { TransactionType, PaymentMethod, TransactionStatus } from '@prisma/client';
+import { TransactionType, PaymentMethod, TransactionStatus, Prisma } from '@prisma/client';
 import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils';
 import { sendMail } from '../config/mailer';
 import { nextMembershipId } from './progressionController';
+import { finalizeApplicationSubmission } from './applicantController';
+import * as intouchPay from '../services/intouchPayService';
+import { issuePaymentReceipt } from '../services/receiptService';
 
 // 1. Submit a payment transaction record (manual receipt reference)
 export async function submitPayment(req: AuthenticatedRequest, res: Response) {
@@ -98,13 +101,13 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
   const { transactionId, action, rejectionReason } = req.body;
-  // action: 'Cleared' | 'Failed' | 'Refunded'
+  // action: 'Paid' | 'Failed' | 'Refunded'
 
   if (!transactionId || !action) {
     return res.status(400).json({ error: 'Missing transactionId or action.' });
   }
 
-  const validActions = ['Cleared', 'Failed', 'Refunded'];
+  const validActions = ['Paid', 'Failed', 'Refunded'];
   if (!validActions.includes(action)) {
     return res.status(400).json({ error: `Invalid action. Must be one of: ${validActions.join(', ')}` });
   }
@@ -126,11 +129,22 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ error: 'Transaction not found or already verified.' });
     }
 
+    // A transaction with a providerTransactionId was initiated through the live IntouchPay
+    // gateway (see paymentController.initiateProcessingFeePayment) and is only ever resolved
+    // by the gateway itself (its callback, or the status-poll fallback) — never by staff.
+    // paymentMethod alone can't be used for this check: the manual receipt-upload flow also
+    // tags its rows 'MTN_Momo' (meaning "an MTN transfer", not "went through our gateway").
+    // Manually flipping a gateway row to Paid would let it be marked paid without money ever
+    // actually moving, which is exactly the fraud risk this restriction exists to prevent.
+    if (existingTransaction.providerTransactionId) {
+      return res.status(400).json({ error: 'Mobile Money payments are verified automatically by the payment gateway and cannot be manually cleared.' });
+    }
+
     const isFirstYearFee = existingTransaction.txType === 'First_Year_Fee';
     let generatedMembershipId: string | null = null;
     let generatedMembershipClass: string | null = null;
 
-    if (action === 'Cleared' && isFirstYearFee && existingTransaction.application?.category && !existingTransaction.member.membershipId) {
+    if (action === 'Paid' && isFirstYearFee && existingTransaction.application?.category && !existingTransaction.member.membershipId) {
       const currentYear = new Date().getFullYear();
       const certCode = getCertificateCode(existingTransaction.application.category.categoryCode);
       const prefix = `RIQS-${currentYear}-${certCode}-`;
@@ -151,7 +165,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       : null;
     let upgradeMembershipId: string | null = null;
 
-    if (action === 'Cleared' && isFirstYearFee && pendingUpgrade && pendingUpgrade.pendingUpgradeCertCode) {
+    if (action === 'Paid' && isFirstYearFee && pendingUpgrade && pendingUpgrade.pendingUpgradeCertCode) {
       const currentYear = new Date().getFullYear();
       upgradeMembershipId = await nextMembershipId(`RIQS-${currentYear}-${pendingUpgrade.pendingUpgradeCertCode}-`);
     }
@@ -163,7 +177,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
           status: action as TransactionStatus,
           verifiedByEmail: req.user.email,
           rejectionReason: rejectionReason || null,
-          clearedAt: action === 'Cleared' ? new Date() : null
+          clearedAt: action === 'Paid' ? new Date() : null
         }
       }),
       prisma.auditLog.create({
@@ -176,7 +190,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    if (action === 'Cleared' && (existingTransaction.txType === 'First_Year_Fee' || existingTransaction.txType === 'Annual_Renewal')) {
+    if (action === 'Paid' && (existingTransaction.txType === 'First_Year_Fee' || existingTransaction.txType === 'Annual_Renewal')) {
       const now = new Date();
       let expiryYear = now.getFullYear();
       if (now.getMonth() === 11) {
@@ -299,6 +313,14 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    if (action === 'Paid') {
+      try {
+        await issuePaymentReceipt(transactionId);
+      } catch (receiptErr: any) {
+        console.error('[Verify Payment] Receipt issuance failed:', receiptErr.message);
+      }
+    }
+
     return res.status(200).json({ message: (generatedMembershipId || upgradeMembershipId)
       ? 'Payment cleared and membership credentials issued.'
       : `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });
@@ -315,7 +337,17 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   const { status = 'Pending_Verification', page = '1', limit = '20' } = req.query;
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
-  const whereClause = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
+  const statusFilter: Prisma.FinancialTransactionWhereInput = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
+  // A row with a providerTransactionId went through the live IntouchPay gateway and is
+  // verified automatically (callback/status-poll) — a still-pending one is never actionable
+  // by staff and would just be confusing noise here, so it's excluded regardless of which
+  // status filter is selected. This is NOT the same test as paymentMethod === 'MTN_Momo':
+  // the manual receipt-upload flow also tags its rows 'MTN_Momo' but has no providerTransactionId,
+  // and those genuinely need to stay in the queue for staff to review.
+  const whereClause: Prisma.FinancialTransactionWhereInput = {
+    ...statusFilter,
+    NOT: { providerTransactionId: { not: null }, status: 'Pending_Verification' as TransactionStatus }
+  };
 
   try {
     const [transactions, total] = await Promise.all([
@@ -371,4 +403,200 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
     console.error('[Get Pending Payments] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching payment queue.' });
   }
+}
+
+// 5. Member-initiated Mobile Money payment for the application Processing Fee.
+// This is the first phase of replacing manual receipt-upload + admin-clearance with
+// real IntouchPay payments: the member pays directly, the gateway's callback (or a
+// status-poll fallback, in case the callback doesn't arrive) clears the transaction,
+// and the application is auto-submitted the moment that fee clears. Manual clearance
+// (submitPayment/verifyPayment above) is left untouched for every other fee type.
+export async function initiateProcessingFeePayment(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId, mobilephone } = req.body;
+  if (!applicationId || !mobilephone) {
+    return res.status(400).json({ error: 'applicationId and mobilephone are required.' });
+  }
+
+  try {
+    const application = await prisma.application.findFirst({
+      where: {
+        id: applicationId,
+        memberId: req.user.id,
+        status: { in: ['Draft', 'Correction_Required'] }
+      },
+      include: { category: true }
+    });
+
+    if (!application || !application.category) {
+      return res.status(404).json({ error: 'Application not found or not eligible for payment.' });
+    }
+
+    const fee = Number(application.category.processingFee || 0);
+    if (fee <= 0) {
+      return res.status(400).json({ error: 'This category has no processing fee — you can submit directly.' });
+    }
+
+    // A processing fee cleared through ANY channel (including the manual upload/admin-clearance
+    // flow) counts as paid — don't make the member pay twice. Must match the CURRENT category's
+    // fee though: if they paid for one category then switched to a pricier one before submitting,
+    // that older payment doesn't cover the difference and shouldn't waive this one.
+    const clearedFee = await prisma.financialTransaction.findFirst({
+      where: { applicationId, txType: 'Processing_Fee', status: 'Paid', amount: fee }
+    });
+    if (clearedFee) {
+      return res.status(200).json({ status: 'Paid', transactionId: clearedFee.id, message: 'Processing fee already paid.' });
+    }
+
+    // Only a transaction WE created for this Mobile Money flow (paymentMethod MTN_Momo,
+    // has a providerTransactionId) can be "already in progress" here. A manual-flow row
+    // (e.g. an uploaded receipt awaiting admin review) must never block or be reused by
+    // this gateway flow — it belongs to a completely separate payment method.
+    const existingMomo = await prisma.financialTransaction.findFirst({
+      where: { applicationId, txType: 'Processing_Fee', paymentMethod: 'MTN_Momo', providerTransactionId: { not: null } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (existingMomo?.status === 'Pending_Verification') {
+      return res.status(409).json({
+        error: 'A payment request is already in progress for this application.',
+        transactionId: existingMomo.id
+      });
+    }
+
+    const requesttransactionid = `PROC-${applicationId.slice(0, 8)}-${Date.now()}`;
+
+    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
+    console.log('[Initiate Processing Fee Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+
+    if (!data?.success) {
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+    }
+
+    const txData = {
+      memberId: req.user.id,
+      applicationId,
+      amount: fee,
+      currency: application.category.currency || 'RWF',
+      txType: 'Processing_Fee' as TransactionType,
+      paymentMethod: 'MTN_Momo' as PaymentMethod,
+      transactionReference: requesttransactionid,
+      providerTransactionId: requesttransactionid,
+      status: 'Pending_Verification' as TransactionStatus,
+      rejectionReason: null
+    };
+
+    const transaction = existingMomo
+      ? await prisma.financialTransaction.update({ where: { id: existingMomo.id }, data: txData })
+      : await prisma.financialTransaction.create({ data: txData });
+
+    return res.status(200).json({
+      status: 'Pending',
+      transactionId: transaction.id,
+      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
+    });
+  } catch (err: any) {
+    console.error('[Initiate Processing Fee Payment] Error:', err.message);
+    return res.status(500).json({ error: 'Internal server error initiating payment.' });
+  }
+}
+
+// 6. Member polls this to find out whether their Processing Fee payment has cleared.
+// Primarily driven by the IntouchPay callback (see intouchPayController.receivePaymentCallback),
+// but if the callback is delayed this actively re-checks with IntouchPay's GetTransactionStatus
+// as a fallback so the member's UI isn't left hanging.
+export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { transactionId } = req.params;
+
+  try {
+    let transaction = await prisma.financialTransaction.findFirst({
+      where: { id: transactionId, memberId: req.user.id, txType: 'Processing_Fee' }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
+      try {
+        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        if (data?.success && data?.status) {
+          transaction = await applyProcessingFeeGatewayResult(transaction, data.status, data.statusdesc);
+        }
+      } catch (pollErr: any) {
+        console.warn('[Processing Fee Status] Gateway status poll failed:', pollErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      status: transaction.status,
+      transactionId: transaction.id,
+      applicationId: transaction.applicationId,
+      rejectionReason: transaction.rejectionReason
+    });
+  } catch (error: any) {
+    console.error('[Processing Fee Status] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error checking payment status.' });
+  }
+}
+
+// Shared by the callback receiver and the status-poll fallback above: applies a final
+// gateway status (Success/Failed, as reported by IntouchPay) to a Pending_Verification
+// Processing_Fee transaction, and auto-finalizes the application submission on success.
+// A non-final status (still pending gateway-side) is a no-op — the row is left untouched.
+async function applyProcessingFeeGatewayResult(
+  transaction: { id: string; txType: TransactionType; applicationId: string | null },
+  gatewayStatus?: string,
+  gatewayStatusDesc?: string
+) {
+  const normalized = (gatewayStatus || '').toLowerCase();
+  const isSuccess = normalized.includes('success');
+  const isFailure = normalized.includes('fail') || normalized.includes('reject') || normalized.includes('cancel') || normalized.includes('timeout');
+
+  if (!isSuccess && !isFailure) {
+    return prisma.financialTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
+  }
+
+  const updated = await prisma.financialTransaction.update({
+    where: { id: transaction.id },
+    data: isSuccess
+      ? { status: 'Paid', clearedAt: new Date(), rejectionReason: null }
+      : { status: 'Failed', rejectionReason: gatewayStatusDesc || 'Payment was not completed.' }
+  });
+
+  if (isSuccess && updated.txType === 'Processing_Fee' && updated.applicationId) {
+    try {
+      await finalizeApplicationSubmission(updated.applicationId);
+    } catch (finalizeErr: any) {
+      console.error('[Processing Fee] Auto-finalize after payment failed:', finalizeErr.message);
+    }
+  }
+
+  if (isSuccess) {
+    try {
+      await issuePaymentReceipt(updated.id);
+    } catch (receiptErr: any) {
+      console.error('[Processing Fee] Receipt issuance failed:', receiptErr.message);
+    }
+  }
+
+  return updated;
+}
+
+// Called by intouchPayController.receivePaymentCallback once IntouchPay reports the final
+// outcome of a member-initiated Processing Fee payment. Looks the transaction up by the
+// requesttransactionid we generated when initiating it — returns null if no such payment
+// was ever initiated through this flow (e.g. an admin-initiated IntouchPay request).
+export async function resolveProcessingFeePaymentByProviderId(
+  requesttransactionid: string,
+  gatewayStatus?: string,
+  gatewayStatusDesc?: string
+) {
+  const transaction = await prisma.financialTransaction.findUnique({ where: { providerTransactionId: requesttransactionid } });
+  if (!transaction || transaction.txType !== 'Processing_Fee') return null;
+  if (transaction.status !== 'Pending_Verification') return transaction;
+  return applyProcessingFeeGatewayResult(transaction, gatewayStatus, gatewayStatusDesc);
 }

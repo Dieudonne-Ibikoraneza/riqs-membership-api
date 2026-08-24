@@ -82,7 +82,7 @@ export function startCronJobs() {
              where: {
                memberId: member.id,
                txType: 'Annual_Renewal',
-               status: 'Cleared',
+               status: 'Paid',
                createdAt: { gte: new Date(today.getFullYear(), today.getMonth() - 2, 1) }
              }
           });

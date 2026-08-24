@@ -37,6 +37,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://ricos.rwandaiqs.org',
   'https://riqs-membership.vercel.app',
   'https://cursor-antelope-spendable.ngrok-free.dev'

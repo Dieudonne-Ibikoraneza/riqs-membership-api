@@ -128,7 +128,14 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    if (isPayment && appWithCat?.category && req.body.skipTransaction !== 'true' && appWithCat.category.processingFee && Number(appWithCat.category.processingFee) > 0) {
+    // Skip entirely if the Processing Fee is already Paid (e.g. through the in-app
+    // IntouchPay Mobile Money flow) — uploading a payment-proof document at that point
+    // would otherwise create a redundant, confusing Pending_Verification duplicate.
+    const alreadyPaidProcessingFee = isPayment
+      ? await prisma.financialTransaction.findFirst({ where: { applicationId, txType: 'Processing_Fee', status: 'Paid' } })
+      : null;
+
+    if (isPayment && !alreadyPaidProcessingFee && appWithCat?.category && req.body.skipTransaction !== 'true' && appWithCat.category.processingFee && Number(appWithCat.category.processingFee) > 0) {
       const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
         
         transactionOperations.push(

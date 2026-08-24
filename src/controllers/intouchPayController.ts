@@ -7,6 +7,7 @@ import {
   PAYMENT_CODE_STATUS,
   statusForCode
 } from '../services/intouchPayResponseCodes';
+import { resolveProcessingFeePaymentByProviderId } from './paymentController';
 
 // 1. Balance Inquiry — GetBalance
 export async function getBalance(req: AuthenticatedRequest, res: Response) {
@@ -90,6 +91,15 @@ export async function receivePaymentCallback(req: AuthenticatedRequest, res: Res
 
   if (!requesttransactionid) {
     return res.status(400).json({ message: 'requesttransactionid is required.', success: false });
+  }
+
+  // Reconcile against a member-initiated Processing Fee payment, if this requesttransactionid
+  // corresponds to one (see paymentController.initiateProcessingFeePayment). No-op otherwise —
+  // e.g. for admin-triggered RequestPayment calls unrelated to this flow.
+  try {
+    await resolveProcessingFeePaymentByProviderId(requesttransactionid, status, statusdesc);
+  } catch (err: any) {
+    console.error('[IntouchPay Callback] Failed to reconcile transaction:', err.message);
   }
 
   // Acknowledge receipt in the exact shape IntouchPay's spec requires from the App.
