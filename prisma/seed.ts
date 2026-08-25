@@ -77,6 +77,44 @@ const templates = [
     body: `<p class="mb-4">Dear <strong>{{name}}</strong>,</p>\n<p class="mb-4">We've received your payment of <strong>{{currency}} {{amount}}</strong> for your {{txTypeLabel}}. Your official receipt (<strong>{{receiptNumber}}</strong>) is attached to this email.</p>\n<p class="mb-4">Thank you for your payment.</p>\n<p class="mb-4">Regards,<br/><strong>RIQS Secretariat</strong><br/>Rwanda Institute of Quantity Surveyors</p>`,
   },
   {
+    id: "paymentProofCleared",
+    name: "Proof of Payment Verified",
+    category: "Payments",
+    subject: "Your Proof of Payment Has Been Verified — RIQS",
+    description: "Sent when the Secretariat verifies a manually-uploaded proof of payment (bank transfer or other method) for a Processing Fee.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #16a34a; border-bottom: 2px solid #16a34a; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Payment Verified</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Good news — our Secretariat team has reviewed and verified your proof of payment of <strong>{{currency}} {{amount}}</strong> for your <strong>{{categoryName}}</strong> application's processing fee.</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">You can now log in to the <strong>RIQS Members Portal</strong> and submit your application for review.</p>
+  <p style="margin: 24px 0; text-align: center;"><a href="https://ricos.rwandaiqs.org/dashboard/application" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: 600;">Go to My Application</a></p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    RIQS Secretariat, Rwanda Institute of Quantity Surveyors.
+  </p>
+</div>`
+  },
+  {
+    id: "paymentProofFailed",
+    name: "Proof of Payment Could Not Be Verified",
+    category: "Payments",
+    subject: "Action Required: Your Proof of Payment Could Not Be Verified — RIQS",
+    description: "Sent when the Secretariat rejects a manually-uploaded proof of payment (bank transfer or other method) for a Processing Fee.",
+    body: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+  <h2 style="color: #d97706; border-bottom: 2px solid #ea580c; padding-bottom: 12px; font-weight: 600; margin-top: 0;">Action Required: Payment Not Verified</h2>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Dear <strong>{{name}}</strong>,</p>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">We were unable to verify the proof of payment of <strong>{{currency}} {{amount}}</strong> you submitted for your <strong>{{categoryName}}</strong> application's processing fee.</p>
+  <div style="background-color: #fffbeb; border-left: 4px solid #d97706; padding: 18px; margin: 20px 0; border-radius: 6px;">
+    <h4 style="margin: 0 0 10px 0; color: #b45309; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Reason:</h4>
+    <p style="margin: 0; font-size: 14px; color: #78350f; line-height: 1.6; white-space: pre-line;">{{rejectionReason}}</p>
+  </div>
+  <p style="font-size: 15px; color: #334155; line-height: 1.6;">Please log in to the <strong>RIQS Members Portal</strong>, upload a valid proof of payment, and resubmit your application for review.</p>
+  <p style="margin: 24px 0; text-align: center;"><a href="https://ricos.rwandaiqs.org/dashboard/application" style="display: inline-block; background-color: #d97706; color: #ffffff; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: 600;">Resubmit My Application</a></p>
+  <p style="margin-top: 30px; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 18px; line-height: 1.4;">
+    RIQS Secretariat, Rwanda Institute of Quantity Surveyors.
+  </p>
+</div>`
+  },
+  {
     id: "applicationResubmitted",
     name: "Application Resubmitted",
     category: "Applications",

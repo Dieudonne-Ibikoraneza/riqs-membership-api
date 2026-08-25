@@ -321,6 +321,28 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    // Manually-uploaded processing-fee proofs (bank slip / other method) block application
+    // submission until a staff member clears them — previously the member had no way to
+    // find out the outcome except by going back to the application page and trying to
+    // resubmit blind. Notify them either way so they know to come back and resubmit.
+    if (existingTransaction.txType === 'Processing_Fee' && (action === 'Paid' || action === 'Failed')) {
+      try {
+        await sendMail(
+          existingTransaction.member.email,
+          action === 'Paid' ? 'paymentProofCleared' : 'paymentProofFailed',
+          {
+            name: existingTransaction.member.fullName,
+            amount: Number(existingTransaction.amount).toLocaleString(),
+            currency: existingTransaction.currency,
+            categoryName: existingTransaction.application?.category?.categoryName || '',
+            rejectionReason: rejectionReason || 'The submitted proof could not be verified.'
+          }
+        );
+      } catch (mailErr: any) {
+        console.error('[Verify Payment] Proof-of-payment result email failed:', mailErr.message);
+      }
+    }
+
     return res.status(200).json({ message: (generatedMembershipId || upgradeMembershipId)
       ? 'Payment cleared and membership credentials issued.'
       : `Payment ${action.toLowerCase()}.`, transaction: updatedTransaction });

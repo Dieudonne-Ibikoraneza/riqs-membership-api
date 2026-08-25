@@ -99,10 +99,14 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    // D. Determine if this document is a payment proof by looking up the category's document config
-    //    Each category document is stored as {name, typeCode}. The uploaded `documentType` is the
-    //    sanitized name key (e.g. "proof_of_momo_payment" from "Proof of MoMo Payment").
-    //    We match it against the category docs, find the typeCode, then check DocumentType.isPaymentProof.
+    // D. Determine if this document is a payment proof. Two ways in:
+    //    1. The uploaded `documentType` IS a DocumentType code directly (e.g. the generic
+    //       "payment" code sent by the manual-proof-upload option in the payment dialog) —
+    //       checked regardless of whether the category's own checklist lists it, since that
+    //       upload path is independent of any specific category's required-document wording.
+    //    2. Each category document is stored as {name, typeCode}. The uploaded `documentType` is
+    //       the sanitized name key (e.g. "proof_of_momo_payment" from "Proof of MoMo Payment").
+    //       We match it against the category docs, find the typeCode, then check DocumentType.isPaymentProof.
     let isPayment = false;
 
     const appWithCat = await prisma.application.findUnique({
@@ -110,7 +114,10 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       include: { category: true }
     });
 
-    if (appWithCat?.category) {
+    const directType = await prisma.documentType.findUnique({ where: { code: documentType } });
+    if (directType?.isPaymentProof) {
+      isPayment = true;
+    } else if (appWithCat?.category) {
       const reqDocs = (appWithCat.category.requiredDocuments as any[]) || [];
       const optDocs = (appWithCat.category.optionalDocuments as any[]) || [];
       const allCatDocs = [...reqDocs, ...optDocs];
