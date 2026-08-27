@@ -217,9 +217,9 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
 
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
-      // Route 1 (GradQST, AsQST) → Technologist, Route 2+ (GradQS, AsQS, PrQS, F-PrQS) → Professional
+      // Route 1 (GrQST, AsQST) → Technologist, Route 2+ (GrQS, AsQS, PrQS, F-PrQS) → Professional
       newClass = 'Technologist';
-      if (code === 'GradQS' || code === 'PrQS' || code === 'F-PrQS' || code === 'AsQS') newClass = 'Professional';
+      if (['GrQS', 'PrQS', 'F-PrQS', 'AsQS'].includes(code)) newClass = 'Professional';
 
       // Determine the new certificate code based on new class
       if (newClass === 'Technologist') newCertCode = 'TechQS';
@@ -230,8 +230,8 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
       let targetCategoryCode = code;
-      if (code === 'GradQST' || code === 'AsQST') targetCategoryCode = 'TcQS';
-      else if (code === 'GradQS' || code === 'AsQS') targetCategoryCode = 'PrQS';
+      if (['GrQST', 'AsQST'].includes(code)) targetCategoryCode = 'TcQS';
+      else if (['GrQS', 'AsQS'].includes(code)) targetCategoryCode = 'PrQS';
 
       if (targetCategoryCode !== code) {
         targetCategory = await prisma.membershipCategory.findFirst({
@@ -334,7 +334,20 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
         to: apc.member.email,
         subject: emailSubject,
         html: emailBody
-      }).catch((err: any) => console.error("[Grade APC] Failed to send email:", err.message));
+      }).catch((err: any) => {
+        console.error("[Grade APC] Failed to send email:", err.message);
+        // A failed send here otherwise vanishes into the server console — record it so a
+        // "the member says they never got the email" report can be confirmed from data
+        // instead of re-checking SMTP logs after the fact.
+        prisma.auditLog.create({
+          data: {
+            memberId: apc.memberId,
+            actionByEmail: 'system@riqs.rw',
+            actionType: 'EMAIL_SEND_FAILED',
+            details: `Failed to send "${emailSubject}" to ${apc.member.email}: ${err.message}`
+          }
+        }).catch(() => {});
+      });
     }
 
     return res.status(200).json({ message: `APC assessment graded: ${status}.`, assessment: updatedApc });
@@ -438,7 +451,20 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
           <br/><p>Best regards,</p><p>RIQS Registration Board</p>
         </div>
       `
-    }).catch((err: any) => console.error('[Award Associate] Failed to send email:', err.message));
+    }).catch((err: any) => {
+      console.error('[Award Associate] Failed to send email:', err.message);
+      // Otherwise a failed send vanishes into the server console — record it so "the
+      // member says they never got the invoice email" can be confirmed from data instead
+      // of re-checking SMTP logs after the fact.
+      prisma.auditLog.create({
+        data: {
+          memberId: app.memberId,
+          actionByEmail: 'system@riqs.rw',
+          actionType: 'EMAIL_SEND_FAILED',
+          details: `Failed to send the Associate-class-approved payment-required email to ${app.member.email}: ${err.message}`
+        }
+      }).catch(() => {});
+    });
 
     return res.status(200).json({
       message: `Associate class approved for ${targetCategory.categoryName}. Membership ID will be issued once the first-year fee is paid.`,

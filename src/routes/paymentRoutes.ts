@@ -8,7 +8,11 @@ import {
   verifyPayment,
   getPendingPayments,
   initiateProcessingFeePayment,
-  getProcessingFeePaymentStatus
+  getProcessingFeePaymentStatus,
+  initiateAnnualRenewalPayment,
+  getAnnualRenewalPaymentStatus,
+  initiateFirstYearFeePayment,
+  getFirstYearFeePaymentStatus
 } from '../controllers/paymentController';
 
 const router = Router();
@@ -235,5 +239,129 @@ router.post('/processing-fee/initiate', requireAuth, momoRateLimiter, initiatePr
  *         description: Internal server error.
  */
 router.get('/processing-fee/status/:transactionId', requireAuth, momoRateLimiter, getProcessingFeePaymentStatus);
+
+/**
+ * @openapi
+ * /api/v1/payments/annual-renewal/initiate:
+ *   post:
+ *     summary: Initiate an Annual Renewal Mobile Money payment
+ *     description: Same member-initiated IntouchPay flow used for the application's Processing Fee, applied to the annual renewal/subscription fee. The gateway's callback (or the status-poll fallback) clears the transaction and extends the member's membership expiry date automatically.
+ *     tags:
+ *       - Payments & Invoices
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [mobilephone]
+ *             properties:
+ *               mobilephone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Payment request sent to the subscriber's phone.
+ *       400:
+ *         description: Missing mobilephone, or the renewal fee could not be determined.
+ *       404:
+ *         description: Member not found.
+ *       409:
+ *         description: A payment request is already in progress.
+ *       422:
+ *         description: Payment request was rejected by the mobile money gateway.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post('/annual-renewal/initiate', requireAuth, momoRateLimiter, initiateAnnualRenewalPayment);
+
+/**
+ * @openapi
+ * /api/v1/payments/annual-renewal/status/{transactionId}:
+ *   get:
+ *     summary: Check the status of an Annual Renewal Mobile Money payment
+ *     description: Polled by the frontend after initiating an Annual Renewal payment. Reflects the outcome already recorded via the IntouchPay callback; if still Pending_Verification, also actively re-checks with IntouchPay's GetTransactionStatus as a fallback in case the callback was delayed.
+ *     tags:
+ *       - Payments & Invoices
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Current transaction status (Pending_Verification, Paid, or Failed).
+ *       404:
+ *         description: Transaction not found or not owned by the caller.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error.
+ */
+router.get('/annual-renewal/status/:transactionId', requireAuth, momoRateLimiter, getAnnualRenewalPaymentStatus);
+
+/**
+ * @openapi
+ * /api/v1/payments/first-year-fee/initiate:
+ *   post:
+ *     summary: Initiate a First Year Fee Mobile Money payment
+ *     description: Same member-initiated IntouchPay flow used elsewhere, applied to an outstanding First Year Fee — covers both a brand-new membership's first-year fee and a mentorship/APC upgrade's pending-upgrade fee. The gateway's callback (or the status-poll fallback) clears the transaction and activates the membership/upgrade automatically.
+ *     tags:
+ *       - Payments & Invoices
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [mobilephone]
+ *             properties:
+ *               mobilephone:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Payment request sent to the subscriber's phone.
+ *       400:
+ *         description: Missing mobilephone, or no outstanding first-year fee found.
+ *       409:
+ *         description: A payment request is already in progress.
+ *       422:
+ *         description: Payment request was rejected by the mobile money gateway.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post('/first-year-fee/initiate', requireAuth, momoRateLimiter, initiateFirstYearFeePayment);
+
+/**
+ * @openapi
+ * /api/v1/payments/first-year-fee/status/{transactionId}:
+ *   get:
+ *     summary: Check the status of a First Year Fee Mobile Money payment
+ *     description: Polled by the frontend after initiating a First Year Fee payment. Reflects the outcome already recorded via the IntouchPay callback; if still Pending_Verification, also actively re-checks with IntouchPay's GetTransactionStatus as a fallback in case the callback was delayed.
+ *     tags:
+ *       - Payments & Invoices
+ *     parameters:
+ *       - in: path
+ *         name: transactionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Current transaction status (Pending_Verification, Paid, or Failed).
+ *       404:
+ *         description: Transaction not found or not owned by the caller.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error.
+ */
+router.get('/first-year-fee/status/:transactionId', requireAuth, momoRateLimiter, getFirstYearFeePaymentStatus);
 
 export default router;

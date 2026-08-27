@@ -6,6 +6,7 @@ import { ApplicationStatus } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { pickAuthoritativeTransaction } from '../utils/membershipUtils';
 
 function parseReviewMonth(value: unknown): Date | null {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
@@ -647,8 +648,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         statusHistory: { orderBy: { createdAt: 'desc' } },
         financialTransactions: {
           where: { txType: 'Processing_Fee' },
-          orderBy: { createdAt: 'desc' },
-          take: 1
+          orderBy: { createdAt: 'desc' }
         },
         applicationReviews: {
           include: {
@@ -663,6 +663,12 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
 
     if (!app) return res.status(404).json({ error: 'Application not found.' });
 
+    // A member can have several Processing_Fee rows (a rejected manual receipt
+    // upload alongside a mobile-money attempt that later succeeded, etc). A Paid
+    // one is authoritative — the fee is settled — regardless of anything else
+    // that failed before or after it.
+    const processingFeeTx = pickAuthoritativeTransaction(app.financialTransactions);
+
     // Keep legacy applications readable while a deployment is being upgraded.
     // The reviewer-board table is additive; an old database may not have it yet.
     let mentorshipReviews: any[] = [];
@@ -671,6 +677,7 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
         SELECT mr.id, mr.application_id AS "applicationId",
                mr.mentorship_assignment_id AS "mentorshipAssignmentId",
                mr.reviewer_id AS "reviewerId", mr.recommendation,
+               mr.compliance_status AS "complianceStatus",
                mr.review_period_start AS "reviewPeriodStart",
                mr.review_period_end AS "reviewPeriodEnd",
                mr.review_period_months AS "reviewPeriodMonths",
@@ -713,9 +720,9 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
       currency: app.category.currency,
       location: app.category.location,
       cat_entity_type: app.category.entityType,
-      processing_fee_cleared: app.financialTransactions?.[0]?.status === 'Paid',
-      processing_fee_tx_id: app.financialTransactions?.[0]?.id || null,
-      processing_fee_status: app.financialTransactions?.[0]?.status || null
+      processing_fee_cleared: processingFeeTx?.status === 'Paid',
+      processing_fee_tx_id: processingFeeTx?.id || null,
+      processing_fee_status: processingFeeTx?.status || null
     };
 
     const categoryDocs = [
@@ -1069,8 +1076,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
           },
           financialTransactions: {
             where: { txType: 'Processing_Fee' },
-            orderBy: { createdAt: 'desc' },
-            take: 1
+            orderBy: { createdAt: 'desc' }
           },
           _count: {
             select: {
@@ -1086,7 +1092,10 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
 
     const mapped = members.map(m => {
       const app = m.applications[0];
-      const processingFeeTx = m.financialTransactions?.[0];
+      // A Paid Processing_Fee row is authoritative even if a different, older or
+      // newer, attempt for the same fee ended up Failed (rejected receipt upload,
+      // failed gateway retry, etc) — see pickAuthoritativeTransaction.
+      const processingFeeTx = pickAuthoritativeTransaction(m.financialTransactions);
       const memberStatus = processingFeeTx?.status === 'Paid' ? 'Active' : 'Pending Payment';
 
       // FOR TESTING: Dynamic Expiry Calculation: 5 minutes from approval + 5 minutes for each cleared renewal
@@ -1603,16 +1612,8 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
     return res.status(403).json({ error: 'Only Reviewers and Head Reviewers can submit a mentorship board review.' });
   }
 
-  const { applicationId, notes, proposedAssessmentDate, recommendation = 'Recommend', reviewPeriodStart, reviewPeriodEnd } = req.body;
-  if (!applicationId || !notes?.trim()) return res.status(400).json({ error: 'An application and review notes are required.' });
-  const periodStart = parseReviewMonth(reviewPeriodStart);
-  const periodEnd = reviewPeriodEnd ? parseReviewMonth(reviewPeriodEnd) : null;
-  if (!periodStart || (reviewPeriodEnd && !periodEnd)) {
-    return res.status(400).json({ error: 'Select a valid review start month and optional end month.' });
-  }
-  if (periodEnd && periodEnd < periodStart) {
-    return res.status(400).json({ error: 'The review end month cannot be before the start month.' });
-  }
+  const { applicationId, notes, proposedAssessmentDate, recommendation = 'Recommend', complianceStatus, reviewPeriodStart, reviewPeriodEnd } = req.body;
+  if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
 
   try {
     const app = await prisma.application.findUnique({
@@ -1623,18 +1624,46 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
     if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
       return res.status(400).json({ error: `This upgrade is not awaiting reviewer-board input. Current status: ${app.mentorshipAssignment.status}.` });
     }
-    if (app.mentorshipAssignment.apcReadiness !== 'Ready') {
-      return res.status(400).json({ error: 'Associate-route upgrades proceed directly from the mentor to the Approver and do not require reviewer-board assessment periods.' });
+
+    // The two routes collect entirely different reviewer-board input:
+    //  - Professional/Technologist (apcReadiness === 'Ready'): a recommended APC
+    //    assessment period, plus an optional note. No compliance verdict.
+    //  - Associate (apcReadiness === 'Not_Ready'): a Compliant/Non-compliant verdict
+    //    (notes required only when Non-compliant). No assessment period.
+    const isApcRoute = app.mentorshipAssignment.apcReadiness === 'Ready';
+    let periodStart: Date | null = null;
+    let periodEnd: Date | null = null;
+    let proposedDate: Date | null = null;
+    let verdict: string | null = null;
+
+    if (isApcRoute) {
+      periodStart = parseReviewMonth(reviewPeriodStart);
+      periodEnd = reviewPeriodEnd ? parseReviewMonth(reviewPeriodEnd) : null;
+      if (!periodStart || (reviewPeriodEnd && !periodEnd)) {
+        return res.status(400).json({ error: 'Select a valid review start month and optional end month.' });
+      }
+      if (periodEnd && periodEnd < periodStart) {
+        return res.status(400).json({ error: 'The review end month cannot be before the start month.' });
+      }
+      proposedDate = proposedAssessmentDate ? new Date(proposedAssessmentDate) : null;
+      if (proposedDate && Number.isNaN(proposedDate.getTime())) {
+        return res.status(400).json({ error: 'The proposed assessment date is invalid.' });
+      }
+    } else {
+      if (!['Compliant', 'Non-compliant'].includes(complianceStatus)) {
+        return res.status(400).json({ error: 'Select whether the mentorship submission is Compliant or Non-compliant.' });
+      }
+      if (complianceStatus === 'Non-compliant' && !notes?.trim()) {
+        return res.status(400).json({ error: 'Review notes are required when marking a mentorship submission Non-compliant.' });
+      }
+      verdict = complianceStatus;
     }
+
     const existingReview = await prisma.mentorshipReview.findUnique({
       where: { applicationId_reviewerId: { applicationId, reviewerId: req.user.id } }
     });
     if (existingReview) {
       return res.status(409).json({ error: 'You have already submitted a reviewer-board recommendation for this mentorship upgrade.' });
-    }
-    const proposedDate = proposedAssessmentDate ? new Date(proposedAssessmentDate) : null;
-    if (proposedDate && Number.isNaN(proposedDate.getTime())) {
-      return res.status(400).json({ error: 'The proposed assessment date is invalid.' });
     }
 
     const review = await prisma.$transaction(async (tx) => {
@@ -1644,10 +1673,11 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
           mentorshipAssignmentId: app.mentorshipAssignment!.id,
           reviewerId: req.user!.id,
           recommendation,
+          complianceStatus: verdict,
           reviewPeriodStart: periodStart,
           reviewPeriodEnd: periodEnd,
           proposedAssessmentDate: proposedDate,
-          notes: notes.trim()
+          notes: notes?.trim() || null
         }
       });
       await tx.auditLog.create({
@@ -1655,7 +1685,9 @@ export async function submitMentorshipReview(req: AuthenticatedRequest, res: Res
           memberId: app.memberId,
           actionByEmail: req.user!.email,
           actionType: 'MENTORSHIP_REVIEW_SUBMITTED',
-          details: `${req.user!.role} submitted mentorship board review${proposedDate ? ` and proposed ${proposedDate.toISOString()}` : ''}.`
+          details: isApcRoute
+            ? `${req.user!.role} submitted an APC reviewer-board recommendation${proposedDate ? ` and proposed ${proposedDate.toISOString()}` : ''}.`
+            : `${req.user!.role} submitted a ${verdict} mentorship board review.`
         }
       });
       return saved;
@@ -1672,17 +1704,8 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
   if (req.user.role.toLowerCase() !== 'head_reviewer') {
     return res.status(403).json({ error: 'Only the Head Reviewer can forward a mentorship upgrade to Admin/Approver.' });
   }
-  const { applicationId, notes, agreedReviewPeriodStart, agreedReviewPeriodEnd } = req.body;
+  const { applicationId, notes, agreedReviewPeriodStart, agreedReviewPeriodEnd, complianceStatus } = req.body;
   if (!applicationId) return res.status(400).json({ error: 'Missing applicationId.' });
-  const agreedPeriodStart = parseReviewMonth(agreedReviewPeriodStart);
-  const agreedPeriodEnd = agreedReviewPeriodEnd ? parseReviewMonth(agreedReviewPeriodEnd) : null;
-  if (!agreedPeriodStart || (agreedReviewPeriodEnd && !agreedPeriodEnd)) {
-    return res.status(400).json({ error: 'Select a valid final start month and optional end month.' });
-  }
-  if (agreedPeriodEnd && agreedPeriodEnd < agreedPeriodStart) {
-    return res.status(400).json({ error: 'The final end month cannot be before the start month.' });
-  }
-  const forwardingNotes = notes?.trim() || 'Forwarded by Head Reviewer after completion of the reviewer-board submissions.';
 
   try {
     const app = await prisma.application.findUnique({
@@ -1693,12 +1716,37 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
     if (app.mentorshipAssignment.status !== 'Pending_Reviewer_Board') {
       return res.status(400).json({ error: `This upgrade cannot be forwarded from status ${app.mentorshipAssignment.status}.` });
     }
-    if (app.mentorshipAssignment.apcReadiness !== 'Ready') {
-      return res.status(400).json({ error: 'Associate-route upgrades proceed directly to the Approver and do not require reviewer-board forwarding.' });
-    }
     if (app.mentorshipReviews.length < 3) {
       return res.status(400).json({ error: 'At least 3 reviewer-board submissions are required before forwarding.' });
     }
+
+    // Only the APC route (apcReadiness === 'Ready') has an assessment period to agree on.
+    // The Associate route has no assessment period, but instead requires the Head
+    // Reviewer's own final Compliant / Non-compliant conclusion for the Admin/Approver.
+    const isApcRoute = app.mentorshipAssignment.apcReadiness === 'Ready';
+    let agreedPeriodStart: Date | null = null;
+    let agreedPeriodEnd: Date | null = null;
+    let finalComplianceStatus: string | null = null;
+    if (isApcRoute) {
+      agreedPeriodStart = parseReviewMonth(agreedReviewPeriodStart);
+      agreedPeriodEnd = agreedReviewPeriodEnd ? parseReviewMonth(agreedReviewPeriodEnd) : null;
+      if (!agreedPeriodStart || (agreedReviewPeriodEnd && !agreedPeriodEnd)) {
+        return res.status(400).json({ error: 'Select a valid final start month and optional end month.' });
+      }
+      if (agreedPeriodEnd && agreedPeriodEnd < agreedPeriodStart) {
+        return res.status(400).json({ error: 'The final end month cannot be before the start month.' });
+      }
+    } else {
+      if (!['Compliant', 'Non-compliant'].includes(complianceStatus)) {
+        return res.status(400).json({ error: 'State whether the mentorship upgrade is Compliant or Non-compliant before forwarding.' });
+      }
+      if (complianceStatus === 'Non-compliant' && !notes?.trim()) {
+        return res.status(400).json({ error: 'Forwarding notes are required when concluding Non-compliant.' });
+      }
+      finalComplianceStatus = complianceStatus;
+    }
+
+    const forwardingNotes = notes?.trim() || 'Forwarded by Head Reviewer after completion of the reviewer-board submissions.';
 
     await prisma.$transaction([
       prisma.mentorshipAssignment.update({
@@ -1706,6 +1754,7 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
         data: {
           status: 'Pending_Admin_Review',
           adminNotes: forwardingNotes,
+          finalComplianceStatus,
           agreedReviewPeriodStart: agreedPeriodStart,
           agreedReviewPeriodEnd: agreedPeriodEnd
         }
@@ -1715,7 +1764,7 @@ export async function forwardMentorshipToApprover(req: AuthenticatedRequest, res
           memberId: app.memberId,
           actionByEmail: req.user.email,
           actionType: 'MENTORSHIP_FORWARDED_TO_APPROVER',
-          details: `Head Reviewer forwarded mentorship upgrade to Admin/Approver after ${app.mentorshipReviews.length} board reviews. Notes: ${forwardingNotes}`
+          details: `Head Reviewer forwarded mentorship upgrade to Admin/Approver after ${app.mentorshipReviews.length} board reviews${finalComplianceStatus ? ` — final conclusion: ${finalComplianceStatus}` : ''}. Notes: ${forwardingNotes}`
         }
       })
     ]);

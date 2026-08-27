@@ -130,6 +130,19 @@ export function startCronJobs() {
               console.log(`[Cron Jobs] Generated renewal invoice and sent notification to ${member.email}`);
             } catch (err: any) {
                console.error('[Cron Jobs] Failed to send renewal email:', err.message);
+               // A failed send here otherwise vanishes into the server console — record it
+               // so "the member says they never got the renewal notice" can be confirmed
+               // from data instead of re-checking SMTP logs after the fact.
+               try {
+                 await prisma.auditLog.create({
+                   data: {
+                     memberId: member.id,
+                     actionByEmail: 'system@riqs.rw',
+                     actionType: 'EMAIL_SEND_FAILED',
+                     details: `Failed to send the annual renewal notice to ${member.email}: ${err.message}`
+                   }
+                 });
+               } catch {}
             }
           }
         }
@@ -152,7 +165,7 @@ export function startCronJobs() {
         where: {
           status: 'Approved',
           approvedAt: { lte: twoYearsAgo },
-          category: { categoryCode: { in: ['GQST', 'GQS'] } },
+          category: { categoryCode: { in: ['GrQST', 'GrQS'] } },
           member: { membershipClass: 'Graduate' },
           apcAssessments: { none: { status: { in: ['Passed'] } } }
         },

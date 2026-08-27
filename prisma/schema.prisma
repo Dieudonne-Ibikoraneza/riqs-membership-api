@@ -326,6 +326,10 @@ model MentorshipAssignment {
   agreedReviewPeriodStart          DateTime? @map("agreed_review_period_start") @db.Date
   agreedReviewPeriodEnd            DateTime? @map("agreed_review_period_end") @db.Date
   agreedReviewPeriodMonths         Int?      @map("agreed_review_period_months")
+  // The Head Reviewer's own final Compliant / Non-compliant conclusion, recorded when
+  // forwarding an Associate-route (apcReadiness "Not_Ready") case to the Admin/Approver —
+  // distinct from the individual board members' verdicts in MentorshipReview.
+  finalComplianceStatus            String?   @map("final_compliance_status") @db.VarChar(20)
   adminNotes                       String?   @map("admin_notes") @db.Text
   upgradeRequested                 Boolean?  @default(false) @map("upgrade_requested")
   apcReadiness                     String?   @default("Unknown") @map("apc_readiness")
@@ -346,6 +350,7 @@ model MentorshipReview {
   mentorshipAssignmentId String    @map("mentorship_assignment_id") @db.Uuid
   reviewerId             String    @map("reviewer_id") @db.Uuid
   recommendation         String    @default("Recommend") @db.VarChar(50)
+  complianceStatus       String?   @map("compliance_status") @db.VarChar(20)
   reviewPeriodStart      DateTime? @map("review_period_start") @db.Date
   reviewPeriodEnd        DateTime? @map("review_period_end") @db.Date
   reviewPeriodMonths     Int?      @map("review_period_months")

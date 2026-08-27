@@ -93,9 +93,10 @@ export async function receivePaymentCallback(req: AuthenticatedRequest, res: Res
     return res.status(400).json({ message: 'requesttransactionid is required.', success: false });
   }
 
-  // Reconcile against a member-initiated Processing Fee payment, if this requesttransactionid
-  // corresponds to one (see paymentController.initiateProcessingFeePayment). No-op otherwise —
-  // e.g. for admin-triggered RequestPayment calls unrelated to this flow.
+  // Reconcile against a member-initiated gateway payment (Processing Fee, Annual Renewal, or
+  // First Year Fee), if this requesttransactionid corresponds to one — see paymentController.ts's
+  // initiateProcessingFeePayment/initiateAnnualRenewalPayment/initiateFirstYearFeePayment.
+  // No-op otherwise, e.g. for admin-triggered RequestPayment calls unrelated to this flow.
   try {
     await resolveProcessingFeePaymentByProviderId(requesttransactionid, status, statusdesc);
   } catch (err: any) {

@@ -98,3 +98,23 @@ export const SYSTEM_ROLE_DESCRIPTIONS: Record<string, string> = {
   Standard: 'Normal registered member — can submit and track their own application.',
   Student:  'Student member — introduced by a teacher, limited to student-level application.',
 };
+
+/**
+ * A member can end up with several FinancialTransaction rows for the same fee
+ * (txType) on the same application: a manual receipt upload the admin later
+ * rejected, a mobile-money gateway attempt that failed then succeeded on
+ * retry, etc. Naively taking the most-recently-created row surfaces a stale
+ * Failed/Unpaid attempt even after a later row for the same fee actually
+ * cleared it. A transaction that has been Paid is authoritative — the fee is
+ * settled — regardless of how many other attempts for it failed before or
+ * after. Only when none of them succeeded do we fall back to the most recent
+ * one so the member/admin sees the latest outstanding attempt.
+ *
+ * `txs` must already be for a single txType, ordered by createdAt desc (most
+ * recent first) — the same shape every existing `orderBy: { createdAt: 'desc' }`
+ * financialTransactions query already produces.
+ */
+export function pickAuthoritativeTransaction<T extends { status: string | null }>(txs: T[]): T | null {
+  if (!txs || txs.length === 0) return null;
+  return txs.find(t => t.status === 'Paid') || txs[0];
+}

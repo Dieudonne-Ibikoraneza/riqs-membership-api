@@ -227,9 +227,11 @@ export const submitMentorRecommendation = async (req: AuthenticatedRequest, res:
       data: {
         mentorRecommended: data.recommend,
         mentorNotes: data.mentorNotes?.trim() || null,
-        status: data.recommend
-          ? (assignment.apcReadiness === "Ready" ? "Pending_Reviewer_Board" : "Pending_Admin_Review")
-          : "Pending_Mentor"
+        // Every route — Associate (Not_Ready) included — goes through the
+        // reviewer board before an Admin/Approver ever sees it. Skipping
+        // straight to Pending_Admin_Review let an admin award Associate
+        // status unilaterally with no committee review.
+        status: data.recommend ? "Pending_Reviewer_Board" : "Pending_Mentor"
       }
     });
 
@@ -240,45 +242,8 @@ export const submitMentorRecommendation = async (req: AuthenticatedRequest, res:
   }
 };
 
-const adminReviewSchema = z.object({
-  status: z.enum(["Approved", "Rejected"]),
-  adminNotes: z.string().optional()
-});
-
-export const adminReviewUpgrade = async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { applicationId } = req.params;
-    const data = adminReviewSchema.parse(req.body);
-
-    const assignment = await prisma.mentorshipAssignment.update({
-      where: { applicationId },
-      data: {
-        status: data.status,
-        adminNotes: data.adminNotes,
-        completedDurationMonths: data.status === "Approved" ? 24 : 0,
-        // On rejection, reset upgradeRequested so the graduate can re-apply after correction
-        upgradeRequested: data.status === "Rejected" ? false : undefined,
-      }
-    });
-    
-    if (data.status === "Approved") {
-      const app = await prisma.application.findUnique({ where: { id: applicationId }});
-      if (assignment.apcReadiness === "Ready" && app) {
-        // Schedule APC
-        await prisma.apcAssessment.create({
-          data: {
-            applicationId: app.id,
-            memberId: app.memberId,
-            status: "Requested"
-          }
-        });
-      }
-      // If not ready, stays Approved for Mentorship but doesn't schedule APC.
-    }
-
-    res.json(assignment);
-  } catch (error) {
-    console.error("Error in admin review:", error);
-    res.status(500).json({ error: "Failed to review upgrade" });
-  }
-};
+// NOTE: the legacy adminReviewUpgrade handler (PUT /upgrade/:applicationId/admin-review)
+// was removed here — it let an Admin flip a mentorship upgrade straight to
+// Approved/Rejected without any status check, bypassing the reviewer board and Head
+// Reviewer forwarding step entirely. It was unused by the frontend; the sanctioned path
+// is adminController's approveMentorshipUpgrade / flagMentorshipForCorrection.

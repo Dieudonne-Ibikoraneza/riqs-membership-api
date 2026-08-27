@@ -53,7 +53,15 @@ export async function submitPayment(req: AuthenticatedRequest, res: Response) {
           receiptUrl: receiptUrl || null,
           cpdDocumentUrl: cpdDocumentUrl || null,
           status: 'Pending_Verification',
-          rejectionReason: null // clear previous reason
+          rejectionReason: null, // clear previous reason
+          // If this row was previously used for a (failed) gateway attempt — e.g. the member
+          // tried Mobile Money first, it failed, and they fell back to manual upload — it would
+          // still carry that attempt's providerTransactionId. verifyPayment refuses to manually
+          // clear any row with one set (that's precisely what stops staff from rubber-stamping
+          // an unpaid gateway transaction), which would otherwise permanently lock staff out of
+          // reviewing this now-manual submission. A manual submission never goes through the
+          // gateway, so it must never carry one.
+          providerTransactionId: null
         }
       });
     } else {
@@ -130,13 +138,24 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
     }
 
     // A transaction with a providerTransactionId was initiated through the live IntouchPay
-    // gateway (see paymentController.initiateProcessingFeePayment) and is only ever resolved
-    // by the gateway itself (its callback, or the status-poll fallback) — never by staff.
-    // paymentMethod alone can't be used for this check: the manual receipt-upload flow also
-    // tags its rows 'MTN_Momo' (meaning "an MTN transfer", not "went through our gateway").
-    // Manually flipping a gateway row to Paid would let it be marked paid without money ever
-    // actually moving, which is exactly the fraud risk this restriction exists to prevent.
-    if (existingTransaction.providerTransactionId) {
+    // gateway (see paymentController.initiateProcessingFeePayment) and its payment veracity is
+    // only ever resolved by the gateway itself (its callback, or the status-poll fallback) —
+    // never by staff. paymentMethod alone can't be used for this check: the manual
+    // receipt-upload flow also tags its rows 'MTN_Momo' (meaning "an MTN transfer", not "went
+    // through our gateway"). Manually flipping a still-unresolved gateway row to Paid would let
+    // it be marked paid without money ever actually moving, which is exactly the fraud risk
+    // this restriction exists to prevent.
+    //
+    // The one carve-out: an Annual_Renewal row the gateway already confirmed (clearedAt is
+    // set — see applyGatewayFeeResult) is deliberately held in Pending_Verification pending an
+    // Admin/Admin Assistant's CPD/Annual Report review, not because the payment is in doubt.
+    // Staff confirming 'Paid' there is signing off on CPD compliance, not re-verifying money
+    // that's already cleared — so it's exempt from the block. Failed/Refunded stay blocked
+    // unconditionally for any gateway row: reversing a confirmed gateway payment is a real
+    // refund action, out of scope for this endpoint.
+    const isClearedAnnualRenewalAwaitingCpdReview =
+      existingTransaction.txType === 'Annual_Renewal' && existingTransaction.clearedAt !== null;
+    if (existingTransaction.providerTransactionId && !(action === 'Paid' && isClearedAnnualRenewalAwaitingCpdReview)) {
       return res.status(400).json({ error: 'Mobile Money payments are verified automatically by the payment gateway and cannot be manually cleared.' });
     }
 
@@ -360,15 +379,24 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
   const statusFilter: Prisma.FinancialTransactionWhereInput = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
-  // A row with a providerTransactionId went through the live IntouchPay gateway and is
-  // verified automatically (callback/status-poll) — a still-pending one is never actionable
+  // A row with a providerTransactionId went through the live IntouchPay gateway. One still
+  // awaiting the gateway's own callback/status-poll (clearedAt not yet set) is never actionable
   // by staff and would just be confusing noise here, so it's excluded regardless of which
   // status filter is selected. This is NOT the same test as paymentMethod === 'MTN_Momo':
   // the manual receipt-upload flow also tags its rows 'MTN_Momo' but has no providerTransactionId,
   // and those genuinely need to stay in the queue for staff to review.
+  //
+  // The one exception: an Annual_Renewal row the gateway *has* already confirmed (clearedAt
+  // set) deliberately stays Pending_Verification pending an Admin/Admin Assistant's CPD/Annual
+  // Report review — see applyGatewayFeeResult — so it must stay visible here, not be swept up
+  // by this same exclusion.
   const whereClause: Prisma.FinancialTransactionWhereInput = {
     ...statusFilter,
-    NOT: { providerTransactionId: { not: null }, status: 'Pending_Verification' as TransactionStatus }
+    NOT: {
+      providerTransactionId: { not: null },
+      status: 'Pending_Verification' as TransactionStatus,
+      clearedAt: null
+    }
   };
 
   try {
@@ -546,7 +574,7 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
       try {
         const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
-          transaction = await applyProcessingFeeGatewayResult(transaction, data.status, data.statusdesc);
+          transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
         }
       } catch (pollErr: any) {
         console.warn('[Processing Fee Status] Gateway status poll failed:', pollErr.message);
@@ -565,12 +593,30 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
   }
 }
 
-// Shared by the callback receiver and the status-poll fallback above: applies a final
+// The Mobile Money gateway flow, generalized: originally built for Processing_Fee only,
+// now also used by Annual_Renewal and First_Year_Fee (the latter covers both a fresh
+// membership's first-year fee and a mentorship/APC upgrade's pending-upgrade fee — see
+// initiateFirstYearFeePayment/getFirstYearFeePaymentStatus below). Member-initiated real
+// IntouchPay payments for any of these fee types land here.
+const GATEWAY_ENABLED_TX_TYPES: TransactionType[] = ['Processing_Fee', 'Annual_Renewal', 'First_Year_Fee'];
+
+// Shared by the callback receiver and the status-poll fallbacks above: applies a final
 // gateway status (Success/Failed, as reported by IntouchPay) to a Pending_Verification
-// Processing_Fee transaction, and auto-finalizes the application submission on success.
+// transaction, and applies whatever side effect that fee type needs once cleared —
+// auto-finalizing application submission for Processing_Fee, and activating the pending
+// membership/upgrade for First_Year_Fee (mirroring verifyPayment's manual-clearance
+// branches, since this gateway path never goes through that admin endpoint).
+//
+// Annual_Renewal is the one exception: RIQS requires an Admin/Admin Assistant to review the
+// member's CPD/Annual Report before a renewal is complete — the same standard the manual
+// receipt-upload path already holds every renewal to. A successful gateway payment alone
+// only proves the money moved, so it stays in Pending_Verification (with clearedAt set to
+// record that the payment itself is confirmed) instead of jumping straight to Paid; the
+// membership expiry is only extended once that CPD review happens via verifyPayment.
+//
 // A non-final status (still pending gateway-side) is a no-op — the row is left untouched.
-async function applyProcessingFeeGatewayResult(
-  transaction: { id: string; txType: TransactionType; applicationId: string | null },
+async function applyGatewayFeeResult(
+  transaction: { id: string; txType: TransactionType; applicationId: string | null; memberId: string },
   gatewayStatus?: string,
   gatewayStatusDesc?: string
 ) {
@@ -582,10 +628,14 @@ async function applyProcessingFeeGatewayResult(
     return prisma.financialTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
   }
 
+  const awaitsCpdReview = isSuccess && transaction.txType === 'Annual_Renewal';
+
   const updated = await prisma.financialTransaction.update({
     where: { id: transaction.id },
     data: isSuccess
-      ? { status: 'Paid', clearedAt: new Date(), rejectionReason: null }
+      ? (awaitsCpdReview
+          ? { clearedAt: new Date(), rejectionReason: null } // status stays Pending_Verification
+          : { status: 'Paid', clearedAt: new Date(), rejectionReason: null })
       : { status: 'Failed', rejectionReason: gatewayStatusDesc || 'Payment was not completed.' }
   });
 
@@ -593,7 +643,15 @@ async function applyProcessingFeeGatewayResult(
     try {
       await finalizeApplicationSubmission(updated.applicationId);
     } catch (finalizeErr: any) {
-      console.error('[Processing Fee] Auto-finalize after payment failed:', finalizeErr.message);
+      console.error('[Payment Gateway] Auto-finalize after payment failed:', finalizeErr.message);
+    }
+  }
+
+  if (isSuccess && updated.txType === 'First_Year_Fee') {
+    try {
+      await finalizeFirstYearFeeGatewayClearance(updated.id);
+    } catch (upgradeErr: any) {
+      console.error('[Payment Gateway] First-year fee membership activation failed:', upgradeErr.message);
     }
   }
 
@@ -601,24 +659,440 @@ async function applyProcessingFeeGatewayResult(
     try {
       await issuePaymentReceipt(updated.id);
     } catch (receiptErr: any) {
-      console.error('[Processing Fee] Receipt issuance failed:', receiptErr.message);
+      console.error('[Payment Gateway] Receipt issuance failed:', receiptErr.message);
     }
   }
 
   return updated;
 }
 
+// Mirrors the First_Year_Fee branch of verifyPayment's manual-clearance logic (membership ID
+// issuance for a brand-new member, or activating a pending mentorship/APC upgrade), for a
+// payment that cleared automatically through the Mobile Money gateway instead of an admin
+// action. Kept as its own copy rather than shared with verifyPayment: that function weaves
+// its version into one $transaction batch alongside the admin's own audit trail entry, which
+// doesn't apply here.
+async function finalizeFirstYearFeeGatewayClearance(transactionId: string) {
+  const transaction = await prisma.financialTransaction.findUnique({
+    where: { id: transactionId },
+    include: {
+      member: true,
+      application: { include: { category: true, pendingUpgradeCategory: true } }
+    }
+  });
+  if (!transaction || !transaction.application) return;
+
+  const application = transaction.application;
+  const member = transaction.member;
+
+  let generatedMembershipId: string | null = null;
+  let generatedMembershipClass: string | null = null;
+  if (application.category && !member.membershipId) {
+    const currentYear = new Date().getFullYear();
+    const certCode = getCertificateCode(application.category.categoryCode);
+    const prefix = `RIQS-${currentYear}-${certCode}-`;
+    const lastMember = await prisma.member.findFirst({
+      where: { membershipId: { startsWith: prefix } },
+      orderBy: { membershipId: 'desc' }
+    });
+    const lastNumber = lastMember?.membershipId?.split('-').pop();
+    const nextNumber = lastNumber && !isNaN(Number(lastNumber)) ? Number(lastNumber) + 1 : 1;
+    generatedMembershipId = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+    generatedMembershipClass = deriveMemberClass(application.category.categoryCode);
+  }
+
+  const pendingUpgrade = application.pendingUpgradeClass ? application : null;
+  let upgradeMembershipId: string | null = null;
+  if (pendingUpgrade && pendingUpgrade.pendingUpgradeCertCode) {
+    const currentYear = new Date().getFullYear();
+    upgradeMembershipId = await nextMembershipId(`RIQS-${currentYear}-${pendingUpgrade.pendingUpgradeCertCode}-`);
+  }
+
+  const ops: any[] = [];
+
+  if (generatedMembershipId && generatedMembershipClass) {
+    ops.push(prisma.member.update({
+      where: { id: member.id },
+      data: {
+        membershipId: generatedMembershipId,
+        membershipClass: generatedMembershipClass as any,
+        membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
+        ...(member.systemRole === 'Standard' && (generatedMembershipClass.includes('Technologist') || generatedMembershipClass.includes('Professional'))
+          ? { systemRole: 'Mentor' }
+          : {}),
+        updatedAt: new Date()
+      }
+    }));
+  }
+
+  if (upgradeMembershipId && pendingUpgrade) {
+    ops.push(
+      prisma.member.update({
+        where: { id: member.id },
+        data: {
+          membershipId: upgradeMembershipId,
+          membershipClass: pendingUpgrade.pendingUpgradeClass as any,
+          membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
+          ...(pendingUpgrade.pendingUpgradePromoteToMentor ? { systemRole: 'Mentor' } : {}),
+          updatedAt: new Date()
+        }
+      }),
+      prisma.application.update({
+        where: { id: pendingUpgrade.id },
+        data: {
+          categoryId: pendingUpgrade.pendingUpgradeCategoryId!,
+          pendingUpgradeClass: null,
+          pendingUpgradeCategoryId: null,
+          pendingUpgradeCertCode: null,
+          pendingUpgradePromoteToMentor: false
+        }
+      }),
+      prisma.auditLog.create({
+        data: {
+          memberId: member.id,
+          actionByEmail: member.email,
+          actionType: 'MEMBERSHIP_UPGRADE_ACTIVATED',
+          details: `First-year fee cleared via Mobile Money gateway. Membership upgraded to ${pendingUpgrade.pendingUpgradeClass}. New ID: ${upgradeMembershipId}.`
+        }
+      })
+    );
+
+    if (pendingUpgrade.pendingUpgradeCategory?.annualRenewalFee) {
+      ops.push(prisma.financialTransaction.updateMany({
+        where: { memberId: member.id, txType: 'Annual_Renewal', status: 'Unpaid' },
+        data: { amount: pendingUpgrade.pendingUpgradeCategory.annualRenewalFee }
+      }));
+    }
+
+    const stampFeeAmount = pendingUpgrade.pendingUpgradeCategory?.stampFee ?? 0;
+    if (Number(stampFeeAmount) > 0) {
+      ops.push(prisma.financialTransaction.create({
+        data: {
+          memberId: member.id,
+          applicationId: pendingUpgrade.id,
+          amount: stampFeeAmount,
+          currency: pendingUpgrade.pendingUpgradeCategory?.currency || 'RWF',
+          txType: 'Stamp_Fee',
+          paymentMethod: 'Bank_Transfer',
+          transactionReference: `STAMP-${upgradeMembershipId}-${Date.now()}`,
+          status: 'Unpaid'
+        }
+      }));
+    }
+  }
+
+  if (ops.length > 0) {
+    await prisma.$transaction(ops);
+  }
+
+  if (generatedMembershipId) {
+    try {
+      await sendMail(member.email, 'membershipActivated', {
+        name: member.fullName,
+        membershipId: generatedMembershipId,
+        category: application.category?.categoryName || ''
+      });
+    } catch (mailErr: any) {
+      console.warn('[Payment Gateway] Membership activation email failed:', mailErr.message);
+    }
+  }
+
+  if (upgradeMembershipId && pendingUpgrade) {
+    try {
+      await sendMail(member.email, 'membershipActivated', {
+        name: member.fullName,
+        membershipId: upgradeMembershipId,
+        category: pendingUpgrade.pendingUpgradeCategory?.categoryName || ''
+      });
+    } catch (mailErr: any) {
+      console.warn('[Payment Gateway] Upgrade activation email failed:', mailErr.message);
+    }
+  }
+}
+
 // Called by intouchPayController.receivePaymentCallback once IntouchPay reports the final
-// outcome of a member-initiated Processing Fee payment. Looks the transaction up by the
-// requesttransactionid we generated when initiating it — returns null if no such payment
-// was ever initiated through this flow (e.g. an admin-initiated IntouchPay request).
+// outcome of a member-initiated gateway payment (Processing_Fee, Annual_Renewal, or
+// First_Year_Fee). Looks the transaction up by the requesttransactionid we generated when
+// initiating it — returns null if no such payment was ever initiated through this flow.
 export async function resolveProcessingFeePaymentByProviderId(
   requesttransactionid: string,
   gatewayStatus?: string,
   gatewayStatusDesc?: string
 ) {
   const transaction = await prisma.financialTransaction.findUnique({ where: { providerTransactionId: requesttransactionid } });
-  if (!transaction || transaction.txType !== 'Processing_Fee') return null;
+  if (!transaction || !GATEWAY_ENABLED_TX_TYPES.includes(transaction.txType)) return null;
   if (transaction.status !== 'Pending_Verification') return transaction;
-  return applyProcessingFeeGatewayResult(transaction, gatewayStatus, gatewayStatusDesc);
+  return applyGatewayFeeResult(transaction, gatewayStatus, gatewayStatusDesc);
+}
+
+// 7. Member-initiated Annual Renewal payment via the same Mobile Money gateway used for the
+// Processing Fee in the application flow — mirrors initiateProcessingFeePayment above, but
+// this fee is tied to the member directly (renewals happen well after the application is
+// submitted/approved) rather than gated behind an in-progress Draft application.
+export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { mobilephone, cpdDocumentUrl } = req.body;
+  if (!mobilephone) {
+    return res.status(400).json({ error: 'mobilephone is required.' });
+  }
+  // The CPD/Annual Report is a renewal requirement regardless of how the fee itself is paid
+  // (the manual receipt-upload path already enforces this on submitPayment) — attach it here
+  // too so it's on the transaction for the Admin Assistant to review once the gateway confirms
+  // payment, instead of the payment silently skipping that check.
+  if (!cpdDocumentUrl) {
+    return res.status(400).json({ error: 'cpdDocumentUrl is required — upload your CPD/Annual Report before paying.' });
+  }
+
+  try {
+    const member = await prisma.member.findUnique({ where: { id: req.user.id } });
+    if (!member) return res.status(404).json({ error: 'Member not found.' });
+
+    // Already in flight via this gateway?
+    const alreadyInProgress = await prisma.financialTransaction.findFirst({
+      where: { memberId: req.user.id, txType: 'Annual_Renewal', status: 'Pending_Verification', providerTransactionId: { not: null } }
+    });
+    if (alreadyInProgress) {
+      return res.status(409).json({
+        error: 'A payment request is already in progress.',
+        transactionId: alreadyInProgress.id
+      });
+    }
+
+    // The daily renewal cron (see cronJobs.ts) proactively creates an Unpaid Annual_Renewal
+    // placeholder ~30 days before expiry (and the manual-upload path can also leave one behind
+    // in Failed after a rejection) — reuse that same row rather than creating a second,
+    // competing one. Without this, a successful gateway payment would clear its own new row
+    // while the original placeholder stayed Unpaid forever, so the Payments page would keep
+    // showing "Renewal Due" even after the member had actually paid.
+    const outstandingFee = await prisma.financialTransaction.findFirst({
+      where: { memberId: req.user.id, txType: 'Annual_Renewal', status: { in: ['Unpaid', 'Failed'] } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    let fee: number;
+    let currency: string;
+    let applicationId: string | null;
+
+    if (outstandingFee) {
+      // The placeholder already carries the correct amount/currency for this billing cycle
+      // (possibly bumped after a mentorship/APC upgrade — see finalizeFirstYearFeeGatewayClearance).
+      fee = Number(outstandingFee.amount);
+      currency = outstandingFee.currency;
+      applicationId = outstandingFee.applicationId;
+    } else {
+      // No placeholder yet (e.g. member is renewing early, ahead of the cron) — compute fresh.
+      const application = await prisma.application.findFirst({
+        where: { memberId: req.user.id },
+        include: { category: true },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Prefer the category matching the member's current membership class (covers a
+      // post-upgrade renewal, where the application's original category may be stale),
+      // falling back to the application's own category.
+      let category = application?.category || null;
+      if (member.membershipClass) {
+        const currentCategory = await prisma.membershipCategory.findFirst({ where: { categoryName: member.membershipClass } });
+        if (currentCategory) category = currentCategory;
+      }
+
+      fee = Number(category?.annualRenewalFee || 0);
+      currency = category?.currency || 'RWF';
+      applicationId = application?.id || null;
+
+      if (fee <= 0) {
+        return res.status(400).json({ error: 'Unable to determine your annual renewal fee. Please contact the secretariat.' });
+      }
+    }
+
+    const requesttransactionid = `RENEW-${req.user.id.slice(0, 8)}-${Date.now()}`;
+
+    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
+    console.log('[Initiate Annual Renewal Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+
+    if (!data?.success) {
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+    }
+
+    const gatewayFields = {
+      paymentMethod: 'MTN_Momo' as PaymentMethod,
+      transactionReference: requesttransactionid,
+      providerTransactionId: requesttransactionid,
+      status: 'Pending_Verification' as TransactionStatus,
+      rejectionReason: null,
+      cpdDocumentUrl: cpdDocumentUrl as string
+    };
+
+    const transaction = outstandingFee
+      ? await prisma.financialTransaction.update({ where: { id: outstandingFee.id }, data: gatewayFields })
+      : await prisma.financialTransaction.create({
+          data: {
+            memberId: req.user.id,
+            applicationId,
+            amount: fee,
+            currency,
+            txType: 'Annual_Renewal' as TransactionType,
+            ...gatewayFields
+          }
+        });
+
+    return res.status(200).json({
+      status: 'Pending',
+      transactionId: transaction.id,
+      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
+    });
+  } catch (err: any) {
+    console.error('[Initiate Annual Renewal Payment] Error:', err.message);
+    return res.status(500).json({ error: 'Internal server error initiating payment.' });
+  }
+}
+
+// 8. Member polls this to find out whether their Annual Renewal payment has cleared —
+// mirrors getProcessingFeePaymentStatus above.
+export async function getAnnualRenewalPaymentStatus(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { transactionId } = req.params;
+
+  try {
+    let transaction = await prisma.financialTransaction.findFirst({
+      where: { id: transactionId, memberId: req.user.id, txType: 'Annual_Renewal' }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    // Once clearedAt is set the gateway has already confirmed this payment (see
+    // applyGatewayFeeResult) — status deliberately stays Pending_Verification pending CPD
+    // review, so there's nothing further to poll IntouchPay for.
+    if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId && !transaction.clearedAt) {
+      try {
+        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        if (data?.success && data?.status) {
+          transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
+        }
+      } catch (pollErr: any) {
+        console.warn('[Annual Renewal Status] Gateway status poll failed:', pollErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      status: transaction.status,
+      transactionId: transaction.id,
+      rejectionReason: transaction.rejectionReason,
+      // The payment cleared through the gateway but this fee type always still needs an
+      // Admin/Admin Assistant to confirm the member's CPD/Annual Report before the renewal
+      // is complete — see applyGatewayFeeResult.
+      awaitingReview: transaction.status === 'Pending_Verification' && Boolean(transaction.clearedAt)
+    });
+  } catch (error: any) {
+    console.error('[Annual Renewal Status] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error checking payment status.' });
+  }
+}
+
+// 9. Member-initiated First Year Fee payment via the same Mobile Money gateway — covers
+// both a brand-new membership's first-year fee and a mentorship/APC upgrade's pending-upgrade
+// fee (see progressionController.ts: gradeApc / awardAssociate, which create the Unpaid
+// placeholder row this reuses). Mirrors initiateProcessingFeePayment/initiateAnnualRenewalPayment,
+// but reuses the existing Unpaid/Failed row in place (rather than creating a separate MTN_Momo
+// row alongside it) so the manual-upload path and this gateway path never leave two competing
+// rows for the same fee.
+export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { mobilephone } = req.body;
+  if (!mobilephone) {
+    return res.status(400).json({ error: 'mobilephone is required.' });
+  }
+
+  try {
+    const alreadyInProgress = await prisma.financialTransaction.findFirst({
+      where: { memberId: req.user.id, txType: 'First_Year_Fee', status: 'Pending_Verification', providerTransactionId: { not: null } }
+    });
+    if (alreadyInProgress) {
+      return res.status(409).json({
+        error: 'A payment request is already in progress.',
+        transactionId: alreadyInProgress.id
+      });
+    }
+
+    const outstandingFee = await prisma.financialTransaction.findFirst({
+      where: { memberId: req.user.id, txType: 'First_Year_Fee', status: { in: ['Unpaid', 'Failed'] } },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (!outstandingFee) {
+      return res.status(400).json({ error: 'No outstanding first-year fee found for your account.' });
+    }
+
+    const fee = Number(outstandingFee.amount);
+    const requesttransactionid = `FYF-${req.user.id.slice(0, 8)}-${Date.now()}`;
+
+    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
+    console.log('[Initiate First Year Fee Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+
+    if (!data?.success) {
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+    }
+
+    const transaction = await prisma.financialTransaction.update({
+      where: { id: outstandingFee.id },
+      data: {
+        paymentMethod: 'MTN_Momo',
+        transactionReference: requesttransactionid,
+        providerTransactionId: requesttransactionid,
+        status: 'Pending_Verification',
+        rejectionReason: null
+      }
+    });
+
+    return res.status(200).json({
+      status: 'Pending',
+      transactionId: transaction.id,
+      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
+    });
+  } catch (err: any) {
+    console.error('[Initiate First Year Fee Payment] Error:', err.message);
+    return res.status(500).json({ error: 'Internal server error initiating payment.' });
+  }
+}
+
+// 10. Member polls this to find out whether their First Year Fee payment has cleared —
+// mirrors getProcessingFeePaymentStatus/getAnnualRenewalPaymentStatus above.
+export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { transactionId } = req.params;
+
+  try {
+    let transaction = await prisma.financialTransaction.findFirst({
+      where: { id: transactionId, memberId: req.user.id, txType: 'First_Year_Fee' }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found.' });
+    }
+
+    if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
+      try {
+        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        if (data?.success && data?.status) {
+          transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
+        }
+      } catch (pollErr: any) {
+        console.warn('[First Year Fee Status] Gateway status poll failed:', pollErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      status: transaction.status,
+      transactionId: transaction.id,
+      rejectionReason: transaction.rejectionReason
+    });
+  } catch (error: any) {
+    console.error('[First Year Fee Status] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error checking payment status.' });
+  }
 }
