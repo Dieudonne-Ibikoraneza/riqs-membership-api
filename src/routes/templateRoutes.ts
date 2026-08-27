@@ -6,8 +6,8 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Allow admins, reviewers and approvers to read templates
-router.use(requireRole('Admin', 'Reviewer', 'Approver'));
+// Allow admins, admin assistants, reviewers and approvers to read templates
+router.use(requireRole('Admin', 'Admin_Assistant', 'Reviewer', 'Approver'));
 
 router.get('/', getAllTemplates);
 router.get('/:id', getTemplateById);

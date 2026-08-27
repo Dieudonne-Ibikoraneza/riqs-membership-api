@@ -118,3 +118,41 @@ export function pickAuthoritativeTransaction<T extends { status: string | null }
   if (!txs || txs.length === 0) return null;
   return txs.find(t => t.status === 'Paid') || txs[0];
 }
+
+/**
+ * Prisma AND-conditions for a member "status" bucket — the same Active / Pending Payment /
+ * In Mentorship / Expired vocabulary the admin Members page filters and badges by, and that
+ * the Email System's bulk-recipient group filter also needs. Shared here so both stay in
+ * sync: getMembersRegistry previously computed this correctly for display but the status
+ * *filter* itself was a stub that returned an empty list for anything but 'active' (and did
+ * nothing for that either), while sendAdminEmail's bulk-send group filter used entirely
+ * fabricated conditions — 'mentorship' queried a field that doesn't exist on Member at all
+ * (an instant Prisma error), 'expired' checked yearsInProfession as a "// Simulation", and
+ * 'active' applied no filter, so every "bulk send" was really "send to everyone" regardless
+ * of which group was picked.
+ *
+ * Accepts both the Members page's display labels ("Pending Payment", "In Mentorship") and
+ * the Email page's single-word group filter tokens ("pending", "mentorship") — matching is
+ * case-insensitive. Returns an empty array for an unrecognized value so callers can treat
+ * that as "no filter" or "invalid", whichever fits their endpoint.
+ */
+export function memberStatusWhereConditions(rawStatus: string): any[] {
+  const normalized = (rawStatus || '').trim().toLowerCase();
+  const now = new Date();
+  const hasPaidProcessingFee = { financialTransactions: { some: { txType: 'Processing_Fee', status: 'Paid' } } };
+  const notExpired = { OR: [{ membershipExpiresAt: null }, { membershipExpiresAt: { gte: now } }] };
+
+  if (normalized === 'active') {
+    return [hasPaidProcessingFee, notExpired, { NOT: { membershipClass: 'Graduate' } }];
+  }
+  if (normalized === 'pending payment' || normalized === 'pending') {
+    return [{ financialTransactions: { none: { txType: 'Processing_Fee', status: 'Paid' } } }];
+  }
+  if (normalized === 'expired') {
+    return [hasPaidProcessingFee, { membershipExpiresAt: { lt: now } }];
+  }
+  if (normalized === 'in mentorship' || normalized === 'mentorship') {
+    return [hasPaidProcessingFee, notExpired, { membershipClass: 'Graduate' }];
+  }
+  return [];
+}

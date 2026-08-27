@@ -6,7 +6,7 @@ import { ApplicationStatus } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { pickAuthoritativeTransaction } from '../utils/membershipUtils';
+import { pickAuthoritativeTransaction, memberStatusWhereConditions } from '../utils/membershipUtils';
 
 function parseReviewMonth(value: unknown): Date | null {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
@@ -1007,17 +1007,19 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
   const take = Number(limit);
 
   try {
-    const whereClause: any = {
-      membershipId: { not: null }
-    };
+    // Built as an AND array (rather than assigning top-level keys directly) so the search
+    // OR-group below can't collide with the status filter's own OR-group added further down.
+    const andConditions: any[] = [{ membershipId: { not: null } }];
 
     if (q) {
       const qs = String(q);
-      whereClause.OR = [
-        { fullName: { contains: qs, mode: 'insensitive' } },
-        { email: { contains: qs, mode: 'insensitive' } },
-        { membershipId: { contains: qs, mode: 'insensitive' } },
-      ];
+      andConditions.push({
+        OR: [
+          { fullName: { contains: qs, mode: 'insensitive' } },
+          { email: { contains: qs, mode: 'insensitive' } },
+          { membershipId: { contains: qs, mode: 'insensitive' } },
+        ]
+      });
     }
 
     const appFilter: any = { status: 'Approved' };
@@ -1033,27 +1035,30 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
     }
 
     if (hasAppFilter) {
-      whereClause.applications = {
-        some: appFilter
-      };
+      andConditions.push({ applications: { some: appFilter } });
     }
 
-    // Status filter mock handling
+    // Status filter — mirrors the same Active/Pending Payment/In Mentorship/Expired
+    // vocabulary the response below computes and the Members page renders distinct badges
+    // for (see memberStatusWhereConditions). This previously only ever recognized the literal
+    // string 'active' (and even then applied no actual filter — it just skipped returning an
+    // empty list) — every other option (Pending Payment / In Mentorship / Expired)
+    // unconditionally came back with zero rows regardless of how many members matched.
     if (status && status !== 'all') {
-      if (String(status).toLowerCase() !== 'active') {
-        return res.status(200).json({
-          members: [],
-          pagination: { total: 0, page: Number(page), limit: take }
-        });
-      }
+      // An unrecognized status value returns [] here — behaves like 'all' rather than
+      // silently returning nothing, so an unexpected value is at worst a no-op.
+      andConditions.push(...memberStatusWhereConditions(String(status)));
     }
+
+    const whereClause: any = { AND: andConditions };
 
     let orderBy: any = {};
     const dir = String(sortDir).toLowerCase() === 'desc' ? 'desc' : 'asc';
-    
+
     if (sortKey === 'name') orderBy.fullName = dir;
     else if (sortKey === 'id') orderBy.membershipId = dir;
-    else orderBy.createdAt = dir; // default/fallback
+    else if (sortKey === 'expiry') orderBy.membershipExpiresAt = dir;
+    else orderBy.createdAt = dir; // 'joined' and any other fallback
 
     const [members, total] = await Promise.all([
       prisma.member.findMany({
@@ -1066,7 +1071,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
             where: { status: 'Approved' },
             orderBy: { approvedAt: 'desc' },
             take: 1,
-            include: { 
+            include: {
               category: true,
               uploadedDocuments: {
                 where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
@@ -1077,13 +1082,6 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
           financialTransactions: {
             where: { txType: 'Processing_Fee' },
             orderBy: { createdAt: 'desc' }
-          },
-          _count: {
-            select: {
-              financialTransactions: {
-                where: { txType: 'Annual_Renewal', status: 'Paid' }
-              }
-            }
           }
         }
       }),
@@ -1096,20 +1094,16 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
       // newer, attempt for the same fee ended up Failed (rejected receipt upload,
       // failed gateway retry, etc) — see pickAuthoritativeTransaction.
       const processingFeeTx = pickAuthoritativeTransaction(m.financialTransactions);
-      const memberStatus = processingFeeTx?.status === 'Paid' ? 'Active' : 'Pending Payment';
+      const hasPaid = processingFeeTx?.status === 'Paid';
+      const isExpired = Boolean(m.membershipExpiresAt && m.membershipExpiresAt < new Date());
 
-      // FOR TESTING: Dynamic Expiry Calculation: 5 minutes from approval + 5 minutes for each cleared renewal
-      const baseDate = app?.approvedAt || m.createdAt || new Date();
-      const renewalsCount = m._count?.financialTransactions || 0;
-      const expiryDate = new Date(baseDate);
-      // Instead of years, we add 5-minute increments for testing
-      expiryDate.setMinutes(expiryDate.getMinutes() + ((1 + renewalsCount) * 5));
-
-      // Adjust for Local Time (Rwandan Time / CAT is UTC+2)
-      expiryDate.setHours(expiryDate.getHours() + 2);
-
-      // Format to show time as well (YYYY-MM-DD HH:mm:ss) so the 5-minute jumps are visible
-      const formattedExpiry = expiryDate.toISOString().replace('T', ' ').substring(0, 19);
+      // Mirrors the status filter above and the distinct badges the Members page renders
+      // for each of these four values — keep the two in sync.
+      let memberStatus: 'Active' | 'Pending Payment' | 'In Mentorship' | 'Expired';
+      if (!hasPaid) memberStatus = 'Pending Payment';
+      else if (isExpired) memberStatus = 'Expired';
+      else if (m.membershipClass === 'Graduate') memberStatus = 'In Mentorship';
+      else memberStatus = 'Active';
 
       return {
         id: m.id,
@@ -1121,7 +1115,9 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         practiceLocation: app?.practiceLocation || 'Rwandan',
         country: m.countryOfOrigin,
         status: memberStatus,
-        expiresAt: formattedExpiry,
+        expiresAt: m.membershipExpiresAt
+          ? m.membershipExpiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+          : 'N/A',
         photoId: app?.uploadedDocuments?.[0]?.id,
         isFellow: m.isFellow,
         isHonorary: m.isHonorary,
@@ -1144,9 +1140,13 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
 export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
+  // Mirrors the role list on the route itself (adminRoutes.ts POST /email/send) — this
+  // redundant check previously used its own, out-of-sync list (missing admin_assistant and
+  // head_reviewer despite the route already allowing them), so requests from those roles hit
+  // a confusing "Only Admins can send..." 403 after already clearing RBAC on the way in.
   const userRole = req.user.role.toLowerCase();
-  if (!['admin', 'reviewer', 'approver'].includes(userRole)) {
-    return res.status(403).json({ error: 'Access Denied. Only Admins can send broadcast/custom emails.' });
+  if (!['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver'].includes(userRole)) {
+    return res.status(403).json({ error: 'Access Denied. You do not have permission to send broadcast/custom emails.' });
   }
 
   const { recipientType, recipientEmail, groupFilter, subject, body } = req.body;
@@ -1213,17 +1213,16 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
           return res.status(400).json({ error: 'Group filter is required for bulk mode.' });
         }
 
+        // Shares the exact same Active/Pending Payment/In Mentorship/Expired logic as the
+        // Members page filter (see memberStatusWhereConditions) — this previously used its
+        // own fabricated conditions: 'active' applied no filter at all (silently emailing
+        // everyone regardless of the group picked), 'mentorship' queried a field
+        // (`mentorshipAssignment`) that only exists on Application, not Member, so it threw a
+        // Prisma error on every attempt, and 'expired' checked yearsInProfession as a
+        // "// Simulation" placeholder that was never replaced with real logic.
         const whereClause: any = {
-          membershipId: { not: null }
+          AND: [{ membershipId: { not: null } }, ...memberStatusWhereConditions(String(groupFilter))]
         };
-
-        if (groupFilter === 'active') {
-          // Active members in db (all approved)
-        } else if (groupFilter === 'mentorship') {
-          whereClause.mentorshipAssignment = { some: {} };
-        } else if (groupFilter === 'expired') {
-          whereClause.yearsInProfession = { gt: 10 }; // Simulation for expired
-        }
 
         members = await prisma.member.findMany({
           where: whereClause,

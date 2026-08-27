@@ -87,7 +87,7 @@ router.get('/stats', requireAuth, requireRoles(['admin', 'admin_assistant', 'rev
  *     tags:
  *       - Administrative Dashboard
  */
-router.get('/members', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMembersRegistry);
+router.get('/members', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getMembersRegistry);
 router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMemberById);
 
 /**
@@ -463,7 +463,7 @@ router.get('/audit-logs', requireAuth, requireRoles(['admin']), getAuditLogs);
  */
 router.put('/system/categories/:id', requireAuth, requireRoles(['admin']), updateSystemCategory);
 
-router.post('/email/send', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), uploadRateLimiter, upload.array('attachments'), sendAdminEmail);
+router.post('/email/send', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), uploadRateLimiter, upload.array('attachments'), sendAdminEmail);
 
 /**
  * @openapi
