@@ -24,6 +24,10 @@ import {
   getProfileEditRequests, reviewProfileEditRequest
 } from '../controllers/profileEditController';
 
+import {
+  getMentorApplicationsQueue, reviewMentorApplication, promoteToMentor, revokeMentorStatus
+} from '../controllers/mentorApplicationController';
+
 const router = Router();
 
 /**
@@ -88,7 +92,7 @@ router.get('/stats', requireAuth, requireRoles(['admin', 'admin_assistant', 'rev
  *       - Administrative Dashboard
  */
 router.get('/members', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getMembersRegistry);
-router.get('/members/:id', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMemberById);
+router.get('/members/:id', requireAuth, requireRoles(['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver']), getMemberById);
 
 /**
  * @openapi
@@ -312,6 +316,59 @@ router.get('/profile-edit-requests', requireAuth, requireRoles(['admin', 'admin_
  *         description: Request approved and applied, or rejected
  */
 router.post('/profile-edit-requests/:id/decision', requireAuth, requireRoles(['admin', 'admin_assistant']), reviewProfileEditRequest);
+
+/**
+ * @openapi
+ * /api/v1/admin/mentor-applications:
+ *   get:
+ *     summary: Paginated queue of mentor applications (Admin/Admin Assistant)
+ *     tags:
+ *       - Mentor Applications
+ *     responses:
+ *       200:
+ *         description: List of mentor applications
+ */
+router.get('/mentor-applications', requireAuth, requireRoles(['admin', 'admin_assistant']), getMentorApplicationsQueue);
+
+/**
+ * @openapi
+ * /api/v1/admin/mentor-applications/{id}/decision:
+ *   post:
+ *     summary: Approve or reject a mentor application (Admin/Admin Assistant)
+ *     tags:
+ *       - Mentor Applications
+ *     responses:
+ *       200:
+ *         description: Application approved (Mentor role granted) or rejected
+ */
+router.post('/mentor-applications/:id/decision', requireAuth, requireRoles(['admin', 'admin_assistant']), reviewMentorApplication);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/promote-to-mentor:
+ *   post:
+ *     summary: Directly grant the Mentor role to a Technologist/Professional member (Admin/Approver)
+ *     description: Bypasses the mentor-application flow entirely — used from a member's profile page.
+ *     tags:
+ *       - Mentor Applications
+ *     responses:
+ *       200:
+ *         description: Mentor role granted
+ */
+router.post('/members/:id/promote-to-mentor', requireAuth, requireRoles(['admin', 'approver']), promoteToMentor);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/revoke-mentor:
+ *   post:
+ *     summary: Directly revoke the Mentor role from a member (Admin/Approver)
+ *     tags:
+ *       - Mentor Applications
+ *     responses:
+ *       200:
+ *         description: Mentor role revoked
+ */
+router.post('/members/:id/revoke-mentor', requireAuth, requireRoles(['admin', 'approver']), revokeMentorStatus);
 
 /**
  * @openapi

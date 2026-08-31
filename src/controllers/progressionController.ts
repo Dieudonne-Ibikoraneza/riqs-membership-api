@@ -262,10 +262,12 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
-    // Rather than upgrading the member immediately, hold the upgrade pending
-    // payment of the new category's first-year fee. The membershipClass,
-    // membershipId and Mentor role are only applied once that fee's
-    // FinancialTransaction is cleared (see verifyPayment in paymentController.ts).
+    // Rather than upgrading the member immediately, hold the upgrade pending payment of the
+    // new category's first-year fee. The membershipClass and membershipId are only applied
+    // once that fee's FinancialTransaction is cleared (see verifyPayment in
+    // paymentController.ts). Passing the APC no longer grants the Mentor role by itself —
+    // members now either apply for it (mentorApplicationController.requestMentorStatus) or an
+    // Admin/Approver promotes them directly from their profile.
     if (newClass && targetCategory) {
       const transactionReference = `UPG-${apc.applicationId.slice(0, 8)}-${Date.now()}`;
 
@@ -275,8 +277,7 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
           data: {
             pendingUpgradeClass: newClass,
             pendingUpgradeCategoryId: targetCategory.id,
-            pendingUpgradeCertCode: newCertCode,
-            pendingUpgradePromoteToMentor: true
+            pendingUpgradeCertCode: newCertCode
           }
         })
       );

@@ -24,7 +24,9 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
     }
 
     if (mentorsOnly === 'true') {
-      whereClause.membershipClass = { in: ['Professional', 'Technologist'] };
+      // Being Technologist/Professional no longer implies mentor status — only members
+      // actually granted the Mentor role (via application or direct promotion) qualify.
+      whereClause.systemRole = 'Mentor';
     } else if (category && category !== 'all') {
       if (category === 'Firm') {
         whereClause.membershipClass = {
@@ -109,7 +111,9 @@ export async function getMentorById(req: Request, res: Response) {
       return res.status(404).json({ error: 'Mentor not found.' });
     }
 
-    if (!['Professional', 'Technologist'].includes(mentor.membershipClass as string) || ['Admin', 'Reviewer', 'Approver', 'Teacher'].includes(mentor.systemRole as string)) {
+    // Being Technologist/Professional no longer implies mentor status — only members
+    // actually granted the Mentor role (via application or direct promotion) qualify.
+    if (mentor.systemRole !== 'Mentor') {
       return res.status(400).json({ error: 'Member is not eligible to be a mentor.' });
     }
 

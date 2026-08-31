@@ -233,9 +233,9 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
             membershipId: generatedMembershipId,
             membershipClass: generatedMembershipClass as any,
             membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-            ...(existingTransaction.member.systemRole === 'Standard' && (generatedMembershipClass.includes('Technologist') || generatedMembershipClass.includes('Professional'))
-              ? { systemRole: 'Mentor' }
-              : {}),
+            // Being Technologist/Professional no longer grants the Mentor role automatically —
+            // members now either apply (mentorApplicationController.requestMentorStatus) or an
+            // Admin/Approver promotes them directly from their profile.
             updatedAt: new Date()
           }
         })
@@ -250,7 +250,6 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
             membershipId: upgradeMembershipId,
             membershipClass: pendingUpgrade.pendingUpgradeClass as any,
             membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-            ...(pendingUpgrade.pendingUpgradePromoteToMentor ? { systemRole: 'Mentor' } : {}),
             updatedAt: new Date()
           }
         }),
@@ -717,9 +716,9 @@ async function finalizeFirstYearFeeGatewayClearance(transactionId: string) {
         membershipId: generatedMembershipId,
         membershipClass: generatedMembershipClass as any,
         membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-        ...(member.systemRole === 'Standard' && (generatedMembershipClass.includes('Technologist') || generatedMembershipClass.includes('Professional'))
-          ? { systemRole: 'Mentor' }
-          : {}),
+        // Being Technologist/Professional no longer grants the Mentor role automatically —
+        // members now either apply (mentorApplicationController.requestMentorStatus) or an
+        // Admin/Approver promotes them directly from their profile.
         updatedAt: new Date()
       }
     }));
@@ -733,7 +732,6 @@ async function finalizeFirstYearFeeGatewayClearance(transactionId: string) {
           membershipId: upgradeMembershipId,
           membershipClass: pendingUpgrade.pendingUpgradeClass as any,
           membershipExpiresAt: new Date(Date.UTC(new Date().getFullYear(), 11, 31, 23, 59, 59)),
-          ...(pendingUpgrade.pendingUpgradePromoteToMentor ? { systemRole: 'Mentor' } : {}),
           updatedAt: new Date()
         }
       }),

@@ -4,8 +4,15 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // DATABASE_URL (port 6543) is Supabase's pgbouncer transaction-mode pooler — efficient for
+  // the app's runtime queries, but it doesn't support the advisory locks/prepared statements
+  // Prisma Migrate needs, so `migrate deploy`/`migrate dev`/`db push` hang indefinitely against
+  // it. DIRECT_URL (port 5432, no pgbouncer) is the same database's direct/session connection —
+  // Prisma automatically uses it for migration commands only; the app keeps using the pooled
+  // DATABASE_URL for everything else.
+  directUrl = env("DIRECT_URL")
 }
 
 enum PracticeLocation {
@@ -169,8 +176,29 @@ model Member {
   educationRecords      EducationRecord[]
   employmentRecords     EmploymentRecord[]
   profileEditRequests   ProfileEditRequest[]
+  mentorApplications    MentorApplication[]
 
   @@map("members")
+}
+
+// A Technologist/Professional member's request to be granted the Mentor system role — being
+// a Technologist or Professional no longer makes someone a mentor automatically; they must
+// either apply here (reviewed by an Admin/Admin Assistant) or be promoted directly by an
+// Admin/Approver from their member profile (see promoteToMentor in mentorApplicationController).
+model MentorApplication {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  memberId        String    @map("member_id") @db.Uuid
+  status          String    @default("Pending") @db.VarChar(20)
+  motivation      String?   @db.Text
+  reviewNotes     String?   @map("review_notes") @db.Text
+  reviewedByEmail String?   @map("reviewed_by_email") @db.VarChar(255)
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamptz
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamptz
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("mentor_applications")
 }
 
 // A member-submitted request to change locked/compliance profile fields

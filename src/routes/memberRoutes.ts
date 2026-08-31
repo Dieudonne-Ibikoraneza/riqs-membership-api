@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getPublicMembersDirectory, getMentorById, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
 import { uploadProfilePhoto } from '../controllers/fileController';
 import { submitProfileEditRequest, getMyProfileEditRequests } from '../controllers/profileEditController';
+import { requestMentorStatus, getMyMentorApplication } from '../controllers/mentorApplicationController';
 import { requireAuth } from '../middleware/auth';
 import { sanitizeUpload } from '../middleware/sanitizer';
 import { profileEditUpload } from '../middleware/profileEditUpload';
@@ -39,6 +40,33 @@ router.post('/profile/edit-request', requireAuth, uploadRateLimiter, profileEdit
  *         description: List of the logged-in member's profile update requests
  */
 router.get('/profile/edit-request', requireAuth, getMyProfileEditRequests);
+
+/**
+ * @openapi
+ * /api/v1/members/mentor-application:
+ *   post:
+ *     summary: Apply to become a mentor (Technologist/Professional members)
+ *     description: Submits a request to be granted the Mentor system role. Reviewed by an Admin/Admin Assistant. Rejects with 403 if the member's class is not Technologist or Professional, or 409 if a Pending application already exists.
+ *     tags:
+ *       - Member Profile
+ *     responses:
+ *       201:
+ *         description: Application submitted
+ */
+router.post('/mentor-application', requireAuth, requestMentorStatus);
+
+/**
+ * @openapi
+ * /api/v1/members/mentor-application:
+ *   get:
+ *     summary: View my most recent mentor application (Member)
+ *     tags:
+ *       - Member Profile
+ *     responses:
+ *       200:
+ *         description: The logged-in member's most recent mentor application, or null if none
+ */
+router.get('/mentor-application', requireAuth, getMyMentorApplication);
 
 /**
  * @openapi

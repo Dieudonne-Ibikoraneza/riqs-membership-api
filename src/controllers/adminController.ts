@@ -1123,6 +1123,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         isHonorary: m.isHonorary,
         honors: (m as any).honors || [],
         membershipClass: m.membershipClass,
+        systemRole: m.systemRole,
       };
     });
 
@@ -1509,7 +1510,7 @@ export async function promoteToHeadReviewer(req: AuthenticatedRequest, res: Resp
 export async function getMentorshipQueue(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
-  const { page = 1, limit = 10, q, status } = req.query;
+  const { page = 1, limit = 10, q, status, apcReadiness, location, category, sortKey, sortDir, sort = 'recent' } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
   const take = Number(limit);
 
@@ -1521,6 +1522,8 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
       mentorshipStatusFilter = { in: ['Pending_Reviewer_Board', 'Pending_Admin_Review', 'Approved', 'Correction_Required'] };
     } else if (statusQuery === 'pending') {
       mentorshipStatusFilter = { in: ['Pending_Reviewer_Board', 'Pending_Admin_Review'] };
+    } else if (['pending_reviewer_board', 'pending_admin_review', 'correction_required'].includes(statusQuery)) {
+      mentorshipStatusFilter = String(status);
     } else if (statusQuery === 'approved') {
       mentorshipStatusFilter = 'Approved';
     } else if (statusQuery === 'rejected' || statusQuery === 'flagged') {
@@ -1530,9 +1533,17 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
     const whereClause: any = {
       mentorshipAssignment: { 
         status: mentorshipStatusFilter,
-        upgradeRequested: true
+        upgradeRequested: true,
+        ...(apcReadiness ? { apcReadiness: String(apcReadiness) } : {})
       }
     };
+
+    if (location) {
+      whereClause.category = { location: String(location) };
+    }
+    if (category) {
+      whereClause.category = { ...(whereClause.category || {}), categoryName: { contains: String(category), mode: 'insensitive' } };
+    }
 
     if (q) {
       whereClause.OR = [
@@ -1546,7 +1557,7 @@ export async function getMentorshipQueue(req: AuthenticatedRequest, res: Respons
         where: whereClause,
         skip,
         take,
-        orderBy: { submittedAt: 'desc' },
+        orderBy: { submittedAt: String(sortDir).toLowerCase() === 'asc' || sort === 'oldest' ? 'asc' : 'desc' },
         include: {
           member:   { select: { fullName: true, email: true, isFellow: true, isHonorary: true, honors: true } },
           category: { select: { categoryName: true, location: true } },
