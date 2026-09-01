@@ -265,6 +265,8 @@ router.get('/mentorship/progress', requireAuth, getMentorshipProgress);
  *       500:
  *         description: Internal server error
  */
-router.get('/mentees', requireAuth, requireRoles(['mentor', 'admin']), getMentees);
+// getMentees does its own live-DB systemRole check (not the JWT's role claim, which can be
+// stale for a member promoted to Mentor mid-session) — no route-level role gate here.
+router.get('/mentees', requireAuth, getMentees);
 
 export default router;

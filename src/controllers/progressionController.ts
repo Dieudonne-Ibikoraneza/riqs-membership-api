@@ -563,15 +563,20 @@ export async function getMentorshipProgress(req: AuthenticatedRequest, res: Resp
 // 6. Get assigned Mentees for the current logged-in Mentor
 export async function getMentees(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied. Authenticated session required.' });
-  if (req.user.role.toLowerCase() !== 'mentor' && req.user.role.toLowerCase() !== 'admin') {
-    return res.status(403).json({ error: 'Access Denied. Mentor status required.' });
-  }
 
   try {
+    // The JWT's `role` claim is baked in at login time, so a member approved as a Mentor after
+    // their session started would still carry the old "Standard" role on every request until
+    // they log out and back in — hitting a false "Mentor status required" 403 the whole time.
+    // Check the live systemRole here instead of trusting the token for this.
     const mentor = await prisma.member.findUnique({
       where: { id: req.user.id },
-      select: { membershipId: true }
+      select: { membershipId: true, systemRole: true }
     });
+
+    if (req.user.role.toLowerCase() !== 'admin' && mentor?.systemRole !== 'Mentor') {
+      return res.status(403).json({ error: 'Access Denied. Mentor status required.' });
+    }
 
     if (!mentor || !mentor.membershipId) {
       return res.status(400).json({ error: 'Logged-in user does not have a valid membership registration number.' });
