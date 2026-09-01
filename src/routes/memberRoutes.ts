@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getPublicMembersDirectory, getMentorById, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
+import { getPublicMembersDirectory, getMentorById, verifyMember, verifyMemberPhoto, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
 import { uploadProfilePhoto } from '../controllers/fileController';
 import { submitProfileEditRequest, getMyProfileEditRequests } from '../controllers/profileEditController';
 import { requestMentorStatus, getMyMentorApplication } from '../controllers/mentorApplicationController';
@@ -129,6 +129,30 @@ router.get('/directory', getPublicMembersDirectory);
  *         description: Mentor not found
  */
 router.get('/mentors/:membershipId', getMentorById);
+
+/**
+ * @openapi
+ * /api/v1/members/verify/{membershipId}:
+ *   get:
+ *     summary: Public membership authenticity verification (Public)
+ *     description: The destination of the QR code printed on membership cards and certificates. Returns only public-safe fields — name, membership ID, category, standing, honours. No authentication required.
+ *     tags:
+ *       - Members Directory
+ *     security: []
+ *     parameters:
+ *       - in: path
+ *         name: membershipId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Member found
+ *       404:
+ *         description: No member found with this membership ID
+ */
+router.get('/verify/:membershipId', verifyMember);
+router.get('/verify/:membershipId/photo', verifyMemberPhoto);
 
 /**
  * @openapi

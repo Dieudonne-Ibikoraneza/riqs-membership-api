@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { prisma } from '../config/db';
+import { prisma, supabaseAdmin } from '../config/db';
 import { MemberClass } from '@prisma/client';
 
 export async function getPublicMembersDirectory(req: Request, res: Response) {
@@ -125,6 +125,111 @@ export async function getMentorById(req: Request, res: Response) {
   } catch (error: any) {
     console.error('[Member Controller] Error fetching mentor:', error.message);
     return res.status(500).json({ error: 'Internal server error while fetching mentor.' });
+  }
+}
+
+// Public, unauthenticated: the destination of the QR code printed on membership cards and
+// certificates. Anyone who scans it — an employer, a client, another institute — lands here
+// to confirm a membership ID genuinely belongs to a registered RIQS member. Deliberately
+// returns only what's safe to show a stranger: name, membership ID, category, standing, and
+// honours — never email, phone, national ID, address, or anything financial.
+export async function verifyMember(req: Request, res: Response) {
+  try {
+    const { membershipId } = req.params;
+    if (!membershipId) return res.status(400).json({ error: 'Missing membership ID.' });
+
+    const member = await prisma.member.findUnique({
+      where: { membershipId: String(membershipId) },
+      select: {
+        fullName: true,
+        email: true,
+        phoneNumber: true,
+        membershipId: true,
+        membershipClass: true,
+        membershipExpiresAt: true,
+        isFellow: true,
+        isHonorary: true,
+        honors: true,
+        countryOfOrigin: true,
+        profilePhotoUrl: true,
+        applications: {
+          where: { status: 'Approved' },
+          orderBy: { approvedAt: 'desc' },
+          take: 1,
+          select: { practiceLocation: true, category: { select: { categoryName: true, location: true } } }
+        }
+      }
+    });
+
+    // A membership ID is only ever assigned once an application is fully approved and paid —
+    // no membershipId means there is nothing legitimate here to verify.
+    if (!member || !member.membershipId) {
+      return res.status(404).json({ found: false, error: 'No RIQS member found with this membership ID.' });
+    }
+
+    const app = member.applications[0];
+    const isExpired = Boolean(member.membershipExpiresAt && member.membershipExpiresAt < new Date());
+
+    return res.status(200).json({
+      found: true,
+      fullName: member.fullName,
+      email: member.email,
+      phoneNumber: member.phoneNumber,
+      membershipId: member.membershipId,
+      membershipClass: member.membershipClass,
+      categoryName: app?.category?.categoryName || null,
+      practiceLocation: app?.practiceLocation || app?.category?.location || null,
+      countryOfOrigin: member.countryOfOrigin,
+      status: isExpired ? 'Expired' : 'Active',
+      membershipExpiresAt: member.membershipExpiresAt,
+      isFellow: member.isFellow,
+      isHonorary: member.isHonorary,
+      honors: member.honors || [],
+      // The photo itself is served separately (see verifyMemberPhoto) rather than as a raw
+      // storage path, so the client never needs to know the private bucket layout.
+      hasPhoto: Boolean(member.profilePhotoUrl),
+    });
+  } catch (error: any) {
+    console.error('[Member Controller] Error verifying member:', error.message);
+    return res.status(500).json({ error: 'Internal server error while verifying member.' });
+  }
+}
+
+// Streams a member's profile photo for the public verification page — deliberately scoped to
+// only the photo already tied to this exact, publicly-printed membership ID (never an arbitrary
+// storage path from the client), so it can't be used to reach any other file in private storage.
+export async function verifyMemberPhoto(req: Request, res: Response) {
+  try {
+    const { membershipId } = req.params;
+    if (!membershipId) return res.status(400).json({ error: 'Missing membership ID.' });
+
+    const member = await prisma.member.findUnique({
+      where: { membershipId: String(membershipId) },
+      select: { profilePhotoUrl: true }
+    });
+
+    if (!member || !member.profilePhotoUrl) {
+      return res.status(404).json({ error: 'No photo on file for this member.' });
+    }
+
+    const { data, error } = await supabaseAdmin.storage
+      .from('riqs-membership')
+      .download(member.profilePhotoUrl);
+
+    if (error || !data) {
+      return res.status(404).json({ error: 'Photo could not be retrieved.' });
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    const lower = member.profilePhotoUrl.toLowerCase();
+    const contentType = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.send(buffer);
+  } catch (error: any) {
+    console.error('[Member Controller] Error streaming verification photo:', error.message);
+    return res.status(500).json({ error: 'Internal server error while retrieving photo.' });
   }
 }
 

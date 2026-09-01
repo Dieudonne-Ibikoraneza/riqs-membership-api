@@ -28,6 +28,8 @@ import {
   getMentorApplicationsQueue, reviewMentorApplication, promoteToMentor, revokeMentorStatus
 } from '../controllers/mentorApplicationController';
 
+import { bulkImportMembers } from '../controllers/memberImportController';
+
 const router = Router();
 
 /**
@@ -572,6 +574,12 @@ router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin', 'a
 router.post('/members/:id/change-category', requireAuth, requireRoles(['admin', 'approver']), changeMembershipCategory);
 router.post('/members/:id/honors', requireAuth, requireRoles(['admin', 'approver']), updateMemberHonors);
 router.post('/members/honorable-mention', requireAuth, requireRoles(['admin', 'approver']), createHonorableMentionMember);
+
+// Bulk-onboards real, already-registered members from the legacy Excel roster — creates real
+// login credentials and sends a real welcome email for potentially hundreds of people in one
+// request. Matches the same ['admin','approver'] gate as the other direct member-creation
+// action (createHonorableMentionMember) — not Admin_Assistant.
+router.post('/members/bulk-import', requireAuth, requireRoles(['admin', 'approver']), bulkImportMembers);
 
 /**
  * ----------------------------------------------------

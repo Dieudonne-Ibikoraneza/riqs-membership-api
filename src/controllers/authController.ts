@@ -17,8 +17,13 @@ export async function register(req: Request, res: Response) {
   }
 
   try {
+    // Email addresses are treated case-insensitively everywhere they're looked up (login,
+    // password reset, etc.) — normalize to lowercase at creation so a new account's stored
+    // email always matches however the case-insensitive lookups expect to find it.
+    const normalizedEmail = email.trim().toLowerCase();
+
     // Check if user exists
-    const existingMember = await prisma.member.findUnique({ where: { email } });
+    const existingMember = await prisma.member.findFirst({ where: { email: { equals: normalizedEmail, mode: 'insensitive' } } });
     if (existingMember) {
       return res.status(409).json({ error: 'User with this email already exists.' });
     }
@@ -37,7 +42,7 @@ export async function register(req: Request, res: Response) {
     const newMember = await prisma.member.create({
       data: {
         id,
-        email,
+        email: normalizedEmail,
         passwordHash,
         fullName,
         phoneNumber: phoneNumber || null,
@@ -77,8 +82,8 @@ export async function verifyOtp(req: Request, res: Response) {
   }
 
   try {
-    const member = await prisma.member.findUnique({ where: { email } });
-    
+    const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
     if (!member) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -93,7 +98,7 @@ export async function verifyOtp(req: Request, res: Response) {
 
     // Mark as verified and clear OTP
     const updatedMember = await prisma.member.update({
-      where: { email },
+      where: { id: member.id },
       data: {
         isEmailVerified: true,
         otpCode: null,
@@ -140,7 +145,9 @@ export async function login(req: Request, res: Response) {
   }
 
   try {
-    const member = await prisma.member.findUnique({ where: { email } });
+    // Case-insensitive: emails a member typed at signup, an admin typed when importing them,
+    // or they type now at login can all legitimately differ in case for the same address.
+    const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!member) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
@@ -205,7 +212,7 @@ export async function forgotPassword(req: Request, res: Response) {
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
   try {
-    const member = await prisma.member.findUnique({ where: { email } });
+    const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!member) return res.status(404).json({ error: 'We could not find an account associated with this email address. Please check for typos or create a new account instead.' });
 
     const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
@@ -215,7 +222,7 @@ export async function forgotPassword(req: Request, res: Response) {
     const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
     await prisma.member.update({
-      where: { email },
+      where: { id: member.id },
       data: { resetPasswordOtp: otpCode, resetPasswordExpires: otpExpiresAt }
     });
 
@@ -238,7 +245,7 @@ export async function resetPassword(req: Request, res: Response) {
   }
 
   try {
-    const member = await prisma.member.findUnique({ where: { email } });
+    const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!member || !member.resetPasswordOtp || !member.resetPasswordExpires) {
       return res.status(400).json({ error: 'Invalid or expired OTP.' });
     }
@@ -254,7 +261,7 @@ export async function resetPassword(req: Request, res: Response) {
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
     await prisma.member.update({
-      where: { email },
+      where: { id: member.id },
       data: {
         passwordHash,
         resetPasswordOtp: null,
@@ -278,7 +285,7 @@ export async function resendOtp(req: Request, res: Response) {
   }
 
   try {
-    const member = await prisma.member.findUnique({ where: { email } });
+    const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!member) {
       return res.status(404).json({ error: 'User not found.' });
     }
