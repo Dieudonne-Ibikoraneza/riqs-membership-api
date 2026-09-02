@@ -6,6 +6,7 @@ import {
   getBalance,
   getTransactionStatus,
   requestPayment,
+  // requestDeposit, // commented out alongside its route below — see that block for why
   receivePaymentCallback
 } from '../controllers/intouchPayController';
 
@@ -199,6 +200,96 @@ router.post(
   requireRoles(['admin', 'admin_assistant', 'finance']),
   requestPayment
 );
+
+// Commented out (not deleted) at the user's request — built and confirmed working end-to-end
+// (POST /api/v1/payments/requestdeposit), kept on ice for future use rather than wired into the
+// live routes right now. To bring back: uncomment this whole block, the `requestDeposit` import
+// above, `requestDeposit` in intouchPayController.ts (and its own commented imports/exports),
+// `requestDeposit` in intouchPayService.ts, and `DEPOSIT_CODE_STATUS` in
+// intouchPayResponseCodes.ts.
+//
+// /**
+//  * @openapi
+//  * /api/v1/payments/requestdeposit:
+//  *   post:
+//  *     summary: Request Deposit (Sending Payment / disbursement to a subscriber)
+//  *     description: Invokes IntouchPay's RequestDeposit API to push a mobile money payout to a subscriber — the mirror of /requestpayment, which instead collects from one. IntouchPay immediately responds with a Pending status; the final outcome is later delivered asynchronously to the server's configured callback URL (see /api/v1/payments/callback). The caller only ever supplies amount, mobilephone, and reason — username, timestamp, the signed password, the fixed service id (sid, from INTOUCH_SID), withdrawcharge (fixed at 1), and requesttransactionid (auto-generated here as "DEP-<timestamp>-<random>") are all attached server-side and never supplied by the caller. The generated requesttransactionid is always echoed back in the response so the caller has a handle to check its status later via /gettransactionstatus.
+//  *     tags:
+//  *       - IntouchPay
+//  *     requestBody:
+//  *       required: true
+//  *       content:
+//  *         application/json:
+//  *           schema:
+//  *             type: object
+//  *             required:
+//  *               - amount
+//  *               - reason
+//  *               - mobilephone
+//  *             properties:
+//  *               amount:
+//  *                 type: string
+//  *                 example: "100"
+//  *               reason:
+//  *                 type: string
+//  *                 description: Free-text description of what this deposit is for.
+//  *                 example: "TEST DEPOSIT"
+//  *               mobilephone:
+//  *                 type: string
+//  *                 example: "250780993300"
+//  *     responses:
+//  *       200:
+//  *         description: "Deposit request accepted — Pending Response, being processed by IntouchPay."
+//  *         content:
+//  *           application/json:
+//  *             schema:
+//  *               type: object
+//  *               properties:
+//  *                 status:
+//  *                   type: string
+//  *                   example: Pending
+//  *                 requesttransactionid:
+//  *                   type: string
+//  *                   description: Server-generated — the only handle the caller has for this transaction, since they never supplied one.
+//  *                   example: "DEP-1715520000000-a1b2c3"
+//  *                 success:
+//  *                   type: boolean
+//  *                   example: true
+//  *                 responsecode:
+//  *                   type: string
+//  *                   example: "1000"
+//  *                 transactionid:
+//  *                   type: integer
+//  *                   example: 1425
+//  *                 message:
+//  *                   type: string
+//  *                   example: Transaction Pending
+//  *       400:
+//  *         description: Missing required fields (amount, mobilephone, reason, or missing username/password/date information).
+//  *       401:
+//  *         description: Invalid password or authentication failure.
+//  *       403:
+//  *         description: Access denied — caller lacks the required role.
+//  *       404:
+//  *         description: Route not found / no such user.
+//  *       405:
+//  *         description: Method not allowed.
+//  *       409:
+//  *         description: Duplicate transaction id — a request with this requesttransactionid was already submitted.
+//  *       422:
+//  *         description: Unprocessable — e.g. invalid mobile number, amount out of allowed range, insufficient funds, or operation not allowed.
+//  *       429:
+//  *         description: Too many requests — rate limit exceeded.
+//  *       500:
+//  *         description: Internal server error or IntouchPay gateway unreachable.
+//  */
+// router.post(
+//   '/requestdeposit',
+//   intouchPayRateLimiter,
+//   requireAuth,
+//   requireRoles(['admin', 'admin_assistant', 'finance']),
+//   requestDeposit
+// );
 
 /**
  * @openapi

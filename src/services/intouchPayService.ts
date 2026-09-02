@@ -94,3 +94,34 @@ export async function requestPayment(params: {
     callbackurl: process.env.INTOUCH_CALLBACK_URL || ''
   });
 }
+
+// RequestDeposit — Sending Payment (disbursement to a subscriber), the mirror image of
+// RequestPayment: instead of collecting money from a subscriber's mobile money wallet, this
+// pushes money from the App's IntouchPay account out to one. Same async Pending-then-callback
+// flow as RequestPayment, but its own payload shape per IntouchPay's spec — no accountno or
+// callbackurl; instead a withdrawcharge, a free-text reason, and a fixed "sid" (service id).
+//
+// Commented out (not deleted) at the user's request — built and confirmed working, kept
+// on ice for future use rather than wired into the live routes right now.
+// export async function requestDeposit(params: {
+//   amount: string | number;
+//   withdrawcharge: string | number;
+//   reason: string;
+//   mobilephone: string | number;
+//   requesttransactionid: string;
+// }) {
+//   const timestamp = generateTimestamp();
+//   const password = generatePassword(timestamp);
+//
+//   return postToIntouchPay('/requestdeposit/', {
+//     username: USERNAME,
+//     timestamp,
+//     amount: params.amount,
+//     withdrawcharge: params.withdrawcharge,
+//     reason: params.reason,
+//     password,
+//     sid: process.env.INTOUCH_SID || '1',
+//     mobilephone: params.mobilephone,
+//     requesttransactionid: params.requesttransactionid
+//   });
+// }

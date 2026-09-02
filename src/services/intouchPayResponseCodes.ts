@@ -36,6 +36,12 @@ export const PAYMENT_CODE_STATUS: Record<string, number> = {
   '1300': 500  // Failed to Complete Transaction, Unknown Exception
 };
 
+// RequestDeposit shares the same response-code taxonomy as RequestPayment per IntouchPay's
+// gateway spec (both are just "send a mobile money transaction" operations, one pull one push).
+// Commented out alongside requestDeposit (see intouchPayService.ts/intouchPayController.ts) —
+// built and confirmed working, kept for future use rather than wired in right now.
+// export const DEPOSIT_CODE_STATUS: Record<string, number> = PAYMENT_CODE_STATUS;
+
 export function statusForCode(map: Record<string, number>, code?: string | number | null, fallback = 500): number {
   if (code === undefined || code === null) return fallback;
   return map[String(code)] ?? fallback;
