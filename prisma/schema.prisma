@@ -213,6 +213,13 @@ model ProfileEditRequest {
   proposedResidencyAddress  Json?     @map("proposed_residency_address")
   proposedWorkAddress       Json?     @map("proposed_work_address")
   proposedProfilePhotoUrl   String?   @map("proposed_profile_photo_url")
+  // Members whose account was created outside the normal application flow (e.g. bulk-imported
+  // from the legacy roster) never had a chance to submit these identity fields — this lets them
+  // propose a first value the same way they can for name/address, since Member's own columns
+  // are otherwise locked/read-only on the profile page.
+  proposedNationalIdOrPassport String? @map("proposed_national_id_or_passport") @db.VarChar(100)
+  proposedDateOfBirth          DateTime? @map("proposed_date_of_birth") @db.Date
+  proposedGender                String?  @map("proposed_gender") @db.VarChar(20)
   proposedEducation         Json?     @map("proposed_education")
   proposedEmployment        Json?     @map("proposed_employment")
   memberNotes               String?   @map("member_notes") @db.Text

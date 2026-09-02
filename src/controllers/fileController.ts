@@ -32,14 +32,15 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     const isOwner = app.memberId === req.user.id;
     let isAssignedMentor = false;
 
-    if (req.user.role.toLowerCase() === 'mentor' && documentType === 'MentorRecommendation') {
-      const mentorship = await prisma.mentorshipAssignment.findUnique({
-        where: { applicationId }
-      });
-      const member = await prisma.member.findUnique({
-        where: { id: req.user.id }
-      });
-      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+    // Checked against the member's live systemRole, not req.user.role from the JWT — that
+    // claim is baked in at login time and would stay stale (e.g. still "Standard") for a
+    // member promoted to Mentor mid-session, wrongly denying them here until they re-login.
+    if (documentType === 'MentorRecommendation') {
+      const [mentorship, member] = await Promise.all([
+        prisma.mentorshipAssignment.findUnique({ where: { applicationId } }),
+        prisma.member.findUnique({ where: { id: req.user.id }, select: { membershipId: true, systemRole: true } }),
+      ]);
+      if (mentorship && member?.systemRole === 'Mentor' && mentorship.mentorRegistrationNumber === member.membershipId) {
         isAssignedMentor = true;
       }
     }
@@ -247,14 +248,14 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
     const isOwner = doc.application.memberId === req.user.id;
     
     let isAssignedMentor = false;
-    if (req.user.role.toLowerCase() === 'mentor') {
-      const mentorship = await prisma.mentorshipAssignment.findUnique({
-        where: { applicationId: doc.applicationId }
-      });
-      const member = await prisma.member.findUnique({
-        where: { id: req.user.id }
-      });
-      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+    {
+      // Live systemRole check — see uploadFile for why req.user.role (the JWT claim) isn't
+      // trusted for this.
+      const [mentorship, member] = await Promise.all([
+        prisma.mentorshipAssignment.findUnique({ where: { applicationId: doc.applicationId } }),
+        prisma.member.findUnique({ where: { id: req.user.id }, select: { membershipId: true, systemRole: true } }),
+      ]);
+      if (mentorship && member?.systemRole === 'Mentor' && mentorship.mentorRegistrationNumber === member.membershipId) {
         isAssignedMentor = true;
       }
     }
@@ -319,14 +320,14 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
     const isOwner = app.memberId === req.user.id;
     let isAssignedMentor = false;
 
-    if (req.user.role.toLowerCase() === 'mentor' && documentType === 'MentorRecommendation') {
-      const mentorship = await prisma.mentorshipAssignment.findUnique({
-        where: { applicationId }
-      });
-      const member = await prisma.member.findUnique({
-        where: { id: req.user.id }
-      });
-      if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+    if (documentType === 'MentorRecommendation') {
+      // Live systemRole check — see uploadFile for why req.user.role (the JWT claim) isn't
+      // trusted for this.
+      const [mentorship, member] = await Promise.all([
+        prisma.mentorshipAssignment.findUnique({ where: { applicationId } }),
+        prisma.member.findUnique({ where: { id: req.user.id }, select: { membershipId: true, systemRole: true } }),
+      ]);
+      if (mentorship && member?.systemRole === 'Mentor' && mentorship.mentorRegistrationNumber === member.membershipId) {
         isAssignedMentor = true;
       }
     }
@@ -384,12 +385,14 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
         const isOwner = app.memberId === req.user.id;
 
         let isAssignedMentor = false;
-        if (req.user.role.toLowerCase() === 'mentor') {
-          const mentorship = await prisma.mentorshipAssignment.findUnique({
-            where: { applicationId }
-          });
-          const member = await prisma.member.findUnique({ where: { id: req.user.id } });
-          if (mentorship && member && mentorship.mentorRegistrationNumber === member.membershipId) {
+        {
+          // Live systemRole check — see uploadFile for why req.user.role (the JWT claim) isn't
+          // trusted for this.
+          const [mentorship, member] = await Promise.all([
+            prisma.mentorshipAssignment.findUnique({ where: { applicationId } }),
+            prisma.member.findUnique({ where: { id: req.user.id }, select: { membershipId: true, systemRole: true } }),
+          ]);
+          if (mentorship && member?.systemRole === 'Mentor' && mentorship.mentorRegistrationNumber === member.membershipId) {
             isAssignedMentor = true;
           }
         }

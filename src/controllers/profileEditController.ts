@@ -47,7 +47,7 @@ export async function submitProfileEditRequest(req: AuthenticatedRequest, res: R
     return res.status(409).json({ error: 'You already have a profile update request awaiting review. Please wait for it to be resolved before submitting another.' });
   }
 
-  const { fullName, memberNotes } = req.body;
+  const { fullName, memberNotes, nationalIdOrPassport, dateOfBirth, gender } = req.body;
   // Address fields are submitted as JSON ({district, sector, cell, village})
   // for Rwandan members, or a plain string for non-Rwandan members.
   const residencyAddress = parseJsonField<any>(req.body.residencyAddress, req.body.residencyAddress || null);
@@ -55,11 +55,11 @@ export async function submitProfileEditRequest(req: AuthenticatedRequest, res: R
   const education = parseJsonField<ProposedEducationInput[]>(req.body.education, []);
   const employment = parseJsonField<ProposedEmploymentInput[]>(req.body.employment, []);
 
-  if (!fullName && !residencyAddress && !workAddress && education.length === 0 && employment.length === 0) {
+  if (!fullName && !residencyAddress && !workAddress && !nationalIdOrPassport && !dateOfBirth && !gender && education.length === 0 && employment.length === 0) {
     const files = (req.files as Express.Multer.File[]) || [];
     const hasPhoto = files.some(f => f.fieldname === 'photo');
     if (!hasPhoto) {
-      return res.status(400).json({ error: 'Submit at least one change: name, address, photo, education, or employment.' });
+      return res.status(400).json({ error: 'Submit at least one change: name, address, identity details, photo, education, or employment.' });
     }
   }
 
@@ -137,6 +137,9 @@ export async function submitProfileEditRequest(req: AuthenticatedRequest, res: R
       proposedResidencyAddress: residencyAddress || undefined,
       proposedWorkAddress: workAddress || undefined,
       proposedProfilePhotoUrl,
+      proposedNationalIdOrPassport: nationalIdOrPassport || null,
+      proposedDateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      proposedGender: gender || null,
       proposedEducation: proposedEducation.length > 0 ? proposedEducation : undefined,
       proposedEmployment: proposedEmployment.length > 0 ? proposedEmployment : undefined,
       memberNotes: memberNotes || null,
@@ -264,6 +267,9 @@ export async function reviewProfileEditRequest(req: AuthenticatedRequest, res: R
         memberUpdateData.workAddress = request.proposedWorkAddress;
       }
       if (request.proposedProfilePhotoUrl) memberUpdateData.profilePhotoUrl = request.proposedProfilePhotoUrl;
+      if (request.proposedNationalIdOrPassport) memberUpdateData.nationalIdOrPassport = request.proposedNationalIdOrPassport;
+      if (request.proposedDateOfBirth) memberUpdateData.dateOfBirth = request.proposedDateOfBirth;
+      if (request.proposedGender) memberUpdateData.gender = request.proposedGender;
 
       if (Object.keys(memberUpdateData).length > 0) {
         await tx.member.update({ where: { id: request.memberId }, data: memberUpdateData });
