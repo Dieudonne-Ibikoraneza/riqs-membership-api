@@ -183,7 +183,26 @@ export async function registerAPC(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// 3. Grade APC Assessment (Admin records pass/fail and triggers class upgrade)
+// Shared by gradeAPC (to preview what a Pass would mean) and approveAPCGrade (to actually
+// apply it) — resolves the new MemberClass/certificate code/target category for a Pass.
+function resolveApcUpgradeTarget(categoryCode: string): { newClass: MemberClass; newCertCode: string; targetCategoryCode: string | null } {
+  // Route 1 (GrQST, AsQST) → Technologist, Route 2+ (GrQS, AsQS, PrQS, F-PrQS) → Professional
+  const newClass: MemberClass = ['GrQS', 'PrQS', 'F-PrQS', 'AsQS'].includes(categoryCode) ? 'Professional' : 'Technologist';
+  const newCertCode = newClass === 'Technologist' ? 'TechQS' : 'PrQS';
+
+  let targetCategoryCode: string | null = categoryCode;
+  if (['GrQST', 'AsQST'].includes(categoryCode)) targetCategoryCode = 'TcQS';
+  else if (['GrQS', 'AsQS'].includes(categoryCode)) targetCategoryCode = 'PrQS';
+  if (targetCategoryCode === categoryCode) targetCategoryCode = null; // no actual category change
+
+  return { newClass, newCertCode, targetCategoryCode };
+}
+
+// 3. Grade APC Assessment — Step 1 of 2. An Admin Assistant (or Admin/Approver) stages a
+// grade here; nothing about the member's class, fees, or inbox changes yet. The grade sits as
+// `Pending_Approval` until an Admin/Approver calls approveAPCGrade below to confirm or reject
+// it — that's the only point at which the upgrade fee is invoiced and the results email goes
+// out, mirroring the existing Reviewer→Approver staging used for full applications.
 export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
@@ -196,46 +215,125 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
   const validStatuses = ['Attended', 'Passed', 'Failed', 'No_Show'];
   let mappedStatus = status;
   if (status === 'No Show') mappedStatus = 'No_Show';
-  
+
   if (!validStatuses.includes(mappedStatus)) {
     return res.status(400).json({ error: `Invalid status. Must be one of: Attended, Passed, Failed, No Show` });
   }
 
   try {
+    const apc = await prisma.apcAssessment.findUnique({ where: { id: assessmentId } });
+    if (!apc) return res.status(404).json({ error: 'APC assessment not found.' });
+
+    if (apc.status === 'Pending_Approval') {
+      return res.status(409).json({ error: 'This assessment already has a grade awaiting Admin/Approver confirmation.' });
+    }
+
+    const updatedApc = await prisma.$transaction(async (tx) => {
+      const updated = await tx.apcAssessment.update({
+        where: { id: assessmentId },
+        data: {
+          preApprovalStatus: apc.status,
+          status: 'Pending_Approval',
+          proposedStatus: mappedStatus as ApcStatus,
+          proposedScorePercentage: scorePercentage || null,
+          proposedAssessmentNotes: assessmentNotes || null,
+          proposedStampFeePaid: stampFeePaid || false,
+          proposedLicenseIssued: licenseIssued || false,
+          gradedByEmail: req.user!.email,
+          gradedAt: new Date(),
+          approvedByEmail: null,
+          approvedAt: null,
+          gradingRejectionReason: null,
+          updatedAt: new Date()
+        }
+      });
+      await tx.auditLog.create({
+        data: {
+          memberId: apc.memberId,
+          actionByEmail: req.user!.email,
+          actionType: 'APC_GRADED_PENDING_APPROVAL',
+          details: `APC ${assessmentId} graded as ${status} (score: ${scorePercentage || 'N/A'}%) by ${req.user!.email} — awaiting Admin/Approver confirmation before it takes effect.`
+        }
+      });
+      return updated;
+    });
+
+    return res.status(200).json({ message: `Grade submitted — awaiting Admin/Approver confirmation.`, assessment: updatedApc });
+  } catch (error: any) {
+    console.error('[Grade APC] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error grading APC assessment.' });
+  }
+}
+
+// 3b. Confirm or reject a staged APC grade — Step 2 of 2 (Admin/Approver only). Approving
+// applies the exact same class-upgrade/fee/email logic the old single-step gradeAPC used to
+// run inline; rejecting just discards the staged grade and reverts to whatever the assessment's
+// status was before grading, so it can be re-graded.
+export async function approveAPCGrade(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { assessmentId, decision, rejectionReason } = req.body;
+  if (!assessmentId || !['Approve', 'Reject'].includes(decision)) {
+    return res.status(400).json({ error: 'Missing assessmentId or invalid decision (must be Approve or Reject).' });
+  }
+
+  try {
     const apc = await prisma.apcAssessment.findUnique({
       where: { id: assessmentId },
-      include: { 
+      include: {
         application: { include: { category: { select: { categoryCode: true, categoryName: true, stampFee: true, currency: true } } } },
         member: true
       }
     });
 
     if (!apc) return res.status(404).json({ error: 'APC assessment not found.' });
-
-    let newClass: MemberClass | undefined = undefined;
-    let newCertCode: string | undefined = undefined;
-
-    if (mappedStatus === 'Passed') {
-      const code = apc.application.category.categoryCode;
-      // Route 1 (GrQST, AsQST) → Technologist, Route 2+ (GrQS, AsQS, PrQS, F-PrQS) → Professional
-      newClass = 'Technologist';
-      if (['GrQS', 'PrQS', 'F-PrQS', 'AsQS'].includes(code)) newClass = 'Professional';
-
-      // Determine the new certificate code based on new class
-      if (newClass === 'Technologist') newCertCode = 'TechQS';
-      else newCertCode = 'PrQS';
+    if (apc.status !== 'Pending_Approval') {
+      return res.status(409).json({ error: 'This assessment has no grade currently awaiting confirmation.' });
     }
 
+    const mappedStatus = apc.proposedStatus as ApcStatus;
+
+    if (decision === 'Reject') {
+      const reverted = await prisma.$transaction(async (tx) => {
+        const updated = await tx.apcAssessment.update({
+          where: { id: assessmentId },
+          data: {
+            status: apc.preApprovalStatus || 'Scheduled',
+            proposedStatus: null,
+            proposedScorePercentage: null,
+            proposedAssessmentNotes: null,
+            proposedStampFeePaid: null,
+            proposedLicenseIssued: null,
+            gradingRejectionReason: rejectionReason || null,
+            updatedAt: new Date()
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            memberId: apc.memberId,
+            actionByEmail: req.user!.email,
+            actionType: 'APC_GRADING_REJECTED',
+            details: `Grade of "${apc.proposedStatus}" (staged by ${apc.gradedByEmail}) for APC ${assessmentId} was rejected by ${req.user!.email}.${rejectionReason ? ` Reason: ${rejectionReason}` : ''}`
+          }
+        });
+        return updated;
+      });
+      return res.status(200).json({ message: 'Grade rejected — sent back for re-grading.', assessment: reverted });
+    }
+
+    // decision === 'Approve'
+    let newClass: MemberClass | undefined = undefined;
+    let newCertCode: string | undefined = undefined;
     let targetCategory: any = null;
+
     if (mappedStatus === 'Passed') {
       const code = apc.application.category.categoryCode;
-      let targetCategoryCode = code;
-      if (['GrQST', 'AsQST'].includes(code)) targetCategoryCode = 'TcQS';
-      else if (['GrQS', 'AsQS'].includes(code)) targetCategoryCode = 'PrQS';
-
-      if (targetCategoryCode !== code) {
+      const resolved = resolveApcUpgradeTarget(code);
+      newClass = resolved.newClass;
+      newCertCode = resolved.newCertCode;
+      if (resolved.targetCategoryCode) {
         targetCategory = await prisma.membershipCategory.findFirst({
-          where: { categoryCode: targetCategoryCode, entityType: 'Individual' }
+          where: { categoryCode: resolved.targetCategoryCode, entityType: 'Individual' }
         });
       }
     }
@@ -244,11 +342,18 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       prisma.apcAssessment.update({
         where: { id: assessmentId },
         data: {
-          status: mappedStatus as ApcStatus,
-          scorePercentage: scorePercentage || null,
-          assessmentNotes: assessmentNotes || null,
-          stampFeePaid: stampFeePaid || false,
-          licenseIssued: licenseIssued || false,
+          status: mappedStatus,
+          scorePercentage: apc.proposedScorePercentage,
+          assessmentNotes: apc.proposedAssessmentNotes,
+          stampFeePaid: apc.proposedStampFeePaid || false,
+          licenseIssued: apc.proposedLicenseIssued || false,
+          proposedStatus: null,
+          proposedScorePercentage: null,
+          proposedAssessmentNotes: null,
+          proposedStampFeePaid: null,
+          proposedLicenseIssued: null,
+          approvedByEmail: req.user.email,
+          approvedAt: new Date(),
           updatedAt: new Date()
         }
       }),
@@ -256,8 +361,8 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
         data: {
           memberId: apc.memberId,
           actionByEmail: req.user.email,
-          actionType: 'APC_GRADED',
-          details: `APC ${assessmentId} graded as ${status}. Score: ${scorePercentage || 'N/A'}%`
+          actionType: 'APC_APPROVED',
+          details: `APC ${assessmentId} grade of "${mappedStatus}" (staged by ${apc.gradedByEmail}) confirmed by ${req.user.email}. Score: ${apc.proposedScorePercentage || 'N/A'}%`
         }
       })
     ];
@@ -313,17 +418,20 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
 
     const [updatedApc] = await prisma.$transaction(transactions);
 
-    // Send email notification for finalized results
+    // Send email notification only now that the result is final and confirmed.
     if (['Passed', 'Failed'].includes(mappedStatus) && apc.member?.email) {
       const emailSubject = `APC Assessment Result: ${mappedStatus}`;
+      const feeLine = newClass && targetCategory && targetCategory.firstYearFee && Number(targetCategory.firstYearFee) > 0
+        ? `<p><strong>First-year fee due:</strong> ${Number(targetCategory.firstYearFee).toLocaleString()} ${targetCategory.currency || 'RWF'}</p>`
+        : '';
       const emailBody = `
         <div style="font-family: sans-serif; color: #333;">
           <h2>APC Assessment Results Published</h2>
           <p>Dear ${apc.member.fullName},</p>
-          <p>The results for your recent APC board assessment have been finalized.</p>
+          <p>The results for your recent APC board assessment have been finalized and confirmed.</p>
           <p><strong>Final Outcome:</strong> ${mappedStatus}</p>
-          ${scorePercentage ? `<p><strong>Score:</strong> ${scorePercentage}%</p>` : ''}
-          ${newClass && targetCategory ? `<p style="color: #059669; font-weight: bold;">Congratulations! You have been approved for an upgrade to ${newClass} (${targetCategory.categoryName}).</p><p>To be recognized under this new class and receive your new membership ID, please pay the first-year membership fee for this category through your RIQS dashboard Payments page. Your new membership ID and the benefits of this class will be issued once payment is verified.</p>` : ''}
+          ${apc.proposedScorePercentage ? `<p><strong>Score:</strong> ${apc.proposedScorePercentage}%</p>` : ''}
+          ${newClass && targetCategory ? `<p style="color: #059669; font-weight: bold;">Congratulations! You have been approved for an upgrade to ${newClass} (${targetCategory.categoryName}).</p>${feeLine}<p>To be recognized under this new class and receive your new membership ID and credentials, please log in to your RIQS dashboard Payments page and pay the first-year membership fee above. Your new membership ID and the benefits of this class will be issued once payment is verified.</p>` : ''}
           <p>Please log in to your RIQS dashboard to view any specific feedback or notes from your examiners.</p>
           <br/>
           <p>Best regards,</p>
@@ -336,7 +444,7 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
         subject: emailSubject,
         html: emailBody
       }).catch((err: any) => {
-        console.error("[Grade APC] Failed to send email:", err.message);
+        console.error("[Approve APC Grade] Failed to send email:", err.message);
         // A failed send here otherwise vanishes into the server console — record it so a
         // "the member says they never got the email" report can be confirmed from data
         // instead of re-checking SMTP logs after the fact.
@@ -351,10 +459,10 @@ export async function gradeAPC(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    return res.status(200).json({ message: `APC assessment graded: ${status}.`, assessment: updatedApc });
+    return res.status(200).json({ message: `APC assessment confirmed: ${mappedStatus}.`, assessment: updatedApc });
   } catch (error: any) {
-    console.error('[Grade APC] Error:', error.message);
-    return res.status(500).json({ error: 'Internal server error grading APC assessment.' });
+    console.error('[Approve APC Grade] Error:', error.message);
+    return res.status(500).json({ error: 'Internal server error confirming APC assessment grade.' });
   }
 }
 

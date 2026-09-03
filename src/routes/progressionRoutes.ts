@@ -5,6 +5,7 @@ import {
   getAPCStatus,
   registerAPC,
   gradeAPC,
+  approveAPCGrade,
   awardAssociate,
   updateMemberProfile,
   getMentorshipProgress,
@@ -88,8 +89,8 @@ router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver', 'ad
  * @openapi
  * /api/v1/progression/apc/grade:
  *   post:
- *     summary: Grade an APC Assessment (Admin or Approver)
- *     description: Records the pass/fail result, exam notes, and score. Passing automatically triggers a dynamic membership class upgrade in their profile database.
+ *     summary: Grade an APC Assessment — step 1 of 2 (stage the grade)
+ *     description: Records a proposed pass/fail result, exam notes, and score, but does NOT apply anything yet — the assessment moves to Pending_Approval and the class upgrade, invoice, and results email are all held until an Admin/Approver confirms the grade via /apc/grade/approve.
  *     tags:
  *       - Progression & APC
  *     requestBody:
@@ -123,15 +124,58 @@ router.post('/apc/register', requireAuth, requireRoles(['admin', 'approver', 'ad
  *                 default: false
  *     responses:
  *       200:
- *         description: APC assessment successfully graded and class upgraded
+ *         description: Grade staged as Pending_Approval, awaiting confirmation
  *       400:
  *         description: Missing parameters or invalid status
  *       404:
  *         description: Assessment not found
+ *       409:
+ *         description: A grade is already staged and awaiting confirmation
  *       500:
  *         description: Internal server error
  */
 router.post('/apc/grade', requireAuth, requireRoles(['admin', 'approver', 'admin_assistant']), gradeAPC);
+
+/**
+ * @openapi
+ * /api/v1/progression/apc/grade/approve:
+ *   post:
+ *     summary: Confirm or reject a staged APC grade — step 2 of 2 (Admin/Approver only)
+ *     description: Approving applies the staged grade for real — class upgrade + first-year fee invoice on Pass, and the results email is sent only now. Rejecting discards the staged grade and reverts the assessment to its pre-grading status so it can be re-graded.
+ *     tags:
+ *       - Progression & APC
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - assessmentId
+ *               - decision
+ *             properties:
+ *               assessmentId:
+ *                 type: string
+ *                 format: uuid
+ *               decision:
+ *                 type: string
+ *                 enum: [Approve, Reject]
+ *               rejectionReason:
+ *                 type: string
+ *                 description: Only used when decision is Reject; stored on the record, never emailed to the candidate.
+ *     responses:
+ *       200:
+ *         description: Grade confirmed and applied, or rejected and reverted
+ *       400:
+ *         description: Missing assessmentId or invalid decision
+ *       404:
+ *         description: Assessment not found
+ *       409:
+ *         description: No grade is currently awaiting confirmation for this assessment
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/apc/grade/approve', requireAuth, requireRoles(['admin', 'approver']), approveAPCGrade);
 
 /**
  * @openapi

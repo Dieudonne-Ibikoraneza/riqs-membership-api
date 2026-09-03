@@ -2244,6 +2244,50 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
   }
 };
 
+// A member's category/class should never be hand-edited via changeMembershipCategory while
+// they already have a membership-change process underway through the normal channels (an APC
+// board in progress or awaiting sign-off, a pending mentorship-upgrade review, or an approved
+// upgrade already invoiced and awaiting fee payment) — doing so would fight that process for
+// the same Member/Application row. Returns null when nothing is in progress.
+function getOngoingMembershipChange(app: any): { type: string; label: string; linkType: 'apc' | 'mentorship' | 'application'; linkId: string } | null {
+  if (!app) return null;
+
+  if (app.pendingUpgradeClass) {
+    return {
+      type: 'Pending_Upgrade_Payment',
+      label: `An upgrade to ${app.pendingUpgradeClass} has already been approved and is awaiting the member's first-year fee payment`,
+      linkType: 'application',
+      linkId: app.id
+    };
+  }
+
+  const activeApc = (app.apcAssessments || []).find((a: any) => ['Requested', 'Scheduled', 'Attended', 'Pending_Approval'].includes(a.status));
+  if (activeApc) {
+    return {
+      type: 'APC_In_Progress',
+      label: activeApc.status === 'Pending_Approval'
+        ? 'An APC assessment has been graded and is awaiting Admin/Approver confirmation'
+        : 'An APC assessment is currently in progress for this member',
+      linkType: 'apc',
+      linkId: activeApc.id
+    };
+  }
+
+  const mentorship = app.mentorshipAssignment;
+  if (mentorship && ['Pending_Reviewer_Board', 'Pending_Admin_Review'].includes(mentorship.status)) {
+    return {
+      type: 'Mentorship_Review_In_Progress',
+      label: mentorship.status === 'Pending_Reviewer_Board'
+        ? 'A mentorship upgrade review is currently before the reviewer board'
+        : 'A mentorship upgrade review is awaiting Admin/Approver decision',
+      linkType: 'mentorship',
+      linkId: app.id
+    };
+  }
+
+  return null;
+}
+
 export async function changeMembershipCategory(req: AuthenticatedRequest, res: Response) {
   try {
     const { id } = req.params;
@@ -2254,11 +2298,24 @@ export async function changeMembershipCategory(req: AuthenticatedRequest, res: R
     const member = await prisma.member.findUnique({
       where: { id },
       include: {
-        applications: { orderBy: { createdAt: 'desc' }, take: 1 }
+        applications: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: { apcAssessments: true, mentorshipAssignment: true }
+        }
       }
     });
 
     if (!member) return res.status(404).json({ error: 'Member not found.' });
+
+    // Never let a manual category change collide with an upgrade already in flight — it would
+    // silently fight the pendingUpgrade*/APC/mentorship-review machinery for the same member.
+    // See getOngoingMembershipChange, reused by getMemberById so the admin UI can show/lock
+    // this before the request is even attempted.
+    const ongoing = getOngoingMembershipChange(member.applications[0]);
+    if (ongoing) {
+      return res.status(409).json({ error: `Cannot change category: ${ongoing.label}. Resolve that process first.`, ongoingChange: ongoing });
+    }
 
     const category = await prisma.membershipCategory.findUnique({ where: { id: newCategoryId } });
     if (!category) return res.status(404).json({ error: 'Category not found.' });
@@ -2526,12 +2583,16 @@ export const getMemberById = async (req: AuthenticatedRequest, res: Response) =>
     const member = await prisma.member.findUnique({
       where: { id },
       include: {
-        applications: { orderBy: { createdAt: 'desc' }, include: { category: true } },
+        applications: {
+          orderBy: { createdAt: 'desc' },
+          include: { category: true, apcAssessments: true, mentorshipAssignment: true }
+        },
         financialTransactions: { orderBy: { createdAt: 'desc' } }
       }
     });
     if (!member) return res.status(404).json({ error: 'Member not found' });
-    res.json(member);
+    const ongoingChange = getOngoingMembershipChange(member.applications[0]);
+    res.json({ ...member, ongoingChange });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }

@@ -81,6 +81,10 @@ enum ApcStatus {
   Requested
   Scheduled
   Attended
+  // An Admin Assistant (or Admin/Approver) has submitted a grade, but it isn't final yet —
+  // it's staged on the proposed* fields below until an Admin/Approver confirms it. No upgrade
+  // fee, class change, or results email happens until that confirmation.
+  Pending_Approval
   Passed
   Failed
   No_Show   @map("No Show")
@@ -466,6 +470,24 @@ model ApcAssessment {
   assessmentNotes String?    @map("assessment_notes")
   stampFeePaid    Boolean?   @default(false) @map("stamp_fee_paid")
   licenseIssued   Boolean?   @default(false) @map("license_issued")
+
+  // Two-step grading: an Admin Assistant's (or Admin/Approver's) grade submission is staged
+  // here first — `status` flips to Pending_Approval and the real status/score/notes are left
+  // untouched until an Admin/Approver confirms it (see approveAPCGrade in
+  // progressionController.ts). preApprovalStatus snapshots what `status` was before staging,
+  // so a rejection can revert to it cleanly.
+  preApprovalStatus       ApcStatus? @map("pre_approval_status")
+  proposedStatus          ApcStatus? @map("proposed_status")
+  proposedScorePercentage Decimal?   @map("proposed_score_percentage") @db.Decimal(5, 2)
+  proposedAssessmentNotes String?    @map("proposed_assessment_notes")
+  proposedStampFeePaid    Boolean?   @map("proposed_stamp_fee_paid")
+  proposedLicenseIssued   Boolean?   @map("proposed_license_issued")
+  gradedByEmail           String?    @map("graded_by_email") @db.VarChar(255)
+  gradedAt                DateTime?  @map("graded_at") @db.Timestamptz
+  approvedByEmail         String?    @map("approved_by_email") @db.VarChar(255)
+  approvedAt              DateTime?  @map("approved_at") @db.Timestamptz
+  gradingRejectionReason  String?    @map("grading_rejection_reason") @db.Text
+
   createdAt       DateTime?  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime?  @default(now()) @map("updated_at") @db.Timestamptz
 
