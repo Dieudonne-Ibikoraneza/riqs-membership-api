@@ -35,13 +35,14 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://ricos.rwandaiqs.org',
-  'https://riqs-membership.vercel.app',
-  'https://cursor-antelope-spendable.ngrok-free.dev'
-];
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  throw new Error('FRONTEND_URL must contain at least one frontend origin.');
+}
 
 // Set TRUST_PROXY=true when running behind a single trusted reverse proxy.
 // This allows rate limiting to use the real client IP instead of the proxy IP.
@@ -49,6 +50,8 @@ app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : 0);
 
 // Enable CORS for decoupled Next.js frontend connection
 app.use(cors({
+  // Keep the frontend origin environment-specific. No other origins are
+  // allowed, including the previous local and deployed fallbacks.
   origin: allowedOrigins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
