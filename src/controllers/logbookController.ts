@@ -11,6 +11,39 @@ const submitLogSchema = z.object({
   period: z.string().min(1)
 });
 
+// Mentorship progression (logbook entries, annual reports, upgrade requests) is only for a
+// member whose application is actually Approved AND whose first-year membership fee is
+// cleared — otherwise they can progress through the whole mentorship process for a class
+// they've never actually activated. Mirrors the same isFirstYearFeeCleared fallback used on
+// the member-facing certificate page: if no First_Year_Fee row exists at all (some categories
+// carry a zero fee and never get one, see adminController.handleApproverDecision), fall back to
+// trusting membershipId rather than treating "no row" as either paid or unpaid.
+async function assertMentorshipEligible(
+  applicationId: string,
+  memberId: string
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const app = await prisma.application.findUnique({
+    where: { id: applicationId },
+    include: { member: { select: { membershipId: true } } }
+  });
+  if (!app) return { ok: false, status: 404, error: "Application not found." };
+  if (app.memberId !== memberId) return { ok: false, status: 403, error: "Unauthorized access to this application." };
+  if (app.status !== "Approved") {
+    return { ok: false, status: 403, error: "Your application must be Approved before you can access mentorship progression." };
+  }
+
+  const firstYearFeeTx = await prisma.financialTransaction.findFirst({
+    where: { applicationId, txType: "First_Year_Fee" },
+    orderBy: { createdAt: "desc" }
+  });
+  const isFirstYearFeeCleared = firstYearFeeTx ? firstYearFeeTx.status === "Paid" : Boolean(app.member.membershipId);
+  if (!isFirstYearFeeCleared) {
+    return { ok: false, status: 402, error: "Please pay your first-year membership fee before continuing your mentorship progression." };
+  }
+
+  return { ok: true };
+}
+
 export const submitLogbookEntry = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.file || !req.user) {
@@ -19,12 +52,9 @@ export const submitLogbookEntry = async (req: AuthenticatedRequest, res: Respons
 
     const data = submitLogSchema.parse(req.body);
 
-    const app = await prisma.application.findUnique({
-      where: { id: data.applicationId }
-    });
-
-    if (!app || app.memberId !== req.user.id) {
-      return res.status(403).json({ error: "Unauthorized access to application logbook" });
+    const eligibility = await assertMentorshipEligible(data.applicationId, req.user.id);
+    if (!eligibility.ok) {
+      return res.status(eligibility.status).json({ error: eligibility.error });
     }
 
     const file = req.file;
@@ -62,9 +92,16 @@ export const submitLogbookEntry = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
-export const getLogbookEntries = async (req: Request, res: Response) => {
+export const getLogbookEntries = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { applicationId } = req.params;
+    if (!req.user) return res.status(401).json({ error: "Authentication required." });
+
+    // Same missing-ownership-check shape as getMentorshipProgress below.
+    const app = await prisma.application.findUnique({ where: { id: applicationId }, select: { memberId: true } });
+    if (!app || app.memberId !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized access to this application's logbook entries." });
+    }
 
     const entries = await prisma.logbookEntry.findMany({
       where: { applicationId },
@@ -78,14 +115,23 @@ export const getLogbookEntries = async (req: Request, res: Response) => {
   }
 };
 
-export const getMentorshipProgress = async (req: Request, res: Response) => {
+export const getMentorshipProgress = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { applicationId } = req.params;
+    if (!req.user) return res.status(401).json({ error: "Authentication required." });
+
+    // Previously missing entirely — any authenticated member could read any application's
+    // mentorship progress by supplying an arbitrary applicationId, since nothing here checked
+    // it belonged to them.
+    const app = await prisma.application.findUnique({ where: { id: applicationId }, select: { memberId: true } });
+    if (!app || app.memberId !== req.user.id) {
+      return res.status(403).json({ error: "Unauthorized access to this application's mentorship progress." });
+    }
 
     const assignment = await prisma.mentorshipAssignment.findUnique({
       where: { applicationId }
     });
-    
+
     const entries = await prisma.logbookEntry.findMany({
       where: { applicationId }
     });
@@ -113,6 +159,15 @@ export const uploadAnnualReport = async (req: AuthenticatedRequest, res: Respons
     }
 
     const data = uploadReportSchema.parse(req.body);
+
+    // Previously missing entirely on this endpoint — any authenticated member could attach an
+    // annual report to someone else's application by supplying their applicationId, since
+    // nothing checked ownership at all here (unlike submitLogbookEntry's `app.memberId` check).
+    const eligibility = await assertMentorshipEligible(data.applicationId, req.user.id);
+    if (!eligibility.ok) {
+      return res.status(eligibility.status).json({ error: eligibility.error });
+    }
+
     const file = req.file;
     const uniqueName = `annual_report_year_${data.year}_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
     const filePath = `applications/${data.applicationId}/${uniqueName}`;
@@ -158,6 +213,11 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
     }
     if (!req.user || assignment.application.memberId !== req.user.id) {
       return res.status(403).json({ error: "Unauthorized access to mentorship upgrade" });
+    }
+
+    const eligibility = await assertMentorshipEligible(data.applicationId, req.user.id);
+    if (!eligibility.ok) {
+      return res.status(eligibility.status).json({ error: eligibility.error });
     }
 
     // Each membership upgrade is a new reviewer-board cycle. Never carry

@@ -209,6 +209,41 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       })
     ];
 
+    // Rejecting a manually-uploaded Processing Fee proof only ever updated the transaction row
+    // itself — Application.status was left untouched. For an application already past Draft
+    // (Under_Review/Pending_Approval — see submitApplication's Pending_Verification-accepting
+    // gate), that meant the applicant was never told anything was wrong at all: the application
+    // sat in limbo with a dead Failed fee forever, invisible on their own read-only application
+    // page (which only shows the payment prompt while status is Draft/Correction_Required), with
+    // no route back to re-upload. Send it back to Correction_Required here too — the same state
+    // handleReviewerAction/handleApproverDecision's ReturnForCorrection already puts a content
+    // correction into — with a reviewerNotes entry so the applicant sees exactly why (surfaced by
+    // getProfile's own Correction_Required statusHistory lookup, same mechanism as any other
+    // correction reason).
+    const applicationBeingReviewed = existingTransaction.application;
+    if (
+      existingTransaction.txType === 'Processing_Fee' &&
+      action === 'Failed' &&
+      applicationBeingReviewed &&
+      ['Under_Review', 'Pending_Approval'].includes(applicationBeingReviewed.status || '')
+    ) {
+      transactionQueries.push(
+        prisma.application.update({
+          where: { id: applicationBeingReviewed.id },
+          data: { status: 'Correction_Required', updatedAt: new Date() }
+        }),
+        prisma.applicationStatusHistory.create({
+          data: {
+            applicationId: applicationBeingReviewed.id,
+            changedByEmail: req.user.email,
+            oldStatus: applicationBeingReviewed.status,
+            newStatus: 'Correction_Required',
+            reviewerNotes: `Your processing fee payment proof was rejected: ${rejectionReason}. Please re-upload a valid proof of payment to continue.`
+          }
+        })
+      );
+    }
+
     if (action === 'Paid' && (existingTransaction.txType === 'First_Year_Fee' || existingTransaction.txType === 'Annual_Renewal')) {
       const now = new Date();
       let expiryYear = now.getFullYear();
@@ -339,10 +374,11 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    // Manually-uploaded processing-fee proofs (bank slip / other method) block application
-    // submission until a staff member clears them — previously the member had no way to
-    // find out the outcome except by going back to the application page and trying to
-    // resubmit blind. Notify them either way so they know to come back and resubmit.
+    // Manually-uploaded processing-fee proofs (bank slip / other method) no longer block
+    // application submission — the application enters the review queue immediately with the
+    // proof Pending_Verification (see applicantController.submitApplication), and is reviewed
+    // alongside it. Still notify the member of the outcome either way, since a Failed proof
+    // means their application is now under review with an unresolved fee they need to fix.
     if (existingTransaction.txType === 'Processing_Fee' && (action === 'Paid' || action === 'Failed')) {
       try {
         await sendMail(

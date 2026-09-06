@@ -328,7 +328,11 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
   try {
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      include: { member: true }
+      include: {
+        member: true,
+        category: { select: { processingFee: true } },
+        financialTransactions: { where: { txType: 'Processing_Fee' }, orderBy: { createdAt: 'desc' } }
+      }
     });
 
     if (!app) return res.status(404).json({ error: 'Application record not found.' });
@@ -452,6 +456,23 @@ export async function handleReviewerAction(req: AuthenticatedRequest, res: Respo
       }
       if (app.status !== 'Pending') {
         return res.status(400).json({ error: `Cannot forward. Application is in "${app.status}" status.` });
+      }
+
+      // Forwarding an application whose Processing Fee is Failed/Unpaid/still-Pending_Verification
+      // sends it into the reviewer queue with nothing to stop it reaching Approved despite an
+      // uncleared fee — the reviewers/approver have no reason to look at payment status at all,
+      // that's this stage's job. A Failed fee here should go back to the applicant via "Flag
+      // correction" (ReturnForCorrection already supports the Pending status) instead of forward.
+      const processingFeeAmount = Number(app.category?.processingFee || 0);
+      if (processingFeeAmount > 0) {
+        const processingFeeTx = pickAuthoritativeTransaction(app.financialTransactions);
+        if (!processingFeeTx || processingFeeTx.status !== 'Paid') {
+          return res.status(400).json({
+            error: processingFeeTx?.status === 'Failed'
+              ? 'Cannot forward to reviewers: the processing fee payment was rejected. Flag it for correction so the applicant can re-upload proof of payment.'
+              : 'Cannot forward to reviewers: the processing fee has not been cleared yet.'
+          });
+        }
       }
 
       await prisma.$transaction([
