@@ -291,7 +291,6 @@ export async function handleReviewDecision(req: AuthenticatedRequest, res: Respo
             amount: app.category.firstYearFee,
             currency: app.category.currency || 'RWF',
             txType: 'First_Year_Fee',
-            paymentMethod: 'Bank_Transfer',
             transactionReference,
             status: 'Unpaid'
           }
@@ -565,7 +564,6 @@ export async function handleApproverDecision(req: AuthenticatedRequest, res: Res
               amount: app.category.firstYearFee,
               currency: (app.category.currency || 'RWF') as string,
               txType: 'First_Year_Fee',
-              paymentMethod: 'Bank_Transfer',
               transactionReference: `INV-${applicationId.slice(0, 8)}-${new Date().getFullYear()}`,
               status: 'Unpaid'
             }
@@ -2397,7 +2395,6 @@ export async function changeMembershipCategory(req: AuthenticatedRequest, res: R
              txType: 'First_Year_Fee',
              status: 'Unpaid',
              transactionReference: `FYF-${newMembershipId}-${Date.now()}`,
-             paymentMethod: 'Bank_Transfer'
            }
          });
          invoiceUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/member/invoices/${tx.id}`;

@@ -99,10 +99,19 @@ enum TransactionType {
 }
 
 enum PaymentMethod {
-  MTN_Momo
+  // Only ever set by the actual IntouchPay gateway flow (paymentController.ts) — deliberately
+  // network-agnostic since the gateway doesn't tell us whether a given transaction settled via
+  // MTN or Airtel Money.
+  Mobile_Money
   Bank_Transfer
   Card_Payment
   Manual_Cash
+  // A member manually uploaded proof of payment — bank slip, MoMo-code receipt, cash deposit
+  // slip, anything — outside our gateway. Deliberately doesn't try to distinguish which exact
+  // rail they used (the previous attempt at that, first inferring it from location and then
+  // asking the member to pick, was more trouble than the distinction was worth); "manual, not
+  // through the gateway" is the only fact this value asserts.
+  Manual_Payment
 }
 
 enum TransactionStatus {
@@ -535,7 +544,13 @@ model FinancialTransaction {
   amount               Decimal            @db.Decimal(12, 2)
   currency             String             @db.VarChar(3)
   txType               TransactionType    @map("tx_type")
-  paymentMethod        PaymentMethod      @map("payment_method")
+  // Nullable on purpose: a system-generated Unpaid invoice (an upgrade fee, an auto-generated
+  // Annual Renewal, a stamp fee) doesn't have a payment method yet — nobody has paid it. It's
+  // only ever set once an actual payment attempt happens: the gateway flow sets Mobile_Money,
+  // and a manual proof upload sets Manual_Payment. Previously these placeholder rows all
+  // hardcoded 'Bank_Transfer' before any money had moved, which read as a confirmed method
+  // on a still-Unpaid row.
+  paymentMethod        PaymentMethod?     @map("payment_method")
   transactionReference String             @unique @map("transaction_reference") @db.VarChar(255)
   providerTransactionId String?           @unique @map("provider_transaction_id") @db.VarChar(100)
   status               TransactionStatus? @default(Pending_Verification)

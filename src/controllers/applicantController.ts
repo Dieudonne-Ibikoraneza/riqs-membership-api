@@ -15,6 +15,7 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
         category: {
           select: {
             categoryName: true,
+            categoryCode: true,
             processingFee: true,
             firstYearFee: true,
             annualRenewalFee: true,
@@ -112,6 +113,9 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
     const formattedApplication = {
       ...app,
       category_name: currentCategory?.categoryName || app.category.categoryName,
+      category_code: currentCategory?.categoryCode || app.category.categoryCode,
+      applied_category_code: app.category.categoryCode,
+      applied_category_name: app.category.categoryName,
       processing_fee: currentCategory?.processingFee || app.category.processingFee,
       first_year_fee: currentCategory?.firstYearFee || app.category.firstYearFee,
       annual_renewal_fee: currentCategory?.annualRenewalFee || app.category.annualRenewalFee,
@@ -227,11 +231,31 @@ export async function createOrUpdateApplication(req: AuthenticatedRequest, res: 
     return res.status(400).json({ error: 'Missing mandatory registration classifiers: location, entity type, and category.' });
   }
 
+  // categoryId is a UUID foreign key. Reject anything that isn't a well-formed UUID
+  // up front so it never reaches Postgres as an invalid ::uuid cast (which surfaces
+  // as an opaque "Raw query failed / InvalidInputValue" 500 instead of a 400).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(String(categoryId))) {
+    return res.status(400).json({ error: 'Invalid membership category reference. Please re-select your category and try again.' });
+  }
+
   try {
     if (entityType === 'Individual') {
       const category = await prisma.membershipCategory.findUnique({ where: { id: categoryId } });
-      if (!category || !['GradQST', 'GradQS', 'GrQST', 'GrQS'].includes(category.categoryCode)) {
-        return res.status(400).json({ error: 'Individual applications are currently accepted only for Graduate QS or Graduate QS Technologist.' });
+      if (!category) {
+        return res.status(400).json({ error: 'The selected membership category could not be found.' });
+      }
+      // Rwandan individuals enter through the two graduate routes; non-Rwandan
+      // individuals apply directly as Technologist or Professional.
+      const allowedCodes = practiceLocation === 'Non_Rwandan'
+        ? ['F-TcQS', 'F-PrQS']
+        : ['GrQST', 'GrQS'];
+      if (!allowedCodes.includes(category.categoryCode)) {
+        return res.status(400).json({
+          error: practiceLocation === 'Non_Rwandan'
+            ? 'Non-Rwandan individual applications are accepted only for the Technologist or Professional categories.'
+            : 'Individual applications are currently accepted only for Graduate QS or Graduate QS Technologist.'
+        });
       }
     }
 
@@ -568,7 +592,6 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
             amount: 0,
             currency: 'RWF',
             txType: 'Processing_Fee',
-            paymentMethod: 'Bank_Transfer',
             transactionReference: `AUTO-WAIVED-${Date.now()}`,
             status: 'Paid'
           }

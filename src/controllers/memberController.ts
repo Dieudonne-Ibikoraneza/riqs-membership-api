@@ -12,7 +12,9 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
 
     const whereClause: any = {
       membershipId: { not: null }, // Only show fully approved members
-      systemRole: { notIn: ['Admin', 'Reviewer', 'Approver', 'Teacher'] }
+      // Staff accounts never belong in the public register, whatever membership class
+      // they happen to carry — exclude every privileged internal role.
+      systemRole: { notIn: ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'] }
     };
 
     if (search) {
@@ -56,7 +58,16 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
           profilePhotoUrl: true,
           isFellow: true,
           isHonorary: true,
-          honors: true
+          honors: true,
+          // The member's current membership category (granular name like
+          // "Graduate Quantity Surveying Technologist"), taken from their latest
+          // approved application — its categoryId is kept in step with upgrades.
+          applications: {
+            where: { status: 'Approved' },
+            orderBy: { approvedAt: 'desc' },
+            take: 1,
+            select: { category: { select: { categoryName: true } } }
+          }
         }
       }),
       prisma.member.count({ where: whereClause })
@@ -68,6 +79,7 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
       membership_id: m.membershipId,
       full_name: m.fullName,
       membership_class: m.membershipClass,
+      category_name: m.applications?.[0]?.category?.categoryName || null,
       phone_number: m.phoneNumber,
       email: m.email,
       profile_photo_url: m.profilePhotoUrl,

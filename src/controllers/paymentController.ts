@@ -141,8 +141,8 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
     // gateway (see paymentController.initiateProcessingFeePayment) and its payment veracity is
     // only ever resolved by the gateway itself (its callback, or the status-poll fallback) —
     // never by staff. paymentMethod alone can't be used for this check: the manual
-    // receipt-upload flow also tags its rows 'MTN_Momo' (meaning "an MTN transfer", not "went
-    // through our gateway"). Manually flipping a still-unresolved gateway row to Paid would let
+    // receipt-upload flow tags its rows 'Manual_Payment' (never through our gateway, whatever
+    // rail the member actually used). Manually flipping a still-unresolved gateway row to Paid would let
     // it be marked paid without money ever actually moving, which is exactly the fraud risk
     // this restriction exists to prevent.
     //
@@ -331,7 +331,6 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
               amount: stampFeeAmount,
               currency: pendingUpgrade.pendingUpgradeCategory?.currency || 'RWF',
               txType: 'Stamp_Fee',
-              paymentMethod: 'Bank_Transfer',
               transactionReference: `STAMP-${upgradeMembershipId}-${Date.now()}`,
               status: 'Unpaid'
             }
@@ -406,20 +405,32 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// 4. Admin: Get all payments queue (supports filtering by status or all)
+// 4. Admin: Get all payments queue (supports filtering by status, payment method, or all)
 export async function getPendingPayments(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
-  const { status = 'Pending_Verification', page = '1', limit = '20' } = req.query;
+  const { status = 'Pending_Verification', method, page = '1', limit = '20' } = req.query;
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
   const statusFilter: Prisma.FinancialTransactionWhereInput = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
+  // Just the two buckets staff actually care about: Online (went through the IntouchPay
+  // gateway — always tagged Mobile_Money) vs Offline (a manually-uploaded or admin-recorded
+  // payment — Manual_Payment, Bank_Transfer, Card_Payment, Manual_Cash; anything that isn't
+  // Mobile_Money). A still-Unpaid invoice with no method set yet (null) matches neither.
+  const methodFilter: Prisma.FinancialTransactionWhereInput =
+    method === 'Online' ? { paymentMethod: 'Mobile_Money' }
+    // Explicit AND rather than a single { not: 'Mobile_Money' }: Prisma's `not` on a nullable
+    // field treats null as "not equal" too, which would wrongly pull in still-Unpaid,
+    // no-method-yet rows under "Offline" as well.
+    : method === 'Offline' ? { AND: [{ paymentMethod: { not: 'Mobile_Money' } }, { paymentMethod: { not: null } }] }
+    : {};
   // A row with a providerTransactionId went through the live IntouchPay gateway. One still
   // awaiting the gateway's own callback/status-poll (clearedAt not yet set) is never actionable
   // by staff and would just be confusing noise here, so it's excluded regardless of which
-  // status filter is selected. This is NOT the same test as paymentMethod === 'MTN_Momo':
-  // the manual receipt-upload flow also tags its rows 'MTN_Momo' but has no providerTransactionId,
-  // and those genuinely need to stay in the queue for staff to review.
+  // status filter is selected. providerTransactionId (not paymentMethod) is what actually
+  // distinguishes a gateway row: the manual receipt-upload flow tags its rows 'Manual_Payment'
+  // and never sets providerTransactionId, so those genuinely need to stay in the queue for
+  // staff to review.
   //
   // The one exception: an Annual_Renewal row the gateway *has* already confirmed (clearedAt
   // set) deliberately stays Pending_Verification pending an Admin/Admin Assistant's CPD/Annual
@@ -427,6 +438,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   // by this same exclusion.
   const whereClause: Prisma.FinancialTransactionWhereInput = {
     ...statusFilter,
+    ...methodFilter,
     NOT: {
       providerTransactionId: { not: null },
       status: 'Pending_Verification' as TransactionStatus,
@@ -534,12 +546,13 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       return res.status(200).json({ status: 'Paid', transactionId: clearedFee.id, message: 'Processing fee already paid.' });
     }
 
-    // Only a transaction WE created for this Mobile Money flow (paymentMethod MTN_Momo,
-    // has a providerTransactionId) can be "already in progress" here. A manual-flow row
-    // (e.g. an uploaded receipt awaiting admin review) must never block or be reused by
-    // this gateway flow — it belongs to a completely separate payment method.
+    // Only a transaction WE created for this Mobile Money gateway flow (paymentMethod
+    // Mobile_Money AND has a providerTransactionId — that second condition is what actually
+    // distinguishes a genuine gateway row, since a manually-uploaded MoMo-code receipt is
+    // ALSO tagged Mobile_Money now but never has a providerTransactionId) can be "already in
+    // progress" here. A manual-flow row must never block or be reused by this gateway flow.
     const existingMomo = await prisma.financialTransaction.findFirst({
-      where: { applicationId, txType: 'Processing_Fee', paymentMethod: 'MTN_Momo', providerTransactionId: { not: null } },
+      where: { applicationId, txType: 'Processing_Fee', paymentMethod: 'Mobile_Money', providerTransactionId: { not: null } },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -565,7 +578,7 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       amount: fee,
       currency: application.category.currency || 'RWF',
       txType: 'Processing_Fee' as TransactionType,
-      paymentMethod: 'MTN_Momo' as PaymentMethod,
+      paymentMethod: 'Mobile_Money' as PaymentMethod,
       transactionReference: requesttransactionid,
       providerTransactionId: requesttransactionid,
       status: 'Pending_Verification' as TransactionStatus,
@@ -807,7 +820,6 @@ async function finalizeFirstYearFeeGatewayClearance(transactionId: string) {
           amount: stampFeeAmount,
           currency: pendingUpgrade.pendingUpgradeCategory?.currency || 'RWF',
           txType: 'Stamp_Fee',
-          paymentMethod: 'Bank_Transfer',
           transactionReference: `STAMP-${upgradeMembershipId}-${Date.now()}`,
           status: 'Unpaid'
         }
@@ -950,7 +962,7 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
     }
 
     const gatewayFields = {
-      paymentMethod: 'MTN_Momo' as PaymentMethod,
+      paymentMethod: 'Mobile_Money' as PaymentMethod,
       transactionReference: requesttransactionid,
       providerTransactionId: requesttransactionid,
       status: 'Pending_Verification' as TransactionStatus,
@@ -1031,8 +1043,8 @@ export async function getAnnualRenewalPaymentStatus(req: AuthenticatedRequest, r
 // both a brand-new membership's first-year fee and a mentorship/APC upgrade's pending-upgrade
 // fee (see progressionController.ts: gradeApc / awardAssociate, which create the Unpaid
 // placeholder row this reuses). Mirrors initiateProcessingFeePayment/initiateAnnualRenewalPayment,
-// but reuses the existing Unpaid/Failed row in place (rather than creating a separate MTN_Momo
-// row alongside it) so the manual-upload path and this gateway path never leave two competing
+// but reuses the existing Unpaid/Failed row in place (rather than creating a separate
+// Mobile_Money row alongside it) so the manual-upload path and this gateway path never leave two competing
 // rows for the same fee.
 export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
@@ -1074,7 +1086,7 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
     const transaction = await prisma.financialTransaction.update({
       where: { id: outstandingFee.id },
       data: {
-        paymentMethod: 'MTN_Momo',
+        paymentMethod: 'Mobile_Money',
         transactionReference: requesttransactionid,
         providerTransactionId: requesttransactionid,
         status: 'Pending_Verification',

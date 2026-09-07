@@ -32,7 +32,7 @@ const momoRateLimiter = rateLimit({
  * /api/v1/payments/submit:
  *   post:
  *     summary: Submit a Payment Transaction
- *     description: Registers a new fee transaction (MTN Momo ref code or bank slip reference) to the double-entry financial ledger. Enforces duplicate reference detection for anti-fraud security.
+ *     description: Registers a new fee transaction (Mobile Money ref code or bank slip reference) to the double-entry financial ledger. Enforces duplicate reference detection for anti-fraud security.
  *     tags:
  *       - Payments & Invoices
  *     requestBody:
@@ -64,8 +64,8 @@ const momoRateLimiter = rateLimit({
  *                 example: Processing_Fee
  *               paymentMethod:
  *                 type: string
- *                 enum: [MTN_Momo, Bank_Transfer, Card_Payment, Manual_Cash]
- *                 example: MTN_Momo
+ *                 enum: [Mobile_Money, Bank_Transfer, Card_Payment, Manual_Cash]
+ *                 example: Mobile_Money
  *               transactionReference:
  *                 type: string
  *                 example: MOMO-REF-998877A

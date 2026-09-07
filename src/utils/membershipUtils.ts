@@ -9,10 +9,11 @@ import { MemberClass } from '@prisma/client';
 const CERT_CODE_MAP: Record<string, string> = {
   // Local individuals
   'StQS':  'StQS',
-  // 'GradQS'/'GradQST' (not the bare 'GrQS'/'GrQST' categoryCode) — also keeps the two
-  // Graduate routes in separate membership-ID number sequences instead of colliding on one.
-  'GrQS':  'GradQS',
-  'GrQST': 'GradQST',
+  // The two Graduate routes keep their own categoryCode as the certificate/ID code
+  // ('GrQS' / 'GrQST'), which also keeps them in separate membership-ID number
+  // sequences instead of colliding on one.
+  'GrQS':  'GrQS',
+  'GrQST': 'GrQST',
   'TcQS':  'TcQS',
   'PrQS':  'PrQS',
   // Associate paths

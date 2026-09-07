@@ -109,7 +109,6 @@ export function startCronJobs() {
                 amount: feeAmount,
                 currency: currency,
                 txType: 'Annual_Renewal',
-                paymentMethod: 'Bank_Transfer',
                 transactionReference: `RENEW-${member.membershipId || member.id.substring(0, 8)}-${targetBillingYear}`,
                 status: 'Unpaid'
               }

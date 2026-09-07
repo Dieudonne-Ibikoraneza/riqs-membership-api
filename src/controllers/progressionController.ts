@@ -396,7 +396,6 @@ export async function approveAPCGrade(req: AuthenticatedRequest, res: Response) 
               amount: targetCategory.firstYearFee,
               currency: targetCategory.currency || 'RWF',
               txType: 'First_Year_Fee',
-              paymentMethod: 'Bank_Transfer',
               transactionReference,
               status: 'Unpaid'
             }
@@ -486,15 +485,13 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
     if (app.status !== 'Approved') return res.status(400).json({ error: 'Application must be Approved to award Associate class.' });
 
     const code = app.category.categoryCode;
-    // Route 1 (GradQST) → Associate QS Technologist (AsQST)
-    // Route 2 (GradQS)  → Associate Quantity Surveyor (AsQS)
+    // Route 1 (GrQST) → Associate QS Technologist (AsQST)
+    // Route 2 (GrQS)  → Associate Quantity Surveyor (AsQS)
     let targetCode: string;
     let newClass: MemberClass;
-    // The seeded graduate routes use the `Gr*` category codes. Keep the
-    // legacy `Grad*` aliases supported for older applications as well.
-    if (['GrQST', 'GradQST'].includes(code)) { targetCode = 'AsQST'; newClass = 'Associate'; }
-    else if (['GrQS', 'GradQS'].includes(code)) { targetCode = 'AsQS'; newClass = 'Associate'; }
-    else return res.status(400).json({ error: `Associate class is only applicable to Route 1 (GradQST) or Route 2 (GradQS). Current category: ${code}` });
+    if (code === 'GrQST') { targetCode = 'AsQST'; newClass = 'Associate'; }
+    else if (code === 'GrQS') { targetCode = 'AsQS'; newClass = 'Associate'; }
+    else return res.status(400).json({ error: `Associate class is only applicable to Route 1 (GrQST) or Route 2 (GrQS). Current category: ${code}` });
 
     const targetCategory = await prisma.membershipCategory.findFirst({
       where: { categoryCode: targetCode, entityType: 'Individual' }
@@ -536,7 +533,6 @@ export async function awardAssociate(req: AuthenticatedRequest, res: Response) {
             amount: targetCategory.firstYearFee,
             currency: targetCategory.currency || 'RWF',
             txType: 'First_Year_Fee',
-            paymentMethod: 'Bank_Transfer',
             transactionReference,
             status: 'Unpaid'
           }

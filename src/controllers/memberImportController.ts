@@ -120,7 +120,13 @@ async function importOneRow(row: ImportRow, actionByEmail: string): Promise<Impo
           amount: category.processingFee,
           currency: category.currency || 'RWF',
           txType: 'Processing_Fee',
-          paymentMethod: 'Manual_Cash',
+          // We don't actually know how each real, already-onboarded member originally paid
+          // (cash at the office, bank transfer, MoMo, whatever) — this row just marks their
+          // historical fee as settled so the admin Members page shows them as Active, not a
+          // real observed payment method. Manual_Payment is the honest "not through our
+          // gateway, exact rail unspecified" label, same as every other manual/offline record
+          // in the system — asserting 'Manual_Cash' specifically would just be a fabricated guess.
+          paymentMethod: 'Manual_Payment',
           transactionReference,
           status: 'Paid',
           clearedAt: approvedAt,

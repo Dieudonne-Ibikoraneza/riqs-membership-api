@@ -117,7 +117,10 @@ export async function issuePaymentReceipt(transactionId: string): Promise<void> 
     amount: transaction.amount.toString(),
     currency: transaction.currency,
     txTypeLabel: TX_TYPE_LABELS[transaction.txType] || transaction.txType,
-    paymentMethod: transaction.paymentMethod,
+    // A receipt is only ever issued for a transaction that's actually Paid (guarded above), so
+    // paymentMethod is realistically always set by then — the fallback is just to satisfy the
+    // type now that placeholder Unpaid invoices can have it null.
+    paymentMethod: transaction.paymentMethod || 'Unspecified',
     transactionReference: transaction.transactionReference,
     categoryName: transaction.application?.category?.categoryName || null,
     paidAt

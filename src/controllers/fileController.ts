@@ -145,13 +145,13 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
 
     if (isPayment && !alreadyPaidProcessingFee && appWithCat?.category && req.body.skipTransaction !== 'true' && appWithCat.category.processingFee && Number(appWithCat.category.processingFee) > 0) {
       const reference = req.body.transactionReference || `PAY-${applicationId.slice(0, 8)}-${Date.now()}`;
-        
+
         transactionOperations.push(
           prisma.financialTransaction.deleteMany({
             where: { applicationId, txType: 'Processing_Fee', status: 'Pending_Verification' }
           })
         );
-        
+
         transactionOperations.push(
           prisma.financialTransaction.create({
             data: {
@@ -160,7 +160,10 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
               amount: appWithCat.category.processingFee,
               currency: (appWithCat.category.currency || 'RWF') as string,
               txType: 'Processing_Fee',
-              paymentMethod: 'MTN_Momo',
+              // Never through our gateway — that path creates its own row directly in
+              // paymentController.ts. Deliberately doesn't try to guess which rail (MoMo code,
+              // bank transfer, cash) the member actually used.
+              paymentMethod: 'Manual_Payment',
               transactionReference: reference,
               status: 'Pending_Verification',
               receiptUrl: documentId
