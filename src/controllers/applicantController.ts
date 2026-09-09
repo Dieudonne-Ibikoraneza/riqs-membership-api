@@ -33,7 +33,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             id: true,
             documentType: true,
             fileName: true,
-            uploadedAt: true
+            uploadedAt: true,
+            isLocked: true
           }
         },
         statusHistory: {

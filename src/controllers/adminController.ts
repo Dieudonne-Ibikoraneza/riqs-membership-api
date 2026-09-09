@@ -682,6 +682,18 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
 
     if (!app) return res.status(404).json({ error: 'Application not found.' });
 
+    // Education/employment records approved via a post-membership profile edit request
+    // (adding a new role/qualification after the application itself was already Approved)
+    // are linked directly to the Member, not this Application — merge them in here the
+    // same way the applicant's own view does (applicantController.ts getApplication),
+    // otherwise anything added after approval never surfaces in the admin's detail view.
+    const [memberLinkedEducation, memberLinkedEmployment] = await Promise.all([
+      prisma.educationRecord.findMany({ where: { memberId: app.memberId }, orderBy: { startDate: 'desc' } }),
+      prisma.employmentRecord.findMany({ where: { memberId: app.memberId }, orderBy: { startDate: 'desc' } })
+    ]);
+    const allEducation = [...app.educationRecords, ...memberLinkedEducation];
+    const allEmployment = [...app.employmentRecords, ...memberLinkedEmployment];
+
     // A member can have several Processing_Fee rows (a rejected manual receipt
     // upload alongside a mobile-money attempt that later succeeded, etc). A Paid
     // one is authoritative — the fee is settled — regardless of anything else
@@ -771,8 +783,8 @@ export async function getApplicationDetail(req: AuthenticatedRequest, res: Respo
 
     return res.status(200).json({
       application: formattedApplication,
-      education: app.educationRecords,
-      employment: app.employmentRecords,
+      education: allEducation,
+      employment: allEmployment,
       shareholders: app.firmShareholders,
       mentorship: app.mentorshipAssignment,
       documents: mappedDocuments,
@@ -1095,7 +1107,8 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
               uploadedDocuments: {
                 where: { documentType: { in: ['Passport_Photo', 'PassportPhoto'] } },
                 take: 1
-              }
+              },
+              mentorshipAssignment: true
             }
           },
           financialTransactions: {
@@ -1143,11 +1156,23 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         honors: (m as any).honors || [],
         membershipClass: m.membershipClass,
         systemRole: m.systemRole,
+        mentorName: app?.mentorshipAssignment?.mentorName || null,
+        mentorRegistrationNumber: app?.mentorshipAssignment?.mentorRegistrationNumber || null,
+        mentorAssigned: Boolean(app?.mentorshipAssignment?.mentorRegistrationNumber),
       };
+    });
+
+    const unassignedGraduateCount = await prisma.application.count({
+      where: {
+        status: 'Approved', entityType: 'Individual',
+        category: { categoryName: { contains: 'graduate', mode: 'insensitive' } },
+        OR: [{ mentorshipAssignment: null }, { mentorshipAssignment: { mentorRegistrationNumber: null } }]
+      }
     });
 
     return res.status(200).json({
       members: mapped,
+      unassignedGraduateCount,
       pagination: { total, page: Number(page), limit: take }
     });
   } catch (error: any) {
@@ -1523,6 +1548,189 @@ export async function promoteToHeadReviewer(req: AuthenticatedRequest, res: Resp
 }
 
 // ─── Mentorship Queue ───────────────────────────────────────────────────────
+
+// Returns active mentors for the admin/approver assignment control.  The load is
+// calculated from assignments rather than stored, so replacing a mentor immediately
+// reflects the available capacity.
+export async function getMentorsForAssignment(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  try {
+    const mentors = await prisma.member.findMany({
+      where: { systemRole: 'Mentor', membershipId: { not: null } },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, membershipId: true, fullName: true, email: true, phoneNumber: true, membershipClass: true }
+    });
+
+    const loads = await prisma.mentorshipAssignment.groupBy({
+      by: ['mentorRegistrationNumber'],
+      where: { mentorRegistrationNumber: { not: null } },
+      _count: { _all: true }
+    });
+    const loadByNumber = new Map(loads.map(load => [load.mentorRegistrationNumber, load._count._all]));
+
+    return res.json({ mentors: mentors.map(mentor => ({
+      id: mentor.id,
+      membershipId: mentor.membershipId,
+      fullName: mentor.fullName,
+      email: mentor.email,
+      phoneNumber: mentor.phoneNumber,
+      membershipClass: mentor.membershipClass,
+      assignedCount: loadByNumber.get(mentor.membershipId) || 0,
+      capacity: 5
+    })) });
+  } catch (error: any) {
+    console.error('[Mentors For Assignment] Error:', error.message);
+    return res.status(500).json({ error: 'Failed to load available mentors.' });
+  }
+}
+
+export async function assignMentorToApplication(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  const { applicationId, mentorMembershipId } = req.body || {};
+  if (typeof applicationId !== 'string' || typeof mentorMembershipId !== 'string' || !mentorMembershipId.trim()) {
+    return res.status(400).json({ error: 'applicationId and mentorMembershipId are required.' });
+  }
+
+  try {
+    const [application, mentor] = await Promise.all([
+      prisma.application.findUnique({
+        where: { id: applicationId },
+        include: { category: true, member: { select: { fullName: true, email: true } } }
+      }),
+      prisma.member.findFirst({
+        where: { membershipId: mentorMembershipId.trim(), systemRole: 'Mentor' },
+        select: { membershipId: true, fullName: true, email: true, phoneNumber: true }
+      })
+    ]);
+
+    if (!application) return res.status(404).json({ error: 'Application not found.' });
+    if (application.entityType !== 'Individual' || !application.category.categoryName.toLowerCase().includes('graduate')) {
+      return res.status(400).json({ error: 'Mentors can only be assigned to Graduate applications.' });
+    }
+    if (!mentor || !mentor.membershipId) {
+      return res.status(400).json({ error: 'Selected member is not an active mentor.' });
+    }
+
+    const current = await prisma.mentorshipAssignment.findUnique({ where: { applicationId } });
+    if (current?.upgradeRequested) {
+      return res.status(409).json({ error: 'The mentor cannot be changed after the graduate has submitted an upgrade request.' });
+    }
+    const mentorChanged = current?.mentorRegistrationNumber !== mentor.membershipId;
+    if (mentorChanged) {
+      const load = await prisma.mentorshipAssignment.count({
+        where: { mentorRegistrationNumber: mentor.membershipId, applicationId: { not: applicationId } }
+      });
+      if (load >= 5) return res.status(409).json({ error: 'This mentor already has the maximum of 5 assigned graduates.' });
+    }
+
+    const assignment = await prisma.mentorshipAssignment.upsert({
+      where: { applicationId },
+      create: {
+        applicationId,
+        mentorName: mentor.fullName,
+        mentorRegistrationNumber: mentor.membershipId,
+        mentorContact: mentor.phoneNumber || mentor.email,
+        isSelfAssigned: false,
+        requestedInstitutionalAssignment: false,
+        preferredMentors: []
+      },
+      update: {
+        mentorName: mentor.fullName,
+        mentorRegistrationNumber: mentor.membershipId,
+        mentorContact: mentor.phoneNumber || mentor.email,
+        isSelfAssigned: false,
+        requestedInstitutionalAssignment: false
+      }
+    });
+
+    // Only notify when the mentor actually changed — an admin re-saving the same
+    // mentor shouldn't spam either party with another assignment email.
+    if (mentorChanged) {
+      if (application.member?.email) {
+        try {
+          await sendMail(application.member.email, 'mentorship-assign', {
+            name: application.member.fullName,
+            mentorName: mentor.fullName,
+            mentorRegistrationNumber: mentor.membershipId
+          });
+        } catch (e) {}
+      }
+      if (mentor.email) {
+        try {
+          await sendMail(mentor.email, 'mentor_new_mentee_assigned', {
+            mentorName: mentor.fullName,
+            menteeName: application.member?.fullName || 'A graduate member',
+            menteeEmail: application.member?.email || ''
+          });
+        } catch (e) {}
+      }
+    }
+
+    return res.json({ message: 'Mentor assigned successfully.', assignment });
+  } catch (error: any) {
+    console.error('[Assign Mentor] Error:', error.message);
+    return res.status(500).json({ error: 'Failed to assign mentor.' });
+  }
+}
+
+export async function autoAssignGraduateMentors(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  try {
+    const [graduates, mentors] = await Promise.all([
+      prisma.application.findMany({
+        where: {
+          status: 'Approved', entityType: 'Individual',
+          category: { categoryName: { contains: 'graduate', mode: 'insensitive' } },
+          OR: [{ mentorshipAssignment: null }, { mentorshipAssignment: { mentorRegistrationNumber: null } }]
+        },
+        orderBy: { approvedAt: 'asc' },
+        include: { member: { select: { fullName: true, email: true } }, mentorshipAssignment: true }
+      }),
+      prisma.member.findMany({
+        where: { systemRole: 'Mentor', membershipId: { not: null } },
+        orderBy: { fullName: 'asc' },
+        select: { membershipId: true, fullName: true, email: true, phoneNumber: true }
+      })
+    ]);
+
+    const loads = await prisma.mentorshipAssignment.groupBy({ by: ['mentorRegistrationNumber'], where: { mentorRegistrationNumber: { not: null } }, _count: { _all: true } });
+    const loadByNumber = new Map<string, number>();
+    for (const load of loads) if (load.mentorRegistrationNumber) loadByNumber.set(load.mentorRegistrationNumber, load._count._all);
+
+    const assigned: any[] = [];
+    const unassigned: any[] = [];
+    for (const graduate of graduates) {
+      if (graduate.mentorshipAssignment?.upgradeRequested) {
+        unassigned.push({ applicationId: graduate.id, graduateName: graduate.member.fullName, email: graduate.member.email, reason: 'Mentor changes are locked because an upgrade request was already submitted.' });
+        continue;
+      }
+      const mentor = mentors
+        .filter(item => item.membershipId && (loadByNumber.get(item.membershipId) || 0) < 5)
+        .sort((a, b) => (loadByNumber.get(a.membershipId!) || 0) - (loadByNumber.get(b.membershipId!) || 0))[0];
+
+      if (!mentor?.membershipId) {
+        unassigned.push({ applicationId: graduate.id, graduateName: graduate.member.fullName, email: graduate.member.email, reason: mentors.length ? 'All active mentors are at capacity.' : 'No active mentors are available.' });
+        continue;
+      }
+
+      await prisma.mentorshipAssignment.upsert({
+        where: { applicationId: graduate.id },
+        create: { applicationId: graduate.id, mentorName: mentor.fullName, mentorRegistrationNumber: mentor.membershipId, mentorContact: mentor.phoneNumber || mentor.email, isSelfAssigned: false, requestedInstitutionalAssignment: false, preferredMentors: [] },
+        update: { mentorName: mentor.fullName, mentorRegistrationNumber: mentor.membershipId, mentorContact: mentor.phoneNumber || mentor.email, isSelfAssigned: false, requestedInstitutionalAssignment: false }
+      });
+      loadByNumber.set(mentor.membershipId, (loadByNumber.get(mentor.membershipId) || 0) + 1);
+      assigned.push({ applicationId: graduate.id, graduateName: graduate.member.fullName, mentorName: mentor.fullName, mentorMembershipId: mentor.membershipId });
+    }
+
+    return res.json({ message: assigned.length ? `${assigned.length} graduate mentor assignment(s) completed.` : 'No graduate mentor assignments were completed.', assigned, unassigned, summary: { considered: graduates.length, assigned: assigned.length, unassigned: unassigned.length } });
+  } catch (error: any) {
+    console.error('[Auto Assign Graduate Mentors] Error:', error.message);
+    return res.status(500).json({ error: 'Failed to auto-assign graduate mentors.' });
+  }
+}
 
 // Get paginated list of Mentorship Upgrade candidates awaiting reviewer-board
 // input, final Admin/Approver review, or already completed/corrected.
@@ -1976,12 +2184,25 @@ export async function getDashboardStats(req: AuthenticatedRequest, res: Response
     const stats: any = {};
 
     if (role === "Admin") {
+      const staffRoles = ['Admin', 'Admin_Assistant', 'Reviewer', 'Head_Reviewer', 'Approver', 'Teacher'];
       stats.admin = {
-        totalMembers: await prisma.member.count(),
+        // Staff accounts are stored in the same members table, but they are not
+        // registered practitioners and must not inflate the member KPI.
+        totalMembers: await prisma.member.count({
+          where: { membershipId: { not: null }, systemRole: { notIn: staffRoles as any } }
+        }),
         pendingApplications: await prisma.application.count({ where: { status: { in: ['Pending', 'Under_Review', 'Pending_Approval'] } } }),
         pendingApc: await prisma.apcAssessment.count({ where: { status: { in: ['Requested', 'Scheduled'] } } }),
         unpaidInvoices: await prisma.financialTransaction.count({ where: { status: 'Unpaid' } }),
-        mentorshipQueue: await prisma.mentorshipAssignment.count({ where: { upgradeRequested: true, status: { not: 'Approved' } } }),
+        // Count every active upgrade request, including requests waiting for the
+        // mentor recommendation, reviewer board, admin decision, or correction.
+        // Completed upgrades are intentionally excluded.
+        mentorshipQueue: await prisma.mentorshipAssignment.count({
+          where: {
+            upgradeRequested: true,
+            status: { in: ['Pending_Mentor', 'Pending_Reviewer_Board', 'Pending_Admin_Review', 'Correction_Required'] }
+          }
+        }),
       };
 
       const totalApproved = await prisma.application.count({ where: { status: 'Approved' } });

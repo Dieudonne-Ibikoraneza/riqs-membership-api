@@ -439,6 +439,11 @@ model UploadedDocument {
   fileUrl       String    @map("file_url")
   fileSizeBytes Int       @map("file_size_bytes")
   uploadedAt    DateTime? @default(now()) @map("uploaded_at") @db.Timestamptz
+  // Set when this document was uploaded after the Application was already Approved
+  // (e.g. a bulk-imported member backfilling their missing documents themselves).
+  // Such uploads skip reviewer verification entirely, so once submitted they can
+  // never be replaced/deleted through the normal upload endpoint.
+  isLocked      Boolean   @default(false) @map("is_locked")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 

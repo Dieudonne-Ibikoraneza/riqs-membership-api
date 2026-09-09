@@ -22,7 +22,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     // A. Enforce security check: Is the authenticated user the owner of this application?
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      select: { memberId: true }
+      select: { memberId: true, status: true }
     });
 
     if (!app) {
@@ -48,6 +48,17 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || req.user.role.toLowerCase() === 'teacher' || isAssignedMentor;
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You are not authorized to upload files for this profile.' });
+    }
+
+    // A2. A document uploaded outside the normal review flow (e.g. a bulk-imported member
+    // backfilling a missing document after their Application was already Approved) is locked
+    // immediately and can never be replaced through this endpoint again.
+    const existingDoc = await prisma.uploadedDocument.findFirst({
+      where: { applicationId, documentType },
+      select: { isLocked: true }
+    });
+    if (existingDoc?.isLocked) {
+      return res.status(403).json({ error: 'This document is locked and cannot be replaced. Contact the administrator if a correction is needed.' });
     }
 
     // B. Stream buffer directly to Supabase private storage
@@ -84,7 +95,11 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
           documentType,
           fileName: file.originalname,
           fileUrl: filePath,
-          fileSizeBytes: file.size
+          fileSizeBytes: file.size,
+          // Approved applications never go through reviewer verification again, so a
+          // document uploaded at this point (e.g. an imported member backfilling one
+          // missing from the roster import) is final the moment it lands.
+          isLocked: app.status === 'Approved'
         }
       }),
       prisma.documentVersion.create({
@@ -344,6 +359,10 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
       where: { applicationId, documentType }
     });
 
+    if (doc?.isLocked) {
+      return res.status(403).json({ error: 'This document is locked and cannot be removed. Contact the administrator if a correction is needed.' });
+    }
+
     if (doc) {
       await supabaseAdmin.storage.from('riqs-membership').remove([doc.fileUrl]);
       await prisma.uploadedDocument.delete({
@@ -407,6 +426,20 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
         if (!isAuthorized) {
           return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
         }
+      }
+    }
+
+    // Profile Edit Request certificates (a supporting document attached to an education
+    // entry a member proposes post-approval, before it's ever copied onto an EducationRecord)
+    // are stored under `profile-edit-requests/{memberId}/...` — enforce the same owner-or-staff
+    // check as the applications/ prefix above, instead of leaving this prefix unauthenticated.
+    const profileEditMatch = url.match(/^profile-edit-requests\/([0-9a-fA-F-]{36})\//);
+    if (profileEditMatch) {
+      const ownerId = profileEditMatch[1];
+      const isOwner = ownerId === req.user.id;
+      const isStaff = ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase());
+      if (!isOwner && !isStaff) {
+        return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
       }
     }
 

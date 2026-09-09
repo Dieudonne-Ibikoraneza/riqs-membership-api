@@ -215,6 +215,10 @@ export const requestUpgrade = async (req: AuthenticatedRequest, res: Response) =
       return res.status(403).json({ error: "Unauthorized access to mentorship upgrade" });
     }
 
+    if (!assignment.mentorRegistrationNumber) {
+      return res.status(400).json({ error: "A mentor must be assigned before requesting an upgrade." });
+    }
+
     const eligibility = await assertMentorshipEligible(data.applicationId, req.user.id);
     if (!eligibility.ok) {
       return res.status(eligibility.status).json({ error: eligibility.error });

@@ -12,7 +12,7 @@ import {
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
   getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember, promoteToHeadReviewer,
-  getMentorshipQueue, approveMentorshipUpgrade, flagMentorshipForCorrection, submitMentorshipReview, forwardMentorshipToApprover,
+  getMentorshipQueue, getMentorsForAssignment, assignMentorToApplication, autoAssignGraduateMentors, approveMentorshipUpgrade, flagMentorshipForCorrection, submitMentorshipReview, forwardMentorshipToApprover,
   getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors
 } from '../controllers/adminController';
 
@@ -592,6 +592,9 @@ router.post('/tickets/:id/replies', requireAuth, requireRoles(['admin', 'reviewe
 router.patch('/tickets/:id/status', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), updateTicketStatus);
 
 // Mentorship Queue endpoints
+router.get('/mentors', requireAuth, requireRoles(['admin', 'approver']), getMentorsForAssignment);
+router.post('/mentorship/assign', requireAuth, requireRoles(['admin', 'approver']), assignMentorToApplication);
+router.post('/mentorship/auto-assign', requireAuth, requireRoles(['admin', 'approver']), autoAssignGraduateMentors);
 router.get('/mentorship/queue', requireAuth, requireRoles(['admin', 'reviewer', 'head_reviewer', 'approver']), getMentorshipQueue);
 router.post('/mentorship/review', requireAuth, requireRoles(['reviewer', 'head_reviewer']), submitMentorshipReview);
 router.post('/mentorship/forward', requireAuth, requireRoles(['head_reviewer']), forwardMentorshipToApprover);
