@@ -422,7 +422,10 @@ async function main() {
 
   const categoriesData = [
     // Students
-    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Student Member', categoryCode: 'StQS', processingFee: 0.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Level_1' },
+    // processingFee matches the "Proof of Momo Payment (10,000 RWF via Momo Code: 604516)"
+    // required-document text below — was left at 0.00, which silently disabled the online
+    // Mobile Money gateway (it refuses to start a payment for a category with no fee).
+    { location: 'Rwandan', entityType: 'Individual', categoryName: 'Student Member', categoryCode: 'StQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 0.00, annualRenewalFee: 0.00, stampFee: 0.00, competencyLevel: 'Level_1' },
     // Rwandan Individuals (Rwandan)
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveying Technologist', categoryCode: 'GrQST', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00, competencyLevel: 'Level_2' },
     { location: 'Rwandan', entityType: 'Individual', categoryName: 'Graduate Quantity Surveyor', categoryCode: 'GrQS', processingFee: 10000.00, currency: 'RWF', firstYearFee: 50000.00, annualRenewalFee: 50000.00, stampFee: 0.00, competencyLevel: 'Level_2' },

@@ -9,6 +9,8 @@ import {
   submitStudentApplication,
   getTeacherStudents,
   getTeacherApplicationDetail,
+  initiateStudentProcessingFeePayment,
+  getStudentProcessingFeePaymentStatus,
 } from '../controllers/teacherController';
 
 import {
@@ -74,5 +76,9 @@ router.post('/application/:id/mentorship', requireAuth, requireRoles(['teacher',
 router.delete('/application/:id/mentorship/:regNumber', requireAuth, requireRoles(['teacher', 'admin']), deleteStudentMentorshipOption);
 
 router.post('/application/:id/upload', requireAuth, requireRoles(['teacher', 'admin']), uploadRateLimiter, sanitizeUpload, uploadStudentDocument);
+
+// ─── Processing Fee — Mobile Money gateway ───────────────────────────────────
+router.post('/application/:id/payment/initiate', requireAuth, requireRoles(['teacher', 'admin']), initiateStudentProcessingFeePayment);
+router.get('/application/:id/payment/status/:transactionId', requireAuth, requireRoles(['teacher', 'admin']), getStudentProcessingFeePaymentStatus);
 
 export default router;

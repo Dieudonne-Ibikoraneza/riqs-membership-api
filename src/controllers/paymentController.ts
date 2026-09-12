@@ -6,6 +6,7 @@ import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils'
 import { sendMail } from '../config/mailer';
 import { nextMembershipId } from './progressionController';
 import { finalizeApplicationSubmission } from './applicantController';
+import { finalizeStudentApplicationSubmission } from './teacherController';
 import * as intouchPay from '../services/intouchPayService';
 import { issuePaymentReceipt } from '../services/receiptService';
 
@@ -663,7 +664,7 @@ const GATEWAY_ENABLED_TX_TYPES: TransactionType[] = ['Processing_Fee', 'Annual_R
 // membership expiry is only extended once that CPD review happens via verifyPayment.
 //
 // A non-final status (still pending gateway-side) is a no-op — the row is left untouched.
-async function applyGatewayFeeResult(
+export async function applyGatewayFeeResult(
   transaction: { id: string; txType: TransactionType; applicationId: string | null; memberId: string },
   gatewayStatus?: string,
   gatewayStatusDesc?: string
@@ -689,7 +690,19 @@ async function applyGatewayFeeResult(
 
   if (isSuccess && updated.txType === 'Processing_Fee' && updated.applicationId) {
     try {
-      await finalizeApplicationSubmission(updated.applicationId);
+      // Student Member applications (teacher-registered) skip the Reviewer phase entirely and
+      // go straight to Pending_Approval — finalizeApplicationSubmission doesn't know that
+      // shortcut, so route those through the teacher-flow's own finalizer instead.
+      const app = await prisma.application.findUnique({
+        where: { id: updated.applicationId },
+        select: { category: { select: { categoryName: true } } }
+      });
+      const isStudentApplication = app?.category?.categoryName?.toLowerCase().includes('student');
+      if (isStudentApplication) {
+        await finalizeStudentApplicationSubmission(updated.applicationId);
+      } else {
+        await finalizeApplicationSubmission(updated.applicationId);
+      }
     } catch (finalizeErr: any) {
       console.error('[Payment Gateway] Auto-finalize after payment failed:', finalizeErr.message);
     }

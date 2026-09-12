@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { supabaseAdmin, prisma } from '../config/db';
 import { v4 as uuidv4 } from 'uuid';
+import { isTeacherOwnerOfApplication } from '../utils/teacherAccess';
 
 // 1. Secure Binary Upload - Streams raw file buffer straight to private Supabase Storage
 export async function uploadFile(req: AuthenticatedRequest, res: Response) {
@@ -45,7 +46,8 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || req.user.role.toLowerCase() === 'teacher' || isAssignedMentor;
+    const isTeacherOwner = req.user.role.toLowerCase() === 'teacher' && await isTeacherOwnerOfApplication(req.user.email, applicationId);
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isTeacherOwner || isAssignedMentor;
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You are not authorized to upload files for this profile.' });
     }
@@ -278,7 +280,11 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const isAuthorized = isOwner || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase()) || isAssignedMentor;
+    const isTeacherOwner = req.user.role.toLowerCase() === 'teacher' && await isTeacherOwnerOfApplication(req.user.email, doc.applicationId);
+    const isAuthorized = isOwner
+      || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'finance'].includes(req.user.role.toLowerCase())
+      || isTeacherOwner
+      || isAssignedMentor;
 
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
@@ -350,7 +356,8 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
       }
     }
 
-    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || req.user.role.toLowerCase() === 'teacher' || isAssignedMentor;
+    const isTeacherOwner = req.user.role.toLowerCase() === 'teacher' && await isTeacherOwnerOfApplication(req.user.email, applicationId);
+    const isAuthorized = isOwner || req.user.role.toLowerCase() === 'admin' || isTeacherOwner || isAssignedMentor;
     if (!isAuthorized) {
       return res.status(403).json({ error: 'Access Denied.' });
     }
@@ -419,8 +426,10 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
           }
         }
 
+        const isTeacherOwner = req.user.role.toLowerCase() === 'teacher' && await isTeacherOwnerOfApplication(req.user.email, applicationId);
         const isAuthorized = isOwner
-          || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase())
+          || ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'finance'].includes(req.user.role.toLowerCase())
+          || isTeacherOwner
           || isAssignedMentor;
 
         if (!isAuthorized) {
@@ -437,7 +446,9 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
     if (profileEditMatch) {
       const ownerId = profileEditMatch[1];
       const isOwner = ownerId === req.user.id;
-      const isStaff = ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'teacher', 'finance'].includes(req.user.role.toLowerCase());
+      // Teachers aren't reviewers of member profile-edit requests — that's outside their
+      // registered-student scope, so 'teacher' is deliberately not in this staff list.
+      const isStaff = ['admin', 'admin_assistant', 'reviewer', 'head_reviewer', 'approver', 'finance'].includes(req.user.role.toLowerCase());
       if (!isOwner && !isStaff) {
         return res.status(403).json({ error: 'Access Denied. You do not have permissions to read this document.' });
       }
