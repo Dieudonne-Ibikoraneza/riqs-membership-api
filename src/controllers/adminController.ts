@@ -15,22 +15,45 @@ function parseReviewMonth(value: unknown): Date | null {
 
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
-  const { status, page = 1, limit = 10, view } = req.query;
+  const { status, page = 1, limit = 10, view, q, location, category, sortKey = 'submitted', sortDir = 'desc' } = req.query;
 
   const skip = (Number(page) - 1) * Number(limit);
   const take = Number(limit);
 
   try {
-    const whereClause: any = {};
-    
+    // Built as an AND array so the search OR-group and the role-based OR-group
+    // (reviewer queue view) never collide by overwriting each other.
+    const andConditions: any[] = [];
+
+    if (q) {
+      const qs = String(q);
+      const searchOr: any[] = [
+        { member: { fullName: { contains: qs, mode: 'insensitive' } } },
+        { member: { email: { contains: qs, mode: 'insensitive' } } },
+      ];
+      // `id` is a Postgres uuid column — Prisma only supports `equals` on it,
+      // not `contains`, so only match it when the query is a full valid UUID.
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(qs)) {
+        searchOr.push({ id: { equals: qs } });
+      }
+      andConditions.push({ OR: searchOr });
+    }
+
+    if (location && location !== 'all') {
+      andConditions.push({ category: { location: String(location) } });
+    }
+    if (category && category !== 'all') {
+      andConditions.push({ category: { categoryName: String(category) } });
+    }
+
     // 1. Process explicit status filter from dropdown
     if (status) {
-      const statusStr = String(status).toLowerCase();
+      const statusStr = String(status).toLowerCase().replace(/ /g, '_');
       const validStatuses = ['Draft', 'Pending', 'Under_Review', 'Pending_Approval', 'Correction_Required', 'Approved', 'Rejected'];
       const matchedStatus = validStatuses.find(s => s.toLowerCase() === statusStr);
-      
+
       if (matchedStatus) {
-        whereClause.status = matchedStatus as ApplicationStatus;
+        andConditions.push({ status: matchedStatus as ApplicationStatus });
       } else {
         return res.status(400).json({ error: `Invalid status parameter. Valid options: ${validStatuses.join(', ')}` });
       }
@@ -47,42 +70,54 @@ export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
       // Admin sees newly submitted apps awaiting initial review (Pending only)
       if (view === 'all') {
         // "All" tab — admin can see historical records too
-        if (!status) whereClause.status = { not: 'Draft' };
+        if (!status) andConditions.push({ status: { not: 'Draft' } });
       } else {
         // Default queue tab — only Pending apps needing admin's attention
-        if (!status) whereClause.status = 'Pending';
+        if (!status) andConditions.push({ status: 'Pending' });
       }
     } else if (isApprover) {
       // Approver sees apps forwarded to them (Pending_Approval)
       if (view === 'all') {
         // The All view exposes every submitted application for read-only
         // oversight. Drafts remain private to applicants until submission.
-        if (!status) whereClause.status = { not: 'Draft' };
+        if (!status) andConditions.push({ status: { not: 'Draft' } });
       } else {
-        if (!status) whereClause.status = 'Pending_Approval';
+        if (!status) andConditions.push({ status: 'Pending_Approval' });
       }
     } else if (isReviewerOrHead) {
       // Reviewers and Head Reviewer only see apps forwarded by admin (Under_Review and above)
       if (view === 'all') {
-        if (!status) whereClause.status = { in: ['Under_Review', 'Pending_Approval', 'Correction_Required', 'Approved', 'Rejected'] };
+        if (!status) andConditions.push({ status: { in: ['Under_Review', 'Pending_Approval', 'Correction_Required', 'Approved', 'Rejected'] } });
       } else {
         if (!status) {
-          whereClause.OR = [
-            { status: { in: ['Under_Review', 'Correction_Required'] } },
-            { mentorshipAssignment: { status: 'Pending_Reviewer_Board' } }
-          ];
+          andConditions.push({
+            OR: [
+              { status: { in: ['Under_Review', 'Correction_Required'] } },
+              { mentorshipAssignment: { status: 'Pending_Reviewer_Board' } }
+            ]
+          });
         } else {
-          whereClause.status = status;
+          andConditions.push({ status: status as ApplicationStatus });
         }
       }
     }
+
+    const whereClause: any = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    let orderBy: any = { submittedAt: 'desc' };
+    const dir = String(sortDir).toLowerCase() === 'asc' ? 'asc' : 'desc';
+    if (sortKey === 'applicant') orderBy = { member: { fullName: dir } };
+    else if (sortKey === 'category') orderBy = { category: { categoryName: dir } };
+    else if (sortKey === 'status') orderBy = { status: dir };
+    else if (sortKey === 'id') orderBy = { id: dir };
+    else orderBy = { submittedAt: dir }; // 'submitted' and any other fallback
 
     const [queue, total] = await Promise.all([
       prisma.application.findMany({
         where: whereClause,
         skip,
         take,
-        orderBy: { submittedAt: 'desc' },
+        orderBy,
         include: {
           member: { select: { fullName: true, email: true, isFellow: true, isHonorary: true, honors: true } },
           category: { select: { categoryName: true, location: true } },
