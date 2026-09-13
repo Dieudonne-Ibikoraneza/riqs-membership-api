@@ -8,6 +8,19 @@ import { v4 as uuidv4 } from 'uuid';
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 const JWT_EXPIRES_IN = '24h';
 
+// Dev convenience only: a fixed list of test accounts gets a predictable OTP (123456) and
+// skips real email delivery, so local testing doesn't depend on SMTP working. Gated behind
+// an explicit opt-in env var (default OFF) rather than being unconditionally in the code, so
+// the exact same source runs in every environment — production's .env simply never sets this,
+// instead of carrying a separate uncommitted local edit that diverges and fights every
+// git pull/push with merge conflicts.
+const TEST_EMAIL_BYPASS_ENABLED = process.env.ENABLE_TEST_EMAIL_BYPASS === 'true';
+const TEST_EMAILS = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com', 'reviewer2@riqs.com', 'reviewer3@riqs.com', 'assistant@riqs.com'];
+
+function isTestEmailBypass(email: string): boolean {
+  return TEST_EMAIL_BYPASS_ENABLED && TEST_EMAILS.includes(email.toLowerCase());
+}
+
 // Register a new user
 export async function register(req: Request, res: Response) {
   const { email, password, fullName, phoneNumber, dob, nationality, gender, residencyAddress } = req.body;
@@ -175,8 +188,7 @@ export async function login(req: Request, res: Response) {
       });
     }
 
-    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com', 'reviewer2@riqs.com', 'reviewer3@riqs.com', 'assistant@riqs.com'];
-    const isTestEmail = testEmails.includes(email.toLowerCase());
+    const isTestEmail = isTestEmailBypass(email);
 
     // Generate 2FA OTP
     const otp = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
@@ -215,8 +227,7 @@ export async function forgotPassword(req: Request, res: Response) {
     const member = await prisma.member.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
     if (!member) return res.status(404).json({ error: 'We could not find an account associated with this email address. Please check for typos or create a new account instead.' });
 
-    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
-    const isTestEmail = testEmails.includes(email.toLowerCase());
+    const isTestEmail = isTestEmailBypass(email);
 
     const otpCode = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -290,8 +301,7 @@ export async function resendOtp(req: Request, res: Response) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    const testEmails = ['reviewer@riqs.com', 'approver@riqs.com', 'admin@riqs.com', 'teacher@riqs.com', 'mentor@riqs.com'];
-    const isTestEmail = testEmails.includes(email.toLowerCase());
+    const isTestEmail = isTestEmailBypass(email);
     const newOtpCode = isTestEmail ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 

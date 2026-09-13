@@ -11,10 +11,6 @@ services:
       PORT: 5000
     ports:
       - "${API_PORT:-5000}:5000"
-    # Lets the container reach the host machine's 127.0.0.1-bound services (MinIO on :9000,
-    # Postgres on :5432 — see storage/ and database/, both separate Compose projects on this
-    # same server) via the hostname `host.docker.internal`, without giving up this
-    # container's own network namespace isolation (unlike `network_mode: host`).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
