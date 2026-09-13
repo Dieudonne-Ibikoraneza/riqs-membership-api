@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { isTeacherOwnerOfApplication } from '../utils/teacherAccess';
 
 interface AuthenticatedRequest extends Request {
@@ -196,9 +197,8 @@ export async function uploadStudentDocument(req: AuthenticatedRequest, res: Resp
     const app = await verifyTeacherAccess(req.user, id);
     if (!app) return res.status(404).json({ error: 'Application not found or access denied.' });
 
-    const { supabaseAdmin } = require('../config/db');
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data: uploadData, error: uploadError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         upsert: false

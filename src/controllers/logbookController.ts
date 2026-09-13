@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
-import { supabaseAdmin } from "../config/db";
+import { objectStorage, DEFAULT_BUCKET } from "../config/storage";
 import { AuthenticatedRequest } from "../middleware/auth";
 
 const prisma = new PrismaClient();
@@ -61,8 +61,8 @@ export const submitLogbookEntry = async (req: AuthenticatedRequest, res: Respons
     const uniqueName = `logbook_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
     const filePath = `applications/${data.applicationId}/${uniqueName}`;
 
-    const { error: storageError } = await supabaseAdmin.storage
-      .from("riqs-membership")
+    const { error: storageError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         cacheControl: "3600",
@@ -172,8 +172,8 @@ export const uploadAnnualReport = async (req: AuthenticatedRequest, res: Respons
     const uniqueName = `annual_report_year_${data.year}_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`;
     const filePath = `applications/${data.applicationId}/${uniqueName}`;
 
-    const { error: storageError } = await supabaseAdmin.storage
-      .from("riqs-membership")
+    const { error: storageError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         upsert: true

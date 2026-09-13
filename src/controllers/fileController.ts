@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { supabaseAdmin, prisma } from '../config/db';
+import { prisma } from '../config/db';
+import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { isTeacherOwnerOfApplication } from '../utils/teacherAccess';
 
@@ -64,8 +65,8 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     }
 
     // B. Stream buffer directly to Supabase private storage
-    const { data: storageData, error: storageError } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data: storageData, error: storageError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         cacheControl: '3600',
@@ -216,8 +217,8 @@ export async function uploadProfilePhoto(req: AuthenticatedRequest, res: Respons
   const filePath = `profiles/${req.user.id}/${uniqueName}`;
 
   try {
-    const { data: storageData, error: storageError } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data: storageData, error: storageError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         cacheControl: '3600',
@@ -291,8 +292,8 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
     }
 
     // C. Download the raw binary stream from private bucket
-    const { data, error } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data, error } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .download(doc.fileUrl);
 
     if (error || !data) {
@@ -371,7 +372,7 @@ export async function deleteFileByType(req: AuthenticatedRequest, res: Response)
     }
 
     if (doc) {
-      await supabaseAdmin.storage.from('riqs-membership').remove([doc.fileUrl]);
+      await objectStorage.storage.from(DEFAULT_BUCKET).remove([doc.fileUrl]);
       await prisma.uploadedDocument.delete({
         where: { id: doc.id }
       });
@@ -454,8 +455,8 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    const { data, error } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data, error } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .download(url);
 
     if (error || !data) {

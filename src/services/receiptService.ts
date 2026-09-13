@@ -1,7 +1,7 @@
 import PDFDocument from 'pdfkit';
 import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../config/db';
-import { supabaseAdmin } from '../config/db';
+import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { sendMail } from '../config/mailer';
 
 // Deterministic, human-readable receipt number derived from the transaction's own id —
@@ -135,8 +135,8 @@ export async function issuePaymentReceipt(transactionId: string): Promise<void> 
   if (transaction.applicationId) {
     const filePath = `applications/${transaction.applicationId}/${fileName}`;
 
-    const { error: storageError } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { error: storageError } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .upload(filePath, pdfBuffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { prisma, supabaseAdmin } from '../config/db';
+import { prisma } from '../config/db';
+import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { MemberClass } from '@prisma/client';
 
 export async function getPublicMembersDirectory(req: Request, res: Response) {
@@ -224,8 +225,8 @@ export async function verifyMemberPhoto(req: Request, res: Response) {
       return res.status(404).json({ error: 'No photo on file for this member.' });
     }
 
-    const { data, error } = await supabaseAdmin.storage
-      .from('riqs-membership')
+    const { data, error } = await objectStorage.storage
+      .from(DEFAULT_BUCKET)
       .download(member.profilePhotoUrl);
 
     if (error || !data) {

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { prisma, supabaseAdmin } from '../config/db';
+import { prisma } from '../config/db';
+import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { sendMail } from '../config/mailer';
 
 interface ProposedEducationInput {
@@ -78,8 +79,8 @@ export async function submitProfileEditRequest(req: AuthenticatedRequest, res: R
     if (photoFile) {
       const uniqueName = `photo_${Date.now()}_${photoFile.originalname.replace(/\s+/g, '_')}`;
       const filePath = `profile-edit-requests/${req.user.id}/${uniqueName}`;
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('riqs-membership')
+      const { error: uploadError } = await objectStorage.storage
+        .from(DEFAULT_BUCKET)
         .upload(filePath, photoFile.buffer, { contentType: photoFile.mimetype, upsert: true });
       if (uploadError) throw new Error(`Photo upload failed: ${uploadError.message}`);
       proposedProfilePhotoUrl = filePath;
@@ -94,8 +95,8 @@ export async function submitProfileEditRequest(req: AuthenticatedRequest, res: R
       if (certFile) {
         const uniqueName = `certificate_${Date.now()}_${certFile.originalname.replace(/\s+/g, '_')}`;
         const filePath = `profile-edit-requests/${req.user.id}/${uniqueName}`;
-        const { error: uploadError } = await supabaseAdmin.storage
-          .from('riqs-membership')
+        const { error: uploadError } = await objectStorage.storage
+          .from(DEFAULT_BUCKET)
           .upload(filePath, certFile.buffer, { contentType: certFile.mimetype, upsert: true });
         if (uploadError) throw new Error(`Certificate upload failed: ${uploadError.message}`);
         certificateUrl = filePath;
