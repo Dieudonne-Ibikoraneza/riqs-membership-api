@@ -10,10 +10,10 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 const dbUrl = process.env.DATABASE_URL;
 // Self-hosted Postgres (see database/ at the repo root) is reached over plain TCP on the
 // same server/private network — no TLS needed, unlike the old Supabase connection this
-// replaced. `isLocal` here really means "not requiring SSL", covering both the container's
-// own 127.0.0.1 and the `host.docker.internal` hostname the backend container uses to reach
-// it (see backend/docker-compose.yml's extra_hosts entry).
-const isLocal = dbUrl?.includes('localhost') || dbUrl?.includes('127.0.0.1') || dbUrl?.includes('host.docker.internal');
+// replaced. `isLocal` here really means "not requiring SSL", covering the container's own
+// 127.0.0.1, the `host.docker.internal` hostname, and `riqs-postgres` — its name on the
+// shared riqs-net Docker network (see backend/docker-compose.yml's networks entry).
+const isLocal = dbUrl?.includes('localhost') || dbUrl?.includes('127.0.0.1') || dbUrl?.includes('host.docker.internal') || dbUrl?.includes('riqs-postgres');
 
 const pool = new Pool({
   connectionString: dbUrl,
