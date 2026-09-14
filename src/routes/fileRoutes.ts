@@ -11,7 +11,7 @@ const router = Router();
  * /api/v1/files/upload:
  *   post:
  *     summary: Upload Document (Private Binary Buffer)
- *     description: Streams a local PDF or image to private Supabase Storage, and maps file version history tracking. Supports max 10MB size. Only PDFs and JPEGs/PNGs allowed.
+ *     description: Streams a local PDF or image to private self-hosted storage, and maps file version history tracking. Supports max 10MB size. Only PDFs and JPEGs/PNGs allowed.
  *     tags:
  *       - Private Storage Streams
  *     requestBody:
@@ -53,7 +53,7 @@ router.post('/upload', requireAuth, uploadRateLimiter, sanitizeUpload, uploadFil
  * /api/v1/files/download/{fileId}:
  *   get:
  *     summary: Read/Stream Private Document inline
- *     description: Checks authorizations, downloads the binary buffer from private Supabase Storage, sets the appropriate Content-Type (image/png, image/jpeg, or application/pdf), and streams it directly inline to the browser.
+ *     description: Checks authorizations, downloads the binary buffer from private self-hosted storage, sets the appropriate Content-Type (image/png, image/jpeg, or application/pdf), and streams it directly inline to the browser.
  *     tags:
  *       - Private Storage Streams
  *     parameters:

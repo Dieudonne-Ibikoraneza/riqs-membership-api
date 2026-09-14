@@ -5,7 +5,7 @@ import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { isTeacherOwnerOfApplication } from '../utils/teacherAccess';
 
-// 1. Secure Binary Upload - Streams raw file buffer straight to private Supabase Storage
+// 1. Secure Binary Upload - Streams raw file buffer straight to private self-hosted storage
 export async function uploadFile(req: AuthenticatedRequest, res: Response) {
   if (!req.file || !req.user) {
     return res.status(400).json({ error: 'Access Denied. Active session or file payload is missing.' });
@@ -64,7 +64,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ error: 'This document is locked and cannot be replaced. Contact the administrator if a correction is needed.' });
     }
 
-    // B. Stream buffer directly to Supabase private storage
+    // B. Stream buffer directly to private self-hosted storage
     const { data: storageData, error: storageError } = await objectStorage.storage
       .from(DEFAULT_BUCKET)
       .upload(filePath, file.buffer, {
@@ -74,7 +74,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
       });
 
     if (storageError) {
-      console.error('[Supabase Storage Upload Error]:', storageError.message);
+      console.error('[Storage Upload Error]:', storageError.message);
       return res.status(500).json({ error: `Private file storage pipeline failure: ${storageError.message}` });
     }
 
@@ -226,7 +226,7 @@ export async function uploadProfilePhoto(req: AuthenticatedRequest, res: Respons
       });
 
     if (storageError) {
-      console.error('[Supabase Storage Upload Error]:', storageError.message);
+      console.error('[Storage Upload Error]:', storageError.message);
       return res.status(500).json({ error: `Private file storage pipeline failure: ${storageError.message}` });
     }
 
@@ -246,7 +246,7 @@ export async function uploadProfilePhoto(req: AuthenticatedRequest, res: Respons
   }
 }
 
-// 2. Secure Private Download - Reads raw buffer from Supabase and streams it directly to browser
+// 2. Secure Private Download - Reads raw buffer from self-hosted storage and streams it directly to browser
 export async function downloadFile(req: AuthenticatedRequest, res: Response) {
   if (!req.user) {
     return res.status(401).json({ error: 'Access Denied. Active session required.' });
@@ -298,7 +298,7 @@ export async function downloadFile(req: AuthenticatedRequest, res: Response) {
 
     if (error || !data) {
       const notFound = (error as any)?.statusCode === '404' || (error as any)?.status === 400;
-      console.error('[Supabase Storage Download Error]:', doc.fileUrl, error?.message);
+      console.error('[Storage Download Error]:', doc.fileUrl, error?.message);
       if (notFound) {
         return res.status(404).json({ error: 'This document was not found in storage. It may not have been uploaded successfully.' });
       }
@@ -461,7 +461,7 @@ export async function downloadByUrl(req: AuthenticatedRequest, res: Response) {
 
     if (error || !data) {
       const notFound = (error as any)?.statusCode === '404' || (error as any)?.status === 400;
-      console.error('[Supabase Storage Download Error]:', url, error?.message);
+      console.error('[Storage Download Error]:', url, error?.message);
       if (notFound) {
         return res.status(404).json({ error: 'This document was not found in storage. It may not have been uploaded successfully.' });
       }
