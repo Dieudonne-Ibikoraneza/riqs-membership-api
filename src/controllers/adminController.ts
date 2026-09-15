@@ -8,6 +8,11 @@ import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { pickAuthoritativeTransaction, memberStatusWhereConditions } from '../utils/membershipUtils';
 
+// Staff and regular members share the `members` table; this is what distinguishes a staff
+// account from a regular member throughout this file (registry filtering, lock/delete
+// guards, the /admin/staff endpoints).
+export const STAFF_ROLES = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+
 function parseReviewMonth(value: unknown): Date | null {
   if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
   return new Date(`${value}-01T00:00:00.000Z`);
@@ -957,14 +962,34 @@ export async function getAuditLogs(req: AuthenticatedRequest, res: Response) {
         skip,
         take,
         include: {
-          member: { select: { fullName: true, email: true } }
+          member: { select: { id: true, fullName: true, email: true, systemRole: true } }
         }
       }),
       prisma.auditLog.count({ where: whereClause })
     ]);
 
+    // `actionByEmail` is a free-text snapshot, not a foreign key (so it survives the actor's
+    // account being deleted later) — resolve it back to a member/staff record here, when one
+    // still exists, so the UI can show a name and link instead of a bare email. Batched by
+    // the distinct emails on this page rather than per-row. `systemRole` is included so the
+    // UI can tell a staff account from a regular member and link to /admin/staff instead of
+    // /admin/members/:id for one.
+    const distinctEmails = Array.from(new Set(logs.map(l => l.actionByEmail).filter(Boolean)));
+    const performers = distinctEmails.length
+      ? await prisma.member.findMany({
+          where: { email: { in: distinctEmails, mode: 'insensitive' } },
+          select: { id: true, fullName: true, email: true, systemRole: true }
+        })
+      : [];
+    const performerByEmail = new Map(performers.map(p => [p.email.toLowerCase(), p]));
+
+    const enrichedLogs = logs.map(log => ({
+      ...log,
+      performedByMember: performerByEmail.get(log.actionByEmail.toLowerCase()) || null
+    }));
+
     return res.status(200).json({
-      logs,
+      logs: enrichedLogs,
       pagination: { total, page: parseInt(page as string, 10), limit: take }
     });
   } catch (error: any) {
@@ -1112,7 +1137,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
     // members registry.
     const andConditions: any[] = [
       { membershipId: { not: null } },
-      { systemRole: { notIn: ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'] } }
+      { systemRole: { notIn: STAFF_ROLES } }
     ];
 
     if (q) {
@@ -1389,27 +1414,53 @@ export async function sendAdminEmail(req: AuthenticatedRequest, res: Response) {
 
 // Fetch internal staff members (Admin, Reviewer, Approver, Teacher)
 export async function getStaffMembers(req: AuthenticatedRequest, res: Response) {
+  const { q, role, page = '1', limit = '10' } = req.query;
+  const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
+  const take = parseInt(limit as string, 10);
+
   try {
-    const staff = await prisma.member.findMany({
-      where: {
-        systemRole: {
-          in: ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher']
-        }
-      },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        systemRole: true,
-        isLocked: true,
-        lockedUntil: true,
-        createdAt: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
+    const roleFilter = role && role !== 'all' && STAFF_ROLES.includes(String(role)) ? [String(role)] : STAFF_ROLES;
+    const whereClause: any = { systemRole: { in: roleFilter } };
+
+    if (q) {
+      const qs = String(q);
+      whereClause.OR = [
+        { fullName: { contains: qs, mode: 'insensitive' } },
+        { email: { contains: qs, mode: 'insensitive' } }
+      ];
+    }
+
+    const [staff, total, headReviewer] = await Promise.all([
+      prisma.member.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          systemRole: true,
+          isLocked: true,
+          lockedUntil: true,
+          createdAt: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take
+      }),
+      prisma.member.count({ where: whereClause }),
+      // Fetched independently of the search/filter/pagination above so the "who's the
+      // current Head Reviewer" banner stays accurate even when that person is filtered
+      // out of, or off the current page of, the list below.
+      prisma.member.findFirst({
+        where: { systemRole: 'Head_Reviewer' },
+        select: { id: true, fullName: true, email: true }
+      })
+    ]);
+
+    return res.status(200).json({
+      staff,
+      headReviewer,
+      pagination: { total, page: parseInt(page as string, 10), limit: take }
     });
-    return res.status(200).json({ staff });
   } catch (error: any) {
     console.error('[Get Staff Members Error]', error.message);
     return res.status(500).json({ error: 'Internal server error while fetching staff members.' });
@@ -1424,7 +1475,7 @@ export async function createStaffMember(req: AuthenticatedRequest, res: Response
     return res.status(400).json({ error: 'Missing required fields: fullName, email, systemRole' });
   }
 
-  const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+  const validRoles = STAFF_ROLES;
   if (!validRoles.includes(systemRole)) {
     return res.status(400).json({ error: 'Invalid system role provided for staff creation.' });
   }
@@ -1491,7 +1542,7 @@ export async function lockStaffMember(req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ error: 'Staff member not found.' });
     }
 
-    const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+    const validRoles = STAFF_ROLES;
     if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
       return res.status(400).json({ error: 'Cannot lock a non-staff member through this endpoint.' });
     }
@@ -1588,7 +1639,7 @@ export async function deleteStaffMember(req: AuthenticatedRequest, res: Response
       return res.status(404).json({ error: 'Staff member not found.' });
     }
 
-    const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+    const validRoles = STAFF_ROLES;
     if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
       return res.status(400).json({ error: 'Cannot delete a non-staff member through this endpoint.' });
     }
