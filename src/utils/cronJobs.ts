@@ -1,5 +1,7 @@
 import { prisma } from '../config/db';
 import cron from 'node-cron';
+import { sendRawMail } from '../config/mailer';
+import { buildDeleteNotificationEmail } from '../controllers/adminController';
 
 export function startCronJobs() {
   console.log('[Cron Jobs] Initializing background tasks via node-cron...');
@@ -20,6 +22,12 @@ export function startCronJobs() {
       if (expiredAccounts.length > 0) {
         console.log(`[Cron Jobs] Found ${expiredAccounts.length} expired locked accounts to permanently delete.`);
         for (const account of expiredAccounts) {
+          sendRawMail({
+            to: account.email,
+            subject: 'RIQS Account Deleted',
+            html: buildDeleteNotificationEmail(account.fullName)
+          }).catch((err: any) => console.error('[Cron Jobs] Failed to send account-deleted email:', err.message));
+
           await prisma.member.delete({
             where: { id: account.id }
           });

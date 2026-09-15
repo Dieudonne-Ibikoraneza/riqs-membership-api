@@ -166,7 +166,15 @@ export async function login(req: Request, res: Response) {
     }
 
     if (member.isLocked) {
-      return res.status(403).json({ error: 'Your account has been locked. Please contact the administrator.' });
+      // A lock that has passed its `lockedUntil` date hasn't been cleaned up yet by the
+      // nightly cron job (which permanently deletes accounts still locked past that date —
+      // see cronJobs.ts) — until that sweep runs, treat it as expired and let the login
+      // proceed rather than blocking on a lock that's no longer meant to be in effect.
+      const lockExpired = member.lockedUntil && member.lockedUntil <= new Date();
+      if (!lockExpired) {
+        return res.status(403).json({ error: 'Your account has been locked. Please contact the administrator.' });
+      }
+      await prisma.member.update({ where: { id: member.id }, data: { isLocked: false, lockedUntil: null } });
     }
 
     // Some existing users might have 'SUPABASE_AUTH_MANAGED' as password if they migrated.

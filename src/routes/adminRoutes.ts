@@ -11,9 +11,10 @@ import {
   getApplicationDetail, assignReviewer,
   getStatusHistory, getDocumentVersions,
   getAuditLogs, updateSystemCategory, getMembersRegistry, sendAdminEmail, getApcForApplication, getAllApc,
-  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember, promoteToHeadReviewer,
+  getStaffMembers, createStaffMember, lockStaffMember, unlockStaffMember, deleteStaffMember, promoteToHeadReviewer,
   getMentorshipQueue, getMentorsForAssignment, assignMentorToApplication, autoAssignGraduateMentors, approveMentorshipUpgrade, flagMentorshipForCorrection, submitMentorshipReview, forwardMentorshipToApprover,
-  getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors
+  getDashboardStats, awardFellowStatus, revokeFellowStatus, awardHonoraryStatus, revokeHonoraryStatus, createHonorableMentionMember, getMemberById, changeMembershipCategory, updateMemberHonors,
+  lockMember, unlockMember, deleteMember
 } from '../controllers/adminController';
 
 import {
@@ -139,6 +140,39 @@ router.post('/members/:id/award-honorary', requireAuth, requireRoles(['admin', '
  *       - Administrative Dashboard
  */
 router.post('/members/:id/revoke-honorary', requireAuth, requireRoles(['admin', 'approver']), revokeHonoraryStatus);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/lock:
+ *   patch:
+ *     summary: Lock Member Account
+ *     description: Locks a member's account for a given number of days, blocking their login. An admin cannot lock their own account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.patch('/members/:id/lock', requireAuth, requireRoles(['admin', 'approver']), lockMember);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}/unlock:
+ *   patch:
+ *     summary: Unlock Member Account
+ *     description: Removes the login lock from a member's account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.patch('/members/:id/unlock', requireAuth, requireRoles(['admin', 'approver']), unlockMember);
+
+/**
+ * @openapi
+ * /api/v1/admin/members/{id}:
+ *   delete:
+ *     summary: Delete Member Account
+ *     description: Permanently deletes a member and their dependent records. An admin cannot delete their own account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.delete('/members/:id', requireAuth, requireRoles(['admin']), deleteMember);
 
 
 
@@ -568,6 +602,17 @@ router.patch('/staff/:id/lock', requireAuth, requireRoles(['admin']), lockStaffM
  */
 router.patch('/staff/:id/unlock', requireAuth, requireRoles(['admin']), unlockStaffMember);
 router.patch('/staff/:id/promote-head-reviewer', requireAuth, requireRoles(['admin']), promoteToHeadReviewer);
+
+/**
+ * @openapi
+ * /api/v1/admin/staff/{id}:
+ *   delete:
+ *     summary: Delete Staff Account
+ *     description: Permanently deletes an internal staff account. An admin cannot delete their own account.
+ *     tags:
+ *       - Administrative Dashboard
+ */
+router.delete('/staff/:id', requireAuth, requireRoles(['admin']), deleteStaffMember);
 
 router.post('/members/:id/award-fellow', requireAuth, requireRoles(['admin', 'approver']), awardFellowStatus);
 router.post('/members/:id/revoke-fellow', requireAuth, requireRoles(['admin', 'approver']), revokeFellowStatus);

@@ -13,6 +13,38 @@ function parseReviewMonth(value: unknown): Date | null {
   return new Date(`${value}-01T00:00:00.000Z`);
 }
 
+// Shared by lockMember/lockStaffMember. Mirrors the "permanently deleted if not unlocked"
+// policy the nightly cron job in cronJobs.ts actually enforces, so the member is told the
+// real consequence of the lock, not just that they can't log in.
+function buildLockNotificationEmail(fullName: string, days: number, lockedUntil: Date): string {
+  const untilStr = lockedUntil.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  return `
+    <div style="font-family: sans-serif; color: #333;">
+      <h2>Your RIQS Account Has Been Temporarily Locked</h2>
+      <p>Dear ${fullName},</p>
+      <p>Your account was temporarily locked by an administrator for <strong>${days} day${days === 1 ? '' : 's'}</strong>, until <strong>${untilStr}</strong>. You will not be able to log in during this period.</p>
+      <p>If the lock is not lifted before it expires, your account and its records will be <strong>permanently deleted</strong>.</p>
+      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:secretariat@riqs.rw">secretariat@riqs.rw</a>.</p>
+      <br/><p>Best regards,</p><p>RIQS Registration Board</p>
+    </div>
+  `;
+}
+
+// Shared by deleteMember/deleteStaffMember, and by the expired-lock cleanup cron job in
+// cronJobs.ts. Sent before the row is removed, since there's no account left to email
+// afterwards.
+export function buildDeleteNotificationEmail(fullName: string): string {
+  return `
+    <div style="font-family: sans-serif; color: #333;">
+      <h2>Your RIQS Account Has Been Deleted</h2>
+      <p>Dear ${fullName},</p>
+      <p>Your account and its associated records have been permanently deleted by an administrator. This action cannot be undone.</p>
+      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:secretariat@riqs.rw">secretariat@riqs.rw</a>.</p>
+      <br/><p>Best regards,</p><p>RIQS Registration Board</p>
+    </div>
+  `;
+}
+
 // 1. Administrative Registry Queue (Paginated & Filterable)
 export async function getReviewQueue(req: AuthenticatedRequest, res: Response) {
   const { status, page = 1, limit = 10, view, q, location, category, sortKey = 'submitted', sortDir = 'desc' } = req.query;
@@ -1075,7 +1107,13 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
   try {
     // Built as an AND array (rather than assigning top-level keys directly) so the search
     // OR-group below can't collide with the status filter's own OR-group added further down.
-    const andConditions: any[] = [{ membershipId: { not: null } }];
+    // Staff accounts (Admin, Reviewer, Approver, Teacher, etc.) live in the same members
+    // table but must only ever be returned by getStaffMembers, never in this public/admin
+    // members registry.
+    const andConditions: any[] = [
+      { membershipId: { not: null } },
+      { systemRole: { notIn: ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'] } }
+    ];
 
     if (q) {
       const qs = String(q);
@@ -1187,6 +1225,8 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
           : 'N/A',
         photoId: app?.uploadedDocuments?.[0]?.id,
         isFellow: m.isFellow,
+        isLocked: Boolean(m.isLocked && (!m.lockedUntil || m.lockedUntil > new Date())),
+        lockedUntil: m.lockedUntil,
         isHonorary: m.isHonorary,
         honors: (m as any).honors || [],
         membershipClass: m.membershipClass,
@@ -1470,9 +1510,9 @@ export async function lockStaffMember(req: AuthenticatedRequest, res: Response) 
 
     await prisma.member.update({
       where: { id },
-      data: { 
+      data: {
         isLocked: true,
-        lockedUntil 
+        lockedUntil
       }
     });
 
@@ -1484,6 +1524,12 @@ export async function lockStaffMember(req: AuthenticatedRequest, res: Response) 
         details: `Staff member locked for ${days} days until ${lockedUntil.toISOString()}`
       }
     });
+
+    sendRawMail({
+      to: staff.email,
+      subject: 'RIQS Account Locked',
+      html: buildLockNotificationEmail(staff.fullName, days, lockedUntil)
+    }).catch((err: any) => console.error('[Lock Staff Member] Failed to send email:', err.message));
 
     return res.status(200).json({ message: `Staff member locked successfully for ${days} days.` });
   } catch (error: any) {
@@ -1523,6 +1569,51 @@ export async function unlockStaffMember(req: AuthenticatedRequest, res: Response
   } catch (error: any) {
     console.error('[Unlock Staff Member Error]', error.message);
     return res.status(500).json({ error: 'Internal server error while unlocking staff member.' });
+  }
+}
+
+// Permanently delete a staff account. Same record type as deleteMember (staff and regular
+// members both live in the `members` table), so the same FK cascade/set-null rules apply.
+export async function deleteStaffMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+
+  // An admin can't delete the account they're currently signed in as.
+  if (req.user?.id === id) {
+    return res.status(400).json({ error: 'You cannot delete your own account.' });
+  }
+
+  try {
+    const staff = await prisma.member.findUnique({ where: { id } });
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found.' });
+    }
+
+    const validRoles = ['Admin', 'Admin_Assistant', 'Head_Reviewer', 'Reviewer', 'Approver', 'Teacher'];
+    if (!staff.systemRole || !validRoles.includes(staff.systemRole)) {
+      return res.status(400).json({ error: 'Cannot delete a non-staff member through this endpoint.' });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'STAFF_DELETED',
+        details: `Staff account deleted: ${staff.fullName} (${staff.email}), role: ${staff.systemRole}.`
+      }
+    });
+
+    sendRawMail({
+      to: staff.email,
+      subject: 'RIQS Account Deleted',
+      html: buildDeleteNotificationEmail(staff.fullName)
+    }).catch((err: any) => console.error('[Delete Staff Member] Failed to send email:', err.message));
+
+    await prisma.member.delete({ where: { id } });
+
+    return res.status(200).json({ message: 'Staff member deleted successfully.' });
+  } catch (error: any) {
+    console.error('[Delete Staff Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while deleting staff member.' });
   }
 }
 
@@ -2871,6 +2962,132 @@ export const getMemberById = async (req: AuthenticatedRequest, res: Response) =>
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+// Lock a member account (blocks login) — mirrors lockStaffMember but for regular members
+// managed from the Members Register, so an admin never has to reach for the staff endpoint.
+export async function lockMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+  const { durationDays } = req.body;
+
+  // An admin locking their own account would lock themselves out with no one left to undo it.
+  if (req.user?.id === id) {
+    return res.status(400).json({ error: 'You cannot lock your own account.' });
+  }
+
+  try {
+    const member = await prisma.member.findUnique({ where: { id } });
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found.' });
+    }
+
+    const days = parseInt(durationDays, 10);
+    if (isNaN(days) || days <= 0) {
+      return res.status(400).json({ error: 'Valid durationDays is required.' });
+    }
+
+    const lockedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+    await prisma.member.update({
+      where: { id },
+      data: { isLocked: true, lockedUntil }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'MEMBER_LOCKED',
+        details: `Member locked for ${days} days until ${lockedUntil.toISOString()}`
+      }
+    });
+
+    sendRawMail({
+      to: member.email,
+      subject: 'RIQS Account Locked',
+      html: buildLockNotificationEmail(member.fullName, days, lockedUntil)
+    }).catch((err: any) => console.error('[Lock Member] Failed to send email:', err.message));
+
+    return res.status(200).json({ message: `Member locked successfully for ${days} days.` });
+  } catch (error: any) {
+    console.error('[Lock Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while locking member.' });
+  }
+}
+
+// Unlock a member account
+export async function unlockMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+
+  try {
+    const member = await prisma.member.findUnique({ where: { id } });
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found.' });
+    }
+
+    await prisma.member.update({
+      where: { id },
+      data: { isLocked: false, lockedUntil: null }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'MEMBER_UNLOCKED',
+        details: `Member account unlocked.`
+      }
+    });
+
+    return res.status(200).json({ message: 'Member unlocked successfully.' });
+  } catch (error: any) {
+    console.error('[Unlock Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while unlocking member.' });
+  }
+}
+
+// Permanently delete a member account. Foreign keys on member-owned records (applications,
+// financial transactions, audit logs, etc.) cascade or set-null per schema.prisma, so this
+// removes the member and their dependent history in one go.
+export async function deleteMember(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+
+  // Same reasoning as lockMember: an admin can't be allowed to delete the account they're
+  // currently signed in as.
+  if (req.user?.id === id) {
+    return res.status(400).json({ error: 'You cannot delete your own account.' });
+  }
+
+  try {
+    const member = await prisma.member.findUnique({ where: { id } });
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found.' });
+    }
+
+    // Recorded before the delete so the log links to the member while the row still exists;
+    // the FK's onDelete: SetNull then detaches it automatically once the member row is gone.
+    await prisma.auditLog.create({
+      data: {
+        memberId: id,
+        actionByEmail: req.user?.email || 'System',
+        actionType: 'MEMBER_DELETED',
+        details: `Member account deleted: ${member.fullName} (${member.email}).`
+      }
+    });
+
+    sendRawMail({
+      to: member.email,
+      subject: 'RIQS Account Deleted',
+      html: buildDeleteNotificationEmail(member.fullName)
+    }).catch((err: any) => console.error('[Delete Member] Failed to send email:', err.message));
+
+    await prisma.member.delete({ where: { id } });
+
+    return res.status(200).json({ message: 'Member deleted successfully.' });
+  } catch (error: any) {
+    console.error('[Delete Member Error]', error.message);
+    return res.status(500).json({ error: 'Internal server error while deleting member.' });
+  }
+}
 
 export const updateMemberHonors = async (req: AuthenticatedRequest, res: Response) => {
   try {
