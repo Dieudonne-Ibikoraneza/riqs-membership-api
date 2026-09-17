@@ -268,7 +268,8 @@ export async function getMemberProfile(req: AuthenticatedRequest, res: Response)
         membershipId: true,
         membershipClass: true,
         systemRole: true,
-        profilePhotoUrl: true
+        profilePhotoUrl: true,
+        hasSeenOnboarding: true
       }
     });
 
@@ -280,6 +281,23 @@ export async function getMemberProfile(req: AuthenticatedRequest, res: Response)
   } catch (error: any) {
     console.error('[Get Profile Error]:', error.message);
     return res.status(500).json({ error: 'Internal server error fetching profile.' });
+  }
+}
+
+// Marks the first-run dashboard guided tour as seen so it never shows again for this
+// member — called once when they finish or skip it, never automatically.
+export async function completeOnboarding(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
+
+  try {
+    await prisma.member.update({
+      where: { id: req.user.id },
+      data: { hasSeenOnboarding: true }
+    });
+    return res.status(200).json({ message: 'Onboarding marked as complete.' });
+  } catch (error: any) {
+    console.error('[Complete Onboarding Error]:', error.message);
+    return res.status(500).json({ error: 'Internal server error completing onboarding.' });
   }
 }
 

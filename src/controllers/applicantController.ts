@@ -66,7 +66,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
             systemRole: true,
             isFellow: true,
             isHonorary: true,
-            honors: true
+            honors: true,
+            hasSeenOnboarding: true
           }
         }
       }
@@ -94,7 +95,8 @@ export async function getApplication(req: AuthenticatedRequest, res: Response) {
           isFellow: true,
           isHonorary: true,
           honors: true,
-          profilePhotoUrl: true
+          profilePhotoUrl: true,
+          hasSeenOnboarding: true
         }
       });
       const [memberLinkedEducation, memberLinkedEmployment] = await Promise.all([

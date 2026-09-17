@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getPublicMembersDirectory, getMentorById, verifyMember, verifyMemberPhoto, getMemberProfile, updateMemberProfile } from '../controllers/memberController';
+import { getPublicMembersDirectory, getMentorById, verifyMember, verifyMemberPhoto, getMemberProfile, updateMemberProfile, completeOnboarding } from '../controllers/memberController';
 import { uploadProfilePhoto } from '../controllers/fileController';
 import { submitProfileEditRequest, getMyProfileEditRequests } from '../controllers/profileEditController';
 import { requestMentorStatus, getMyMentorApplication } from '../controllers/mentorApplicationController';
@@ -223,5 +223,21 @@ router.get('/profile', requireAuth, getMemberProfile);
  *         description: Unauthorized
  */
 router.put('/profile', requireAuth, updateMemberProfile);
+
+/**
+ * @openapi
+ * /api/v1/members/onboarding-complete:
+ *   patch:
+ *     summary: Mark Dashboard Onboarding Tour Complete
+ *     description: Marks the authenticated member's first-run guided dashboard tour as seen, so it does not show again.
+ *     tags:
+ *       - Members Profile
+ *     responses:
+ *       200:
+ *         description: Onboarding marked as complete
+ *       401:
+ *         description: Unauthorized
+ */
+router.patch('/onboarding-complete', requireAuth, completeOnboarding);
 
 export default router;
