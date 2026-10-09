@@ -12,14 +12,17 @@ import {
   initiateAnnualRenewalPayment,
   getAnnualRenewalPaymentStatus,
   initiateFirstYearFeePayment,
-  getFirstYearFeePaymentStatus
+  getFirstYearFeePaymentStatus,
+  getBalance,
+  getTransactionStatus,
+  requestGatewayPayment,
+  receivePaymentCallback
 } from '../controllers/paymentController';
 
 const router = Router();
 
-// Guards the member-facing IntouchPay-driven endpoints below from accidental hammering
-// (e.g. a runaway poll loop), mirroring the limiter already used on the admin IntouchPay routes.
-const momoRateLimiter = rateLimit({
+// Guards member-facing and gateway endpoints from accidental hammering (e.g. a runaway poll loop).
+const paymentRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 30,
   standardHeaders: 'draft-8',
@@ -176,7 +179,7 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'fin
  * /api/v1/payments/processing-fee/initiate:
  *   post:
  *     summary: Pay an application's Processing Fee via Mobile Money (member-initiated)
- *     description: Starts a member-initiated MTN Mobile Money collection (via IntouchPay) for the Processing Fee owed on a Draft/Correction_Required application. IntouchPay pushes a USSD approval prompt to the given number; the final outcome arrives asynchronously via the IntouchPay callback (or is discovered by polling the status endpoint below). On success, the application is automatically submitted — no separate "Submit" call is needed.
+ *     description: Starts a member-initiated Mobile Money collection for the Processing Fee owed on a Draft/Correction_Required application. The gateway pushes a USSD approval prompt to the given number; the final outcome arrives asynchronously via the payment callback (or is discovered by polling the status endpoint below). On success, the application is automatically submitted — no separate "Submit" call is needed.
  *     tags:
  *       - Payments & Invoices
  *     requestBody:
@@ -211,14 +214,14 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'fin
  *       500:
  *         description: Internal server error.
  */
-router.post('/processing-fee/initiate', requireAuth, momoRateLimiter, initiateProcessingFeePayment);
+router.post('/processing-fee/initiate', requireAuth, paymentRateLimiter, initiateProcessingFeePayment);
 
 /**
  * @openapi
  * /api/v1/payments/processing-fee/status/{transactionId}:
  *   get:
  *     summary: Check the status of a Processing Fee Mobile Money payment
- *     description: Polled by the frontend after initiating a Processing Fee payment. Reflects the outcome already recorded via the IntouchPay callback; if still Pending_Verification, also actively re-checks with IntouchPay's GetTransactionStatus as a fallback in case the callback was delayed.
+ *     description: Polled by the frontend after initiating a Processing Fee payment. Reflects the outcome already recorded via the payment callback; if still Pending_Verification, also actively re-checks with the gateway as a fallback in case the callback was delayed.
  *     tags:
  *       - Payments & Invoices
  *     parameters:
@@ -238,14 +241,14 @@ router.post('/processing-fee/initiate', requireAuth, momoRateLimiter, initiatePr
  *       500:
  *         description: Internal server error.
  */
-router.get('/processing-fee/status/:transactionId', requireAuth, momoRateLimiter, getProcessingFeePaymentStatus);
+router.get('/processing-fee/status/:transactionId', requireAuth, paymentRateLimiter, getProcessingFeePaymentStatus);
 
 /**
  * @openapi
  * /api/v1/payments/annual-renewal/initiate:
  *   post:
  *     summary: Initiate an Annual Renewal Mobile Money payment
- *     description: Same member-initiated IntouchPay flow used for the application's Processing Fee, applied to the annual renewal/subscription fee. The gateway's callback (or the status-poll fallback) clears the transaction and extends the member's membership expiry date automatically.
+ *     description: Same member-initiated Mobile Money flow used for the application's Processing Fee, applied to the annual renewal/subscription fee. The gateway's callback (or the status-poll fallback) clears the transaction and extends the member's membership expiry date automatically.
  *     tags:
  *       - Payments & Invoices
  *     requestBody:
@@ -274,14 +277,14 @@ router.get('/processing-fee/status/:transactionId', requireAuth, momoRateLimiter
  *       500:
  *         description: Internal server error.
  */
-router.post('/annual-renewal/initiate', requireAuth, momoRateLimiter, initiateAnnualRenewalPayment);
+router.post('/annual-renewal/initiate', requireAuth, paymentRateLimiter, initiateAnnualRenewalPayment);
 
 /**
  * @openapi
  * /api/v1/payments/annual-renewal/status/{transactionId}:
  *   get:
  *     summary: Check the status of an Annual Renewal Mobile Money payment
- *     description: Polled by the frontend after initiating an Annual Renewal payment. Reflects the outcome already recorded via the IntouchPay callback; if still Pending_Verification, also actively re-checks with IntouchPay's GetTransactionStatus as a fallback in case the callback was delayed.
+ *     description: Polled by the frontend after initiating an Annual Renewal payment. Reflects the outcome already recorded via the payment callback; if still Pending_Verification, also actively re-checks with the gateway as a fallback in case the callback was delayed.
  *     tags:
  *       - Payments & Invoices
  *     parameters:
@@ -301,14 +304,14 @@ router.post('/annual-renewal/initiate', requireAuth, momoRateLimiter, initiateAn
  *       500:
  *         description: Internal server error.
  */
-router.get('/annual-renewal/status/:transactionId', requireAuth, momoRateLimiter, getAnnualRenewalPaymentStatus);
+router.get('/annual-renewal/status/:transactionId', requireAuth, paymentRateLimiter, getAnnualRenewalPaymentStatus);
 
 /**
  * @openapi
  * /api/v1/payments/first-year-fee/initiate:
  *   post:
  *     summary: Initiate a First Year Fee Mobile Money payment
- *     description: Same member-initiated IntouchPay flow used elsewhere, applied to an outstanding First Year Fee — covers both a brand-new membership's first-year fee and a mentorship/APC upgrade's pending-upgrade fee. The gateway's callback (or the status-poll fallback) clears the transaction and activates the membership/upgrade automatically.
+ *     description: Same member-initiated Mobile Money flow used elsewhere, applied to an outstanding First Year Fee — covers both a brand-new membership's first-year fee and a mentorship/APC upgrade's pending-upgrade fee. The gateway's callback (or the status-poll fallback) clears the transaction and activates the membership/upgrade automatically.
  *     tags:
  *       - Payments & Invoices
  *     requestBody:
@@ -335,14 +338,14 @@ router.get('/annual-renewal/status/:transactionId', requireAuth, momoRateLimiter
  *       500:
  *         description: Internal server error.
  */
-router.post('/first-year-fee/initiate', requireAuth, momoRateLimiter, initiateFirstYearFeePayment);
+router.post('/first-year-fee/initiate', requireAuth, paymentRateLimiter, initiateFirstYearFeePayment);
 
 /**
  * @openapi
  * /api/v1/payments/first-year-fee/status/{transactionId}:
  *   get:
  *     summary: Check the status of a First Year Fee Mobile Money payment
- *     description: Polled by the frontend after initiating a First Year Fee payment. Reflects the outcome already recorded via the IntouchPay callback; if still Pending_Verification, also actively re-checks with IntouchPay's GetTransactionStatus as a fallback in case the callback was delayed.
+ *     description: Polled by the frontend after initiating a First Year Fee payment. Reflects the outcome already recorded via the payment callback; if still Pending_Verification, also actively re-checks with the gateway as a fallback in case the callback was delayed.
  *     tags:
  *       - Payments & Invoices
  *     parameters:
@@ -362,6 +365,187 @@ router.post('/first-year-fee/initiate', requireAuth, momoRateLimiter, initiateFi
  *       500:
  *         description: Internal server error.
  */
-router.get('/first-year-fee/status/:transactionId', requireAuth, momoRateLimiter, getFirstYearFeePaymentStatus);
+router.get('/first-year-fee/status/:transactionId', requireAuth, paymentRateLimiter, getFirstYearFeePaymentStatus);
+
+/**
+ * @openapi
+ * /api/v1/payments/auth:
+ *   post:
+ *     summary: Payment gateway authentication / balance inquiry
+ *     description: Authenticates against the configured payment gateway and returns the merchant account balance.
+ *     tags:
+ *       - Payments & Invoices
+ *     responses:
+ *       200:
+ *         description: Balance successfully retrieved.
+ *       401:
+ *         description: Invalid credentials or authentication failure.
+ *       403:
+ *         description: Access denied — caller lacks the required role.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error or payment gateway unreachable.
+ */
+router.post(
+  '/auth',
+  paymentRateLimiter,
+  requireAuth,
+  requireRoles(['admin', 'admin_assistant', 'finance']),
+  getBalance
+);
+
+/**
+ * @openapi
+ * /api/v1/payments/validate:
+ *   post:
+ *     summary: Validate / look up a payment transaction status
+ *     description: Queries the payment gateway for the status of a previously submitted collection request.
+ *     tags:
+ *       - Payments & Invoices
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - requesttransactionid
+ *             properties:
+ *               requesttransactionid:
+ *                 type: string
+ *               transactionid:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Status successfully retrieved.
+ *       400:
+ *         description: Missing transaction id.
+ *       403:
+ *         description: Access denied — caller lacks the required role.
+ *       404:
+ *         description: Transaction doesn't exist.
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error or payment gateway unreachable.
+ */
+router.post(
+  '/validate',
+  paymentRateLimiter,
+  requireAuth,
+  requireRoles(['admin', 'admin_assistant', 'finance']),
+  getTransactionStatus
+);
+
+/**
+ * @openapi
+ * /api/v1/payments/request:
+ *   post:
+ *     summary: Request a Mobile Money collection
+ *     description: Initiates a payment collection from a subscriber. The gateway responds Pending immediately; the final outcome is delivered asynchronously to /api/v1/payments/callback (or /notification). Credentials and callback URL are attached server-side from environment configuration.
+ *     tags:
+ *       - Payments & Invoices
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - mobilephone
+ *               - requesttransactionid
+ *             properties:
+ *               amount:
+ *                 type: string
+ *                 example: "1000"
+ *               mobilephone:
+ *                 type: string
+ *                 example: "250785971082"
+ *               requesttransactionid:
+ *                 type: string
+ *                 example: "34555"
+ *     responses:
+ *       200:
+ *         description: Payment request accepted — Pending, awaiting subscriber confirmation.
+ *       400:
+ *         description: Missing required fields.
+ *       403:
+ *         description: Access denied — caller lacks the required role.
+ *       409:
+ *         description: Duplicate transaction id.
+ *       422:
+ *         description: Gateway rejected the request (invalid number, amount out of range, etc.).
+ *       429:
+ *         description: Too many requests — rate limit exceeded.
+ *       500:
+ *         description: Internal server error or payment gateway unreachable.
+ */
+router.post(
+  '/request',
+  paymentRateLimiter,
+  requireAuth,
+  requireRoles(['admin', 'admin_assistant', 'finance']),
+  requestGatewayPayment
+);
+
+/**
+ * @openapi
+ * /api/v1/payments/callback:
+ *   post:
+ *     summary: Payment completion callback (webhook)
+ *     description: Public endpoint invoked by the payment gateway to report the final status of a pending collection. Configure this URL as PAYMENT_CALLBACK_URL.
+ *     tags:
+ *       - Payments & Invoices
+ *     responses:
+ *       200:
+ *         description: Acknowledgement returned to the gateway.
+ *       400:
+ *         description: Missing requesttransactionid.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post('/callback', receivePaymentCallback);
+
+/**
+ * @openapi
+ * /api/v1/payments/notification:
+ *   post:
+ *     summary: Payment notification webhook
+ *     description: Alias of /callback — some gateways distinguish notification vs callback URLs; both hit the same reconciliation handler.
+ *     tags:
+ *       - Payments & Invoices
+ *     responses:
+ *       200:
+ *         description: Acknowledgement returned to the gateway.
+ *       400:
+ *         description: Missing requesttransactionid.
+ *       500:
+ *         description: Internal server error.
+ */
+router.post('/notification', receivePaymentCallback);
+
+/**
+ * @openapi
+ * /api/v1/payments/reversal:
+ *   post:
+ *     summary: Payment reversal webhook
+ *     description: Public endpoint reserved for gateway-initiated payment reversals. Not yet wired to ledger logic — acknowledges receipt so the partner URL can be registered.
+ *     tags:
+ *       - Payments & Invoices
+ *     responses:
+ *       200:
+ *         description: Acknowledgement returned to the gateway.
+ *       501:
+ *         description: Reversal handling not yet implemented.
+ */
+router.post('/reversal', (req, res) => {
+  console.log('[Payment Reversal] Received notice (not yet processed):', req.body);
+  return res.status(501).json({
+    message: 'Payment reversal handling is not yet implemented.',
+    success: false
+  });
+});
 
 export default router;

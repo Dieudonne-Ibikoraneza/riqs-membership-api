@@ -1,4 +1,5 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
 import { TransactionType, PaymentMethod, TransactionStatus, Prisma } from '@prisma/client';
@@ -7,7 +8,7 @@ import { sendMail } from '../config/mailer';
 import { nextMembershipId } from './progressionController';
 import { finalizeApplicationSubmission } from './applicantController';
 import { finalizeStudentApplicationSubmission } from './teacherController';
-import * as intouchPay from '../services/intouchPayService';
+import * as paymentGateway from '../services/paymentGatewayService';
 import { issuePaymentReceipt } from '../services/receiptService';
 
 // 1. Submit a payment transaction record (manual receipt reference)
@@ -138,7 +139,7 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ error: 'Transaction not found or already verified.' });
     }
 
-    // A transaction with a providerTransactionId was initiated through the live IntouchPay
+    // A transaction with a providerTransactionId was initiated through the live payment gateway
     // gateway (see paymentController.initiateProcessingFeePayment) and its payment veracity is
     // only ever resolved by the gateway itself (its callback, or the status-poll fallback) —
     // never by staff. paymentMethod alone can't be used for this check: the manual
@@ -414,7 +415,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
   const take = parseInt(limit as string, 10);
   const statusFilter: Prisma.FinancialTransactionWhereInput = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
-  // Just the two buckets staff actually care about: Online (went through the IntouchPay
+  // Just the two buckets staff actually care about: Online (went through the payment gateway
   // gateway — always tagged Mobile_Money) vs Offline (a manually-uploaded or admin-recorded
   // payment — Manual_Payment, Bank_Transfer, Card_Payment, Manual_Cash; anything that isn't
   // Mobile_Money). A still-Unpaid invoice with no method set yet (null) matches neither.
@@ -425,7 +426,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
     // no-method-yet rows under "Offline" as well.
     : method === 'Offline' ? { AND: [{ paymentMethod: { not: 'Mobile_Money' } }, { paymentMethod: { not: null } }] }
     : {};
-  // A row with a providerTransactionId went through the live IntouchPay gateway. One still
+  // A row with a providerTransactionId went through the live payment gateway gateway. One still
   // awaiting the gateway's own callback/status-poll (clearedAt not yet set) is never actionable
   // by staff and would just be confusing noise here, so it's excluded regardless of which
   // status filter is selected. providerTransactionId (not paymentMethod) is what actually
@@ -505,7 +506,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
 
 // 5. Member-initiated Mobile Money payment for the application Processing Fee.
 // This is the first phase of replacing manual receipt-upload + admin-clearance with
-// real IntouchPay payments: the member pays directly, the gateway's callback (or a
+// real gateway payments: the member pays directly, the gateway's callback (or a
 // status-poll fallback, in case the callback doesn't arrive) clears the transaction,
 // and the application is auto-submitted the moment that fee clears. Manual clearance
 // (submitPayment/verifyPayment above) is left untouched for every other fee type.
@@ -524,7 +525,7 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
         memberId: req.user.id,
         status: { in: ['Draft', 'Correction_Required'] }
       },
-      include: { category: true }
+        include: { category: true, member: true }
     });
 
     if (!application || !application.category) {
@@ -566,8 +567,15 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
 
     const requesttransactionid = `PROC-${applicationId.slice(0, 8)}-${Date.now()}`;
 
-    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
-    console.log('[Initiate Processing Fee Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+    const { data } = await paymentGateway.requestPayment({
+      amount: fee,
+      mobilephone: paymentGateway.normalizePhoneNumber(mobilephone),
+      requesttransactionid,
+      payerCode: application.member.membershipId || application.member.id,
+      payerNames: application.member.fullName,
+      payerEmail: application.member.email
+    });
+    console.log('[Initiate Processing Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -602,8 +610,8 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
 }
 
 // 6. Member polls this to find out whether their Processing Fee payment has cleared.
-// Primarily driven by the IntouchPay callback (see intouchPayController.receivePaymentCallback),
-// but if the callback is delayed this actively re-checks with IntouchPay's GetTransactionStatus
+// Primarily driven by the payment callback (see receivePaymentCallback),
+// but if the callback is delayed this actively re-checks with the gateway transaction status
 // as a fallback so the member's UI isn't left hanging.
 export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
@@ -621,7 +629,7 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
 
     if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
       try {
-        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
           transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
         }
@@ -646,11 +654,11 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
 // now also used by Annual_Renewal and First_Year_Fee (the latter covers both a fresh
 // membership's first-year fee and a mentorship/APC upgrade's pending-upgrade fee — see
 // initiateFirstYearFeePayment/getFirstYearFeePaymentStatus below). Member-initiated real
-// IntouchPay payments for any of these fee types land here.
+// Gateway payments for any of these fee types land here.
 const GATEWAY_ENABLED_TX_TYPES: TransactionType[] = ['Processing_Fee', 'Annual_Renewal', 'First_Year_Fee'];
 
 // Shared by the callback receiver and the status-poll fallbacks above: applies a final
-// gateway status (Success/Failed, as reported by IntouchPay) to a Pending_Verification
+// gateway status (Success/Failed, as reported by the gateway) to a Pending_Verification
 // transaction, and applies whatever side effect that fee type needs once cleared —
 // auto-finalizing application submission for Processing_Fee, and activating the pending
 // membership/upgrade for First_Year_Fee (mirroring verifyPayment's manual-clearance
@@ -670,7 +678,7 @@ export async function applyGatewayFeeResult(
   gatewayStatusDesc?: string
 ) {
   const normalized = (gatewayStatus || '').toLowerCase();
-  const isSuccess = normalized.includes('success');
+  const isSuccess = normalized.includes('success') || normalized === 'valid' || normalized === 'pending_settlement';
   const isFailure = normalized.includes('fail') || normalized.includes('reject') || normalized.includes('cancel') || normalized.includes('timeout');
 
   if (!isSuccess && !isFailure) {
@@ -869,7 +877,7 @@ async function finalizeFirstYearFeeGatewayClearance(transactionId: string) {
   }
 }
 
-// Called by intouchPayController.receivePaymentCallback once IntouchPay reports the final
+// Called by receivePaymentCallback once the gateway reports the final
 // outcome of a member-initiated gateway payment (Processing_Fee, Annual_Renewal, or
 // First_Year_Fee). Looks the transaction up by the requesttransactionid we generated when
 // initiating it — returns null if no such payment was ever initiated through this flow.
@@ -967,8 +975,15 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
 
     const requesttransactionid = `RENEW-${req.user.id.slice(0, 8)}-${Date.now()}`;
 
-    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
-    console.log('[Initiate Annual Renewal Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+    const { data } = await paymentGateway.requestPayment({
+      amount: fee,
+      mobilephone: paymentGateway.normalizePhoneNumber(mobilephone),
+      requesttransactionid,
+      payerCode: member.membershipId || member.id,
+      payerNames: member.fullName,
+      payerEmail: member.email
+    });
+    console.log('[Initiate Annual Renewal Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -1025,10 +1040,10 @@ export async function getAnnualRenewalPaymentStatus(req: AuthenticatedRequest, r
 
     // Once clearedAt is set the gateway has already confirmed this payment (see
     // applyGatewayFeeResult) — status deliberately stays Pending_Verification pending CPD
-    // review, so there's nothing further to poll IntouchPay for.
+    // review, so there's nothing further to poll the gateway for.
     if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId && !transaction.clearedAt) {
       try {
-        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
           transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
         }
@@ -1068,6 +1083,9 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
   }
 
   try {
+    const member = await prisma.member.findUnique({ where: { id: req.user.id } });
+    if (!member) return res.status(404).json({ error: 'Member not found.' });
+
     const alreadyInProgress = await prisma.financialTransaction.findFirst({
       where: { memberId: req.user.id, txType: 'First_Year_Fee', status: 'Pending_Verification', providerTransactionId: { not: null } }
     });
@@ -1089,8 +1107,15 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
     const fee = Number(outstandingFee.amount);
     const requesttransactionid = `FYF-${req.user.id.slice(0, 8)}-${Date.now()}`;
 
-    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
-    console.log('[Initiate First Year Fee Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+    const { data } = await paymentGateway.requestPayment({
+      amount: fee,
+      mobilephone: paymentGateway.normalizePhoneNumber(mobilephone),
+      requesttransactionid,
+      payerCode: member.membershipId || member.id,
+      payerNames: member.fullName,
+      payerEmail: member.email
+    });
+    console.log('[Initiate First Year Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -1136,7 +1161,7 @@ export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, re
 
     if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
       try {
-        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
           transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
         }
@@ -1154,4 +1179,143 @@ export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, re
     console.error('[First Year Fee Status] Error:', error.message);
     return res.status(500).json({ error: 'Internal server error checking payment status.' });
   }
+}
+
+// ── Gateway admin / webhook handlers (provider-agnostic surface) ─────────────
+
+export async function getBalance(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { httpStatus, data } = await paymentGateway.getBalance();
+    return res.status(data?.success === true ? 200 : httpStatus || 502).json(data);
+  } catch (err: any) {
+    console.error('[Payment Gateway Auth] Error:', err.message || err);
+    return res.status(500).json({ error: 'Payment gateway unreachable or returned an unexpected error.' });
+  }
+}
+
+export async function getTransactionStatus(req: AuthenticatedRequest, res: Response) {
+  const { requesttransactionid, transactionid } = req.body;
+
+  if (!requesttransactionid) {
+    return res.status(400).json({ error: 'requesttransactionid is required.' });
+  }
+
+  try {
+    const { httpStatus, data } = await paymentGateway.getTransactionStatus({ requesttransactionid, transactionid });
+
+    if (data?.success === true) {
+      return res.status(200).json(data);
+    }
+
+    return res.status(httpStatus >= 400 ? httpStatus : 502).json(data);
+  } catch (err: any) {
+    console.error('[Payment Gateway Validate] Error:', err.message || err);
+    return res.status(500).json({ error: 'Payment gateway unreachable or returned an unexpected error.' });
+  }
+}
+
+export async function requestGatewayPayment(req: AuthenticatedRequest, res: Response) {
+  const { amount, mobilephone, requesttransactionid } = req.body;
+
+  if (!amount || !mobilephone || !requesttransactionid) {
+    return res.status(400).json({ error: 'amount, mobilephone and requesttransactionid are required.' });
+  }
+
+  try {
+    const { httpStatus, data } = await paymentGateway.requestPayment({
+      amount, mobilephone, requesttransactionid
+    });
+
+    if (data?.success === true) {
+      return res.status(200).json(data);
+    }
+
+    return res.status(httpStatus >= 400 ? httpStatus : 502).json(data);
+  } catch (err: any) {
+    console.error('[Payment Gateway Request] Error:', err.message || err);
+    return res.status(500).json({ error: 'Payment gateway unreachable or returned an unexpected error.' });
+  }
+}
+
+/** UrubutoPay calls this endpoint before delivering authenticated callbacks. */
+export function authenticateUrubutoWebhook(req: Request, res: Response) {
+  const { user_name: username, password } = req.body || {};
+  const valid = Boolean(username && password)
+    && paymentGateway.timingSafeEqualText(String(username), paymentGateway.webhookUsername())
+    && paymentGateway.timingSafeEqualText(String(password), paymentGateway.webhookPassword());
+
+  if (!valid) {
+    return res.status(401).json({
+      timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      message: 'Invalid credentials',
+      status: 401
+    });
+  }
+
+  const token = jwt.sign(
+    { sub: 'riqs-urubutopay-webhook', aud: 'urubutopay' },
+    paymentGateway.webhookJwtSecret(),
+    { expiresIn: '24h' }
+  );
+
+  return res.status(200).json({
+    timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    message: 'Auth successful',
+    status: 200,
+    data: { token: `Bearer ${token}` }
+  });
+}
+
+function verifyUrubutoWebhookAuthorization(req: Request) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) return false;
+  try {
+    jwt.verify(header.slice(7), paymentGateway.webhookJwtSecret(), { audience: 'urubutopay' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Public webhook — UrubutoPay reports the final status of a pending collection.
+export async function receivePaymentCallback(req: Request, res: Response) {
+  if (!verifyUrubutoWebhookAuthorization(req)) {
+    return res.status(401).json({ status: 401, message: 'Unauthorized' });
+  }
+
+  const payload = req.body?.jsonpayload || req.body || {};
+  const transactionId = payload.transaction_id;
+  const transactionStatus = payload.transaction_status;
+
+  console.log('[UrubutoPay Callback] Received payment notice:', {
+    callbackType: payload.callback_type,
+    merchantCode: payload.merchant_code,
+    transactionId,
+    internalTransactionId: payload.internal_transaction_id,
+    transactionStatus
+  });
+
+  if (payload.callback_type !== 'PAYMENT' || !transactionId) {
+    return res.status(400).json({ status: 400, message: 'PAYMENT callback transaction_id is required.' });
+  }
+
+  if (payload.merchant_code && process.env.URUBUTOPAY_MERCHANT_CODE
+      && payload.merchant_code !== process.env.URUBUTOPAY_MERCHANT_CODE) {
+    return res.status(401).json({ status: 401, message: 'Unauthorized merchant' });
+  }
+
+  try {
+    // resolveProcessingFeePaymentByProviderId is idempotent: once a transaction is
+    // final it returns it without re-running membership/application side effects.
+    await resolveProcessingFeePaymentByProviderId(transactionId, transactionStatus, payload.observation);
+  } catch (err: any) {
+    console.error('[UrubutoPay Callback] Failed to reconcile transaction:', err.message);
+    return res.status(500).json({ status: 500, message: 'Callback processing failed' });
+  }
+
+  return res.status(200).json({
+    timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    status: 200,
+    message: 'Callback received successfully'
+  });
 }

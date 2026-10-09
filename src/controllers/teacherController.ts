@@ -6,7 +6,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { sendMail, sendRawMail } from '../config/mailer';
 import { isTeacherOwnerOfApplication } from '../utils/teacherAccess';
 import { TransactionType, PaymentMethod, TransactionStatus } from '@prisma/client';
-import * as intouchPay from '../services/intouchPayService';
+import * as paymentGateway from '../services/paymentGatewayService';
 import { applyGatewayFeeResult } from './paymentController';
 
 // Mirrors the wizard's own documentChecklist bucketing (frontend/src/app/teacher/application/[id]/page.tsx)
@@ -213,7 +213,7 @@ export async function submitStudentApplication(req: AuthenticatedRequest, res: R
   try {
     const app = await prisma.application.findUnique({
       where: { id: applicationId },
-      include: { category: true }
+      include: { category: true, member: true }
     });
     if (!app || !app.category) return res.status(404).json({ error: 'Application not found.' });
 
@@ -263,7 +263,7 @@ export async function initiateStudentProcessingFeePayment(req: AuthenticatedRequ
   try {
     const application = await prisma.application.findFirst({
       where: { id: applicationId, status: { in: ['Draft', 'Correction_Required'] } },
-      include: { category: true }
+      include: { category: true, member: true }
     });
     if (!application || !application.category) {
       return res.status(404).json({ error: 'Application not found or not eligible for payment.' });
@@ -300,8 +300,15 @@ export async function initiateStudentProcessingFeePayment(req: AuthenticatedRequ
 
     const requesttransactionid = `PROC-${applicationId.slice(0, 8)}-${Date.now()}`;
 
-    const { data } = await intouchPay.requestPayment({ amount: fee, mobilephone, requesttransactionid });
-    console.log('[Initiate Student Processing Fee Payment] IntouchPay response:', { requesttransactionid, mobilephone, amount: fee, data });
+    const { data } = await paymentGateway.requestPayment({
+      amount: fee,
+      mobilephone: paymentGateway.normalizePhoneNumber(mobilephone),
+      requesttransactionid,
+      payerCode: application.member.membershipId || application.member.id,
+      payerNames: application.member.fullName,
+      payerEmail: application.member.email
+    });
+    console.log('[Initiate Student Processing Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -353,7 +360,7 @@ export async function getStudentProcessingFeePaymentStatus(req: AuthenticatedReq
 
     if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
       try {
-        const { data } = await intouchPay.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
+        const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
           transaction = await applyGatewayFeeResult(transaction, data.status, data.statusdesc);
         }

@@ -21,12 +21,12 @@ import categoryRoutes from './routes/categoryRoutes';
 import educationRoutes from './routes/educationRoutes';
 import employmentRoutes from './routes/employmentRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import { authenticateUrubutoWebhook, receivePaymentCallback } from './controllers/paymentController';
 import memberRoutes from './routes/memberRoutes';
 import teacherRoutes from './routes/teacherRoutes';
 import templateRoutes from './routes/templateRoutes';
 import documentTypeRoutes from './routes/documentTypeRoutes';
 import logbookRoutes from './routes/logbookRoutes';
-import intouchPayRoutes from './routes/intouchPayRoutes';
 import { startCronJobs } from './utils/cronJobs';
 import { apiRateLimiter } from './middleware/rateLimiter';
 
@@ -71,6 +71,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// UrubutoPay webhook endpoints are intentionally available at the documented
+// root paths, in addition to the legacy /api/v1/payments aliases.
+app.post('/auth/authenticate', authenticateUrubutoWebhook);
+app.post('/v2/webhook/callback', receivePaymentCallback);
+
 // 1. Swagger Interactive API UI Documentation Portal
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -110,7 +115,6 @@ app.use('/api/v1/templates', templateRoutes);
 app.use('/api/v1/document-types', documentTypeRoutes);
 app.use('/api/v1/logbook', logbookRoutes);
 app.use('/api/v1/tickets', ticketRoutes);
-app.use('/api/v1/payments', intouchPayRoutes);
 
 // 4. Fallback Route Handler (404 Page Not Found)
 app.use((req: Request, res: Response) => {
