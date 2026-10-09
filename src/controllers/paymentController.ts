@@ -679,7 +679,7 @@ export async function applyGatewayFeeResult(
 ) {
   const normalized = (gatewayStatus || '').toLowerCase();
   const isSuccess = normalized.includes('success') || normalized === 'valid' || normalized === 'pending_settlement';
-  const isFailure = normalized.includes('fail') || normalized.includes('reject') || normalized.includes('cancel') || normalized.includes('timeout');
+  const isFailure = normalized.includes('fail') || normalized.includes('reject') || normalized.includes('cancel') || normalized.includes('timeout') || normalized.includes('reverse') || normalized.includes('refund');
 
   if (!isSuccess && !isFailure) {
     return prisma.financialTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
@@ -1266,6 +1266,67 @@ export function authenticateUrubutoWebhook(req: Request, res: Response) {
   });
 }
 
+function urubutoTimestamp() {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/** Optional payer/bill validation webhook documented by UrubutoPay. */
+export async function validateUrubutoPayer(req: Request, res: Response) {
+  if (!verifyUrubutoWebhookAuthorization(req)) {
+    return res.status(401).json({ status: 401, message: 'Unauthorized', timestamp: urubutoTimestamp() });
+  }
+
+  const { merchant_code: merchantCode, payer_code: payerCode } = req.body || {};
+  if (!merchantCode || !payerCode) {
+    return res.status(400).json({
+      status: 400,
+      message: 'merchant_code and payer_code are required',
+      timestamp: urubutoTimestamp()
+    });
+  }
+
+  if (process.env.URUBUTOPAY_MERCHANT_CODE && merchantCode !== process.env.URUBUTOPAY_MERCHANT_CODE) {
+    return res.status(401).json({ status: 401, message: 'Unauthorized merchant', timestamp: urubutoTimestamp() });
+  }
+
+  try {
+    const member = await prisma.member.findFirst({
+      where: {
+        OR: [
+          { membershipId: String(payerCode) },
+          ...(String(payerCode).match(/^[0-9a-f-]{36}$/i) ? [{ id: String(payerCode) }] : [])
+        ]
+      },
+      select: { id: true, membershipId: true, fullName: true }
+    });
+
+    if (!member) {
+      return res.status(404).json({
+        status: 404,
+        message: 'No data found for the given payer code.',
+        timestamp: urubutoTimestamp()
+      });
+    }
+
+    return res.status(200).json({
+      status: 200,
+      message: 'validated successfully',
+      timestamp: urubutoTimestamp(),
+      data: {
+        merchant_code: merchantCode,
+        payer_code: member.membershipId || member.id,
+        payer_names: member.fullName,
+        currency: 'RWF',
+        payer_must_pay_total_amount: 'NO',
+        comment: 'RIQS member account'
+      }
+    });
+  } catch (err: any) {
+    console.error('[UrubutoPay Payer Validation] Error:', err.message);
+    return res.status(502).json({ status: 502, message: 'Internal Server error', timestamp: urubutoTimestamp() });
+  }
+}
+
 function verifyUrubutoWebhookAuthorization(req: Request) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return false;
@@ -1286,16 +1347,28 @@ export async function receivePaymentCallback(req: Request, res: Response) {
   const payload = req.body?.jsonpayload || req.body || {};
   const transactionId = payload.transaction_id;
   const transactionStatus = payload.transaction_status;
+  const callbackType = payload.callback_type;
 
   console.log('[UrubutoPay Callback] Received payment notice:', {
-    callbackType: payload.callback_type,
+    callbackType,
     merchantCode: payload.merchant_code,
     transactionId,
     internalTransactionId: payload.internal_transaction_id,
     transactionStatus
   });
 
-  if (payload.callback_type !== 'PAYMENT' || !transactionId) {
+  const supportedCallbackTypes = new Set([
+    'PAYMENT',
+    'RECURRING',
+    'INVOICE',
+    'BULK_DISBURSEMENT_DEBIT',
+    'BULK_DISBURSEMENT_PAYMENT'
+  ]);
+  if (!callbackType || !supportedCallbackTypes.has(callbackType)) {
+    return res.status(400).json({ status: 400, message: 'Unsupported callback_type.' });
+  }
+
+  if (callbackType === 'PAYMENT' && !transactionId) {
     return res.status(400).json({ status: 400, message: 'PAYMENT callback transaction_id is required.' });
   }
 
@@ -1305,16 +1378,20 @@ export async function receivePaymentCallback(req: Request, res: Response) {
   }
 
   try {
-    // resolveProcessingFeePaymentByProviderId is idempotent: once a transaction is
-    // final it returns it without re-running membership/application side effects.
-    await resolveProcessingFeePaymentByProviderId(transactionId, transactionStatus, payload.observation);
+    if (callbackType === 'PAYMENT') {
+      // resolveProcessingFeePaymentByProviderId is idempotent: once a transaction is
+      // final it returns it without re-running membership/application side effects.
+      await resolveProcessingFeePaymentByProviderId(transactionId, transactionStatus, payload.observation);
+    } else {
+      console.log('[UrubutoPay Callback] Accepted non-payment event:', callbackType);
+    }
   } catch (err: any) {
     console.error('[UrubutoPay Callback] Failed to reconcile transaction:', err.message);
     return res.status(500).json({ status: 500, message: 'Callback processing failed' });
   }
 
   return res.status(200).json({
-    timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    timestamp: urubutoTimestamp(),
     status: 200,
     message: 'Callback received successfully'
   });

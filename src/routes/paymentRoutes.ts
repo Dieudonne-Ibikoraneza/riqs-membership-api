@@ -531,21 +531,15 @@ router.post('/notification', receivePaymentCallback);
  * /api/v1/payments/reversal:
  *   post:
  *     summary: Payment reversal webhook
- *     description: Public endpoint reserved for gateway-initiated payment reversals. Not yet wired to ledger logic — acknowledges receipt so the partner URL can be registered.
+ *     description: Compatibility alias for gateway callback events, including reversed or refunded payment statuses.
  *     tags:
  *       - Payments & Invoices
  *     responses:
  *       200:
  *         description: Acknowledgement returned to the gateway.
- *       501:
- *         description: Reversal handling not yet implemented.
+ *       401:
+ *         description: Missing or invalid UrubutoPay Bearer token.
  */
-router.post('/reversal', (req, res) => {
-  console.log('[Payment Reversal] Received notice (not yet processed):', req.body);
-  return res.status(501).json({
-    message: 'Payment reversal handling is not yet implemented.',
-    success: false
-  });
-});
+router.post('/reversal', receivePaymentCallback);
 
 export default router;

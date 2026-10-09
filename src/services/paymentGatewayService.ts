@@ -73,7 +73,7 @@ export async function requestPayment(params: UrubutoPaymentParams) {
 }
 
 export async function getTransactionStatus(params: { requesttransactionid: string; transactionid?: string }) {
-  const { httpStatus, raw } = await postToGateway('/api/v2/payment/transaction/status', {
+  const { httpStatus, raw } = await postToGateway('/v2/payment/transaction/status', {
     merchant_code: MERCHANT_CODE,
     transaction_id: params.transactionid || params.requesttransactionid
   });

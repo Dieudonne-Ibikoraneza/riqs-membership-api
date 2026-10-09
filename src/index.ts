@@ -21,7 +21,11 @@ import categoryRoutes from './routes/categoryRoutes';
 import educationRoutes from './routes/educationRoutes';
 import employmentRoutes from './routes/employmentRoutes';
 import paymentRoutes from './routes/paymentRoutes';
-import { authenticateUrubutoWebhook, receivePaymentCallback } from './controllers/paymentController';
+import {
+  authenticateUrubutoWebhook,
+  validateUrubutoPayer,
+  receivePaymentCallback
+} from './controllers/paymentController';
 import memberRoutes from './routes/memberRoutes';
 import teacherRoutes from './routes/teacherRoutes';
 import templateRoutes from './routes/templateRoutes';
@@ -74,7 +78,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // UrubutoPay webhook endpoints are intentionally available at the documented
 // root paths, in addition to the legacy /api/v1/payments aliases.
 app.post('/auth/authenticate', authenticateUrubutoWebhook);
+app.post('/v2/webhook/auth', authenticateUrubutoWebhook);
+app.post('/payer/verify', validateUrubutoPayer);
+app.post('/v2/webhook/bill-validation', validateUrubutoPayer);
 app.post('/v2/webhook/callback', receivePaymentCallback);
+app.post('/v2/webhook/notification', receivePaymentCallback);
+app.post('/v2/webhook/reversal', receivePaymentCallback);
 
 // 1. Swagger Interactive API UI Documentation Portal
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
