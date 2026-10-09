@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { normalizeRiqsContactEmail } from '../config/riqs-contact';
 
 const prisma = new PrismaClient();
 
@@ -8,7 +9,7 @@ export const getAllTemplates = async (req: Request, res: Response) => {
     const templates = await prisma.emailTemplate.findMany({
       orderBy: { name: 'asc' },
     });
-    res.status(200).json(templates);
+    res.status(200).json(templates.map((template) => ({ ...template, body: normalizeRiqsContactEmail(template.body) })));
   } catch (error) {
     console.error('Error fetching email templates:', error);
     res.status(500).json({ error: 'Failed to fetch email templates.' });
@@ -24,7 +25,7 @@ export const getTemplateById = async (req: Request, res: Response) => {
     if (!template) {
       return res.status(404).json({ error: 'Template not found.' });
     }
-    res.status(200).json(template);
+    res.status(200).json({ ...template, body: normalizeRiqsContactEmail(template.body) });
   } catch (error) {
     console.error('Error fetching email template:', error);
     res.status(500).json({ error: 'Failed to fetch email template.' });

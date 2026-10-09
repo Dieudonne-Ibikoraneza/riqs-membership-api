@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from '../config/db';
 import { objectStorage, DEFAULT_BUCKET } from '../config/storage';
 import { sendMail } from '../config/mailer';
+import { RIQS_CONTACT } from '../config/riqs-contact';
 
 // Deterministic, human-readable receipt number derived from the transaction's own id —
 // no separate counter/sequence needed, and it's stable if this ever runs twice.
@@ -54,11 +55,12 @@ function generateReceiptPdfBuffer(data: {
 
     const partyY = 150;
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#111111').text('RIQS', LEFT_X, partyY, { continued: true });
-    doc.font('Helvetica').fontSize(9).fillColor('#2563eb').text('  @riqs', { link: 'https://ricos.rwandaiqs.org', underline: true });
+    doc.font('Helvetica').fontSize(9).fillColor('#2563eb').text(`  ${RIQS_CONTACT.websiteDisplay}`, { link: RIQS_CONTACT.website, underline: true });
     doc.font('Helvetica').fontSize(9).fillColor('#444444')
-      .text('secretariat@riqs.rw', LEFT_X, partyY + 16)
-      .text('Business Heights Center (BHC) Building', LEFT_X, partyY + 30)
-      .text('332R+2VH, KG 7 Ave, Kigali, Rwanda', LEFT_X, partyY + 44);
+      .text(RIQS_CONTACT.email, LEFT_X, partyY + 16, { width: 250, link: `mailto:${RIQS_CONTACT.email}` })
+      .text(RIQS_CONTACT.building, LEFT_X, partyY + 30, { width: 250 })
+      .text(RIQS_CONTACT.streetAddress, LEFT_X, partyY + 44, { width: 250 })
+      .text(`Tel: ${RIQS_CONTACT.phoneDisplay}`, LEFT_X, partyY + 58, { width: 250, link: `tel:${RIQS_CONTACT.phone}` });
 
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#111111').text('Bill to', RIGHT_X, partyY);
     doc.font('Helvetica').fontSize(9).fillColor('#444444')

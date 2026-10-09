@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
 import nodemailer from 'nodemailer';
+import { RIQS_CONTACT, normalizeRiqsContactEmail } from './riqs-contact';
 
 const prisma = new PrismaClient();
 
@@ -51,9 +52,9 @@ export async function sendMail(to: string, templateId: string, payload: Record<s
 
     // Interpolate variables into final HTML and subject
     const subject = interpolate(template.subject, payload);
-    const html_content = interpolate(template.body, payload);
+    const html_content = interpolate(normalizeRiqsContactEmail(template.body), payload);
 
-    const response = await transporter.sendMail({ from: SMTP_FROM, to, subject, html: html_content, attachments });
+    const response = await transporter.sendMail({ from: SMTP_FROM, replyTo: RIQS_CONTACT.email, to, subject, html: html_content, attachments });
     console.log(`[SMTP] Dispatch Success to ${to}. Message ID: ${response.messageId}`);
     return { success: true };
   } catch (error: any) {
@@ -67,6 +68,7 @@ export async function sendRawMail(options: { to: string, subject: string, html: 
   try {
     const response = await transporter.sendMail({
       from: SMTP_FROM,
+      replyTo: RIQS_CONTACT.email,
       to: options.to,
       subject: options.subject,
       html: options.html,

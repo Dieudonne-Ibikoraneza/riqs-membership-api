@@ -1,3 +1,4 @@
+import { RIQS_CONTACT } from '../config/riqs-contact';
 import { prisma } from '../config/db';
 import cron from 'node-cron';
 import { sendRawMail } from '../config/mailer';
@@ -216,7 +217,7 @@ export function startCronJobs() {
                 <p>You now have two options for your next step:</p>
                 <ol>
                   <li><strong>Request an APC Board:</strong> Sit for the Assessment of Professional Competency to be upgraded to full Technologist or Professional membership.</li>
-                  <li><strong>Associate Membership:</strong> The RIQS Secretariat may award you an Associate membership class without requiring the APC. Please contact us at info@riqs.rw.</li>
+                  <li><strong>Associate Membership:</strong> The RIQS Secretariat may award you an Associate membership class without requiring the APC. Please contact us at ${RIQS_CONTACT.email}.</li>
                 </ol>
                 <br/><p>Best regards,</p><p>RIQS Registration Board</p>
               </div>

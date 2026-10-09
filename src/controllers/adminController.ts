@@ -1,3 +1,4 @@
+import { RIQS_CONTACT } from '../config/riqs-contact';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
@@ -29,7 +30,7 @@ function buildLockNotificationEmail(fullName: string, days: number, lockedUntil:
       <p>Dear ${fullName},</p>
       <p>Your account was temporarily locked by an administrator for <strong>${days} day${days === 1 ? '' : 's'}</strong>, until <strong>${untilStr}</strong>. You will not be able to log in during this period.</p>
       <p>If the lock is not lifted before it expires, your account and its records will be <strong>permanently deleted</strong>.</p>
-      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:secretariat@riqs.rw">secretariat@riqs.rw</a>.</p>
+      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:${RIQS_CONTACT.email}">${RIQS_CONTACT.email}</a>.</p>
       <br/><p>Best regards,</p><p>RIQS Registration Board</p>
     </div>
   `;
@@ -44,7 +45,7 @@ export function buildDeleteNotificationEmail(fullName: string): string {
       <h2>Your RIQS Account Has Been Deleted</h2>
       <p>Dear ${fullName},</p>
       <p>Your account and its associated records have been permanently deleted by an administrator. This action cannot be undone.</p>
-      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:secretariat@riqs.rw">secretariat@riqs.rw</a>.</p>
+      <p>If you believe this is a mistake or need assistance, please contact the RIQS Secretariat at <a href="mailto:${RIQS_CONTACT.email}">${RIQS_CONTACT.email}</a>.</p>
       <br/><p>Best regards,</p><p>RIQS Registration Board</p>
     </div>
   `;
