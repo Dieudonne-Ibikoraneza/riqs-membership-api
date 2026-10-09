@@ -614,7 +614,7 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
 // review queue (mentor auto-assignment, status transition, audit trail, notification email).
 // Called directly by submitApplication (free/waived categories) and, for paid categories,
 // by the payment layer once the Processing_Fee transaction actually clears — whether that
-// happens via the IntouchPay callback or the status-poll fallback (see paymentController.ts).
+// happens via the payment callback or the status-poll fallback (see paymentController.ts).
 // Idempotent: a second call after the application has already left Draft/Correction_Required
 // is a safe no-op, since payment confirmation can race the member's own poll.
 export async function finalizeApplicationSubmission(applicationId: string) {

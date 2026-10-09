@@ -155,7 +155,7 @@ export async function uploadFile(req: AuthenticatedRequest, res: Response) {
     }
 
     // Skip entirely if the Processing Fee is already Paid (e.g. through the in-app
-    // IntouchPay Mobile Money flow) — uploading a payment-proof document at that point
+    // Mobile Money gateway flow) — uploading a payment-proof document at that point
     // would otherwise create a redundant, confusing Pending_Verification duplicate.
     const alreadyPaidProcessingFee = isPayment
       ? await prisma.financialTransaction.findFirst({ where: { applicationId, txType: 'Processing_Fee', status: 'Paid' } })

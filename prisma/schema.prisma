@@ -99,7 +99,7 @@ enum TransactionType {
 }
 
 enum PaymentMethod {
-  // Only ever set by the actual IntouchPay gateway flow (paymentController.ts) — deliberately
+  // Only ever set by the live payment gateway flow (paymentController.ts) — deliberately
   // network-agnostic since the gateway doesn't tell us whether a given transaction settled via
   // MTN or Airtel Money.
   Mobile_Money
