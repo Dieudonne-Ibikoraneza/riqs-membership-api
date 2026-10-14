@@ -9,6 +9,7 @@ import { nextMembershipId } from './progressionController';
 import { finalizeApplicationSubmission } from './applicantController';
 import { finalizeStudentApplicationSubmission } from './teacherController';
 import * as paymentGateway from '../services/paymentGatewayService';
+import { processingFeeRequiresFailedRetry } from '../services/processingFeeEligibility';
 import { issuePaymentReceipt } from '../services/receiptService';
 
 // 1. Submit a payment transaction record (manual receipt reference)
@@ -507,9 +508,9 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
 // 5. Member-initiated Mobile Money payment for the application Processing Fee.
 // This is the first phase of replacing manual receipt-upload + admin-clearance with
 // real gateway payments: the member pays directly, the gateway's callback (or a
-// status-poll fallback, in case the callback doesn't arrive) clears the transaction,
-// and the application is auto-submitted the moment that fee clears. Manual clearance
-// (submitPayment/verifyPayment above) is left untouched for every other fee type.
+// status-poll fallback, in case the callback doesn't arrive) clears the transaction.
+// Draft/Correction_Required applications are submitted after clearance; applications
+// already in review keep their current stage when a failed fee is retried successfully.
 export async function initiateProcessingFeePayment(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
@@ -522,13 +523,13 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
     const application = await prisma.application.findFirst({
       where: {
         id: applicationId,
-        memberId: req.user.id,
-        status: { in: ['Draft', 'Correction_Required'] }
+        memberId: req.user.id
       },
-        include: { category: true, member: true }
+      include: { category: true, member: true }
     });
 
-    if (!application || !application.category) {
+    const requiresFailedRetry = processingFeeRequiresFailedRetry(application?.status ?? null);
+    if (!application || !application.category || requiresFailedRetry === null) {
       return res.status(404).json({ error: 'Application not found or not eligible for payment.' });
     }
 
@@ -548,22 +549,35 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       return res.status(200).json({ status: 'Paid', transactionId: clearedFee.id, message: 'Processing fee already paid.' });
     }
 
-    // Only a transaction WE created for this Mobile Money gateway flow (paymentMethod
-    // Mobile_Money AND has a providerTransactionId — that second condition is what actually
-    // distinguishes a genuine gateway row, since a manually-uploaded MoMo-code receipt is
-    // ALSO tagged Mobile_Money now but never has a providerTransactionId) can be "already in
-    // progress" here. A manual-flow row must never block or be reused by this gateway flow.
-    const existingMomo = await prisma.financialTransaction.findFirst({
-      where: { applicationId, txType: 'Processing_Fee', paymentMethod: 'Mobile_Money', providerTransactionId: { not: null } },
+    // Any unresolved payment for this same fee must block a new collection request,
+    // including manual proofs already waiting for staff verification.
+    const pendingFee = await prisma.financialTransaction.findFirst({
+      where: { applicationId, txType: 'Processing_Fee', status: 'Pending_Verification', amount: fee },
       orderBy: { createdAt: 'desc' }
     });
-
-    if (existingMomo?.status === 'Pending_Verification') {
+    if (pendingFee) {
       return res.status(409).json({
-        error: 'A payment request is already in progress for this application.',
-        transactionId: existingMomo.id
+        error: pendingFee.providerTransactionId
+          ? 'A payment request is already in progress for this application.'
+          : 'A processing fee payment is already awaiting verification for this application.',
+        ...(pendingFee.providerTransactionId ? { transactionId: pendingFee.id } : {})
       });
     }
+
+    // A submitted application may retry a rejected processing fee, but must not
+    // start a brand-new fee obligation while it is already in the review queue.
+    const failedFee = await prisma.financialTransaction.findFirst({
+      where: { applicationId, txType: 'Processing_Fee', status: 'Failed', amount: fee },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (requiresFailedRetry && !failedFee) {
+      return res.status(409).json({ error: 'No failed processing fee for the current application category is available to retry.' });
+    }
+
+    const outstandingFee = failedFee || await prisma.financialTransaction.findFirst({
+      where: { applicationId, txType: 'Processing_Fee', status: 'Unpaid', amount: fee },
+      orderBy: { createdAt: 'desc' }
+    });
 
     const requesttransactionid = `PROC-${applicationId.slice(0, 8)}-${Date.now()}`;
 
@@ -591,11 +605,15 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       transactionReference: requesttransactionid,
       providerTransactionId: requesttransactionid,
       status: 'Pending_Verification' as TransactionStatus,
-      rejectionReason: null
+      rejectionReason: null,
+      receiptUrl: null,
+      cpdDocumentUrl: null,
+      verifiedByEmail: null,
+      clearedAt: null
     };
 
-    const transaction = existingMomo
-      ? await prisma.financialTransaction.update({ where: { id: existingMomo.id }, data: txData })
+    const transaction = outstandingFee
+      ? await prisma.financialTransaction.update({ where: { id: outstandingFee.id }, data: txData })
       : await prisma.financialTransaction.create({ data: txData });
 
     return res.status(200).json({

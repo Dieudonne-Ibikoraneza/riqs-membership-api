@@ -17,7 +17,7 @@
     "express",
     "typescript"
   ],
-  "author": "Antigravity AI & Dieudonne",
+  "author": "IBIKORANEZA Dieudonne",
   "license": "ISC",
   "dependencies": {
     "@emailjs/nodejs": "^5.0.2",
