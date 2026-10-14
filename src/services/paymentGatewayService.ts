@@ -1,10 +1,14 @@
 /** UrubutoPay adapter kept behind the application's provider-neutral gateway surface. */
 import crypto from 'crypto';
 
-const BASE_URL = (process.env.URUBUTOPAY_BASE_URL || process.env.PAYMENT_GATEWAY_BASE_URL || '').replace(/\/$/, '');
+const BASE_URL = (process.env.URUBUTOPAY_BASE_URL || '').replace(/\/+$/, '');
 const API_KEY = process.env.URUBUTOPAY_API_KEY || '';
 const MERCHANT_CODE = process.env.URUBUTOPAY_MERCHANT_CODE || '';
 const SERVICE_CODE = process.env.URUBUTOPAY_SERVICE_CODE || '';
+
+function authorizationValue() {
+  return API_KEY.startsWith('upg:') ? API_KEY : `upg:${API_KEY}`;
+}
 
 export type UrubutoPaymentParams = {
   amount: string | number;
@@ -17,11 +21,6 @@ export type UrubutoPaymentParams = {
   redirectionUrl?: string;
 };
 
-function authorizationValue() {
-  if (!API_KEY) return '';
-  return API_KEY.startsWith('upg:') ? API_KEY : `upg:${API_KEY}`;
-}
-
 function requireConfig() {
   const missing = [
     !BASE_URL && 'URUBUTOPAY_BASE_URL',
@@ -30,6 +29,9 @@ function requireConfig() {
     !SERVICE_CODE && 'URUBUTOPAY_SERVICE_CODE'
   ].filter(Boolean);
   if (missing.length) throw new Error(`UrubutoPay configuration is incomplete: ${missing.join(', ')}`);
+  if (/\/(?:v2|reference)$/i.test(BASE_URL)) {
+    throw new Error('URUBUTOPAY_BASE_URL must exclude /v2 and /reference');
+  }
 }
 
 async function postToGateway(path: string, body: Record<string, unknown>) {
@@ -122,5 +124,7 @@ export function timingSafeEqualText(left: string, right: string) {
 export function webhookUsername() { return process.env.URUBUTOPAY_WEBHOOK_USERNAME || ''; }
 export function webhookPassword() { return process.env.URUBUTOPAY_WEBHOOK_PASSWORD || ''; }
 export function webhookJwtSecret() {
-  return process.env.URUBUTOPAY_WEBHOOK_JWT_SECRET || process.env.JWT_SECRET || 'change-me';
+  const secret = process.env.URUBUTOPAY_WEBHOOK_JWT_SECRET;
+  if (!secret) throw new Error('UrubutoPay configuration is incomplete: URUBUTOPAY_WEBHOOK_JWT_SECRET');
+  return secret;
 }

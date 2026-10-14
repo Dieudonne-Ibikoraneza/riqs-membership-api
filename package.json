@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "npx prisma generate && tsc",
+    "test": "node --test tests/*.test.js",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts,json --exec ts-node src/index.ts",
     "migrate": "ts-node src/database/migrate.ts"

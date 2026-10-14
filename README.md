@@ -34,6 +34,14 @@ SMTP_FROM="RIQS Registry <noreply-riqs@rwandaiqs.org>"
 
 Quote passwords containing `#`, `;`, or spaces. SMTP `535` errors indicate rejected credentials or a malformed environment value.
 
+## UrubutoPay setup
+
+Set `URUBUTOPAY_BASE_URL` to the BK-confirmed API base URL (including `/api` for the tested staging gateway, but without `/v2` or `/reference/`). Set `URUBUTOPAY_API_KEY` to the key as issued; outbound requests send it in the `Authorization` header with an `upg:` prefix. BK must also identify the `URUBUTOPAY_MERCHANT_CODE` and `URUBUTOPAY_SERVICE_CODE` assigned to your account. The [payment-status reference](https://developers.urubutopay.rw/reference/#/Payments/PaymentController_getPaymentStatus_v2) documents this header and the versioned path.
+
+Create strong, unique values for `URUBUTOPAY_WEBHOOK_USERNAME`, `URUBUTOPAY_WEBHOOK_PASSWORD`, and `URUBUTOPAY_WEBHOOK_JWT_SECRET` locally. Share only the webhook username/password and your public callback URLs with BK through an approved secure channel; keep the signing secret private. These are for BK's inbound authentication and callback flow, not additional BK-issued API credentials. Do not use the old `PAYMENT_GATEWAY_*` settings for UrubutoPay. Never commit real key material to this repository.
+
+Run `npm test` to check the outbound API-key header and configuration guard. A successful live payment still requires BK-issued values, an accessible callback URL, and a sandbox transaction with BK.
+
 ## Build and start
 
 ```bash
