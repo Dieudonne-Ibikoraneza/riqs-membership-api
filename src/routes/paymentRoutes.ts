@@ -179,7 +179,7 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'fin
  * /api/v1/payments/processing-fee/initiate:
  *   post:
  *     summary: Pay an application's Processing Fee via Mobile Money (member-initiated)
- *     description: Starts a member-initiated Mobile Money collection for the Processing Fee owed on a Draft/Correction_Required application. The gateway pushes a USSD approval prompt to the given number; the final outcome arrives asynchronously via the payment callback (or is discovered by polling the status endpoint below). On success, the application is automatically submitted — no separate "Submit" call is needed.
+ *     description: Starts a member-initiated Mobile Money collection for the Processing Fee owed on a Draft/Correction_Required application, or retries a failed fee while the application is Pending, Under_Review, or Pending_Approval. The gateway pushes a USSD approval prompt to the given number; the final outcome arrives asynchronously via the payment callback (or is discovered by polling the status endpoint below). On success, a Draft/Correction_Required application is submitted automatically; an application already in review remains at its current stage.
  *     tags:
  *       - Payments & Invoices
  *     requestBody:
@@ -204,9 +204,9 @@ router.get('/queue', requireAuth, requireRoles(['admin', 'admin_assistant', 'fin
  *       400:
  *         description: Missing fields, or this category has no processing fee.
  *       404:
- *         description: Application not found, not owned by the caller, or not in Draft/Correction_Required state.
+ *         description: Application not found, not owned by the caller, or in a final state.
  *       409:
- *         description: A payment request is already in progress for this application.
+ *         description: Another payment is pending verification, or a submitted application has no failed fee to retry.
  *       422:
  *         description: The mobile money gateway rejected the request (e.g. invalid number, insufficient funds).
  *       429:
