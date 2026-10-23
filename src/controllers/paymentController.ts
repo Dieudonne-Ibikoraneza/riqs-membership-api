@@ -2,13 +2,14 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
-import { TransactionType, PaymentMethod, TransactionStatus, Prisma } from '@prisma/client';
+import { TransactionType, PaymentMethod, TransactionStatus, Prisma, FinancialTransaction } from '@prisma/client';
 import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils';
 import { sendMail } from '../config/mailer';
 import { nextMembershipId } from './progressionController';
 import { finalizeApplicationSubmission } from './applicantController';
 import { finalizeStudentApplicationSubmission } from './teacherController';
 import * as paymentGateway from '../services/paymentGatewayService';
+import { paymentFailureReason, paymentOutcome } from '../services/paymentGatewayResult';
 import { processingFeeRequiresFailedRetry } from '../services/processingFeeEligibility';
 import { issuePaymentReceipt } from '../services/receiptService';
 
@@ -412,9 +413,30 @@ export async function verifyPayment(req: AuthenticatedRequest, res: Response) {
 export async function getPendingPayments(req: AuthenticatedRequest, res: Response) {
   if (!req.user) return res.status(401).json({ error: 'Access Denied.' });
 
-  const { status = 'Pending_Verification', method, page = '1', limit = '20' } = req.query;
-  const skip = (parseInt(page as string, 10) - 1) * parseInt(limit as string, 10);
-  const take = parseInt(limit as string, 10);
+  const { status = 'Pending_Verification', method = 'All', page = '1', limit = '20', search = '', txType = 'All' } = req.query;
+  const pageNumber = typeof page === 'string' && /^\d+$/.test(page) ? Number(page) : NaN;
+  const take = typeof limit === 'string' && /^\d+$/.test(limit) ? Number(limit) : NaN;
+  // Reports also use this endpoint with a large page size.
+  if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || !Number.isSafeInteger(take) || take < 1 || take > 100000 || !Number.isSafeInteger((pageNumber - 1) * take)) {
+    return res.status(400).json({ error: 'Page must be a positive integer and limit must be between 1 and 100000.' });
+  }
+  if (typeof status !== 'string' || !['All', 'all', ...Object.values(TransactionStatus)].includes(status)
+    || typeof method !== 'string' || !['All', 'Online', 'Offline'].includes(method)
+    || typeof txType !== 'string' || !['All', ...Object.values(TransactionType)].includes(txType)
+    || typeof search !== 'string' || search.length > 200) {
+    return res.status(400).json({ error: 'Invalid payment filters. Search must be at most 200 characters.' });
+  }
+  const skip = (pageNumber - 1) * take;
+  // Every word must match at least one searchable field, in any order.
+  const searchFilters: Prisma.FinancialTransactionWhereInput[] = search.trim().split(/\s+/).filter(Boolean).map(term => ({
+    OR: [
+      { member: { fullName: { contains: term, mode: 'insensitive' } } },
+      { member: { email: { contains: term, mode: 'insensitive' } } },
+      { member: { membershipId: { contains: term, mode: 'insensitive' } } },
+      { transactionReference: { contains: term, mode: 'insensitive' } },
+      { providerTransactionId: { contains: term, mode: 'insensitive' } }
+    ]
+  }));
   const statusFilter: Prisma.FinancialTransactionWhereInput = (status === 'All' || status === 'all') ? {} : { status: status as TransactionStatus };
   // Just the two buckets staff actually care about: Online (went through the payment gateway
   // gateway — always tagged Mobile_Money) vs Offline (a manually-uploaded or admin-recorded
@@ -441,7 +463,8 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
   // by this same exclusion.
   const whereClause: Prisma.FinancialTransactionWhereInput = {
     ...statusFilter,
-    ...methodFilter,
+    AND: [methodFilter, ...searchFilters],
+    ...(txType === 'All' ? {} : { txType: txType as TransactionType }),
     NOT: {
       providerTransactionId: { not: null },
       status: 'Pending_Verification' as TransactionStatus,
@@ -453,7 +476,7 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
     const [transactions, total] = await Promise.all([
       prisma.financialTransaction.findMany({
         where: whereClause,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take,
         include: {
@@ -495,8 +518,9 @@ export async function getPendingPayments(req: AuthenticatedRequest, res: Respons
       transactions: formattedTransactions,
       pagination: {
         total,
-        page: parseInt(page as string, 10),
-        limit: take
+        page: pageNumber,
+        limit: take,
+        totalPages: Math.max(1, Math.ceil(total / take))
       }
     });
   } catch (error: any) {
@@ -589,7 +613,6 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       payerNames: application.member.fullName,
       payerEmail: application.member.email
     });
-    console.log('[Initiate Processing Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -616,11 +639,7 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
       ? await prisma.financialTransaction.update({ where: { id: outstandingFee.id }, data: txData })
       : await prisma.financialTransaction.create({ data: txData });
 
-    return res.status(200).json({
-      status: 'Pending',
-      transactionId: transaction.id,
-      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
-    });
+    return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
     console.error('[Initiate Processing Fee Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
@@ -695,9 +714,9 @@ export async function applyGatewayFeeResult(
   gatewayStatus?: string,
   gatewayStatusDesc?: string
 ) {
-  const normalized = (gatewayStatus || '').toLowerCase();
-  const isSuccess = normalized.includes('success') || normalized === 'valid' || normalized === 'pending_settlement';
-  const isFailure = normalized.includes('fail') || normalized.includes('reject') || normalized.includes('cancel') || normalized.includes('timeout') || normalized.includes('reverse') || normalized.includes('refund');
+  const outcome = paymentOutcome(gatewayStatus);
+  const isSuccess = outcome === 'success';
+  const isFailure = outcome === 'failure';
 
   if (!isSuccess && !isFailure) {
     return prisma.financialTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
@@ -751,6 +770,35 @@ export async function applyGatewayFeeResult(
   }
 
   return updated;
+}
+
+// Persist terminal outcomes returned during initiation, just as polling/callbacks do.
+async function respondToGatewayInitiation(
+  res: Response,
+  transaction: FinancialTransaction,
+  gatewayResult: { status?: string; statusdesc?: string; message?: string }
+) {
+  const outcome = paymentOutcome(gatewayResult.status);
+  const updated = outcome === 'pending'
+    ? transaction
+    : await applyGatewayFeeResult(transaction, gatewayResult.status, gatewayResult.statusdesc);
+
+  if (updated.status === 'Failed') {
+    return res.status(422).json({
+      status: 'Failed',
+      transactionId: updated.id,
+      error: updated.rejectionReason || 'Payment was not completed.',
+      rejectionReason: updated.rejectionReason
+    });
+  }
+
+  return res.status(200).json({
+    status: updated.status === 'Paid' ? 'Paid' : 'Pending',
+    transactionId: updated.id,
+    message: outcome === 'success'
+      ? (updated.status === 'Paid' ? 'Payment confirmed.' : 'Payment confirmed. Your renewal is awaiting CPD/Annual Report review.')
+      : gatewayResult.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
+  });
 }
 
 // Mirrors the First_Year_Fee branch of verifyPayment's manual-clearance logic (membership ID
@@ -1001,7 +1049,6 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
       payerNames: member.fullName,
       payerEmail: member.email
     });
-    console.log('[Initiate Annual Renewal Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -1029,11 +1076,7 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
           }
         });
 
-    return res.status(200).json({
-      status: 'Pending',
-      transactionId: transaction.id,
-      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
-    });
+    return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
     console.error('[Initiate Annual Renewal Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
@@ -1133,7 +1176,6 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
       payerNames: member.fullName,
       payerEmail: member.email
     });
-    console.log('[Initiate First Year Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
       return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
@@ -1150,11 +1192,7 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
       }
     });
 
-    return res.status(200).json({
-      status: 'Pending',
-      transactionId: transaction.id,
-      message: data.message || 'Payment request sent. Approve the prompt on your phone to complete payment.'
-    });
+    return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
     console.error('[Initiate First Year Fee Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
@@ -1367,14 +1405,6 @@ export async function receivePaymentCallback(req: Request, res: Response) {
   const transactionStatus = payload.transaction_status;
   const callbackType = payload.callback_type;
 
-  console.log('[UrubutoPay Callback] Received payment notice:', {
-    callbackType,
-    merchantCode: payload.merchant_code,
-    transactionId,
-    internalTransactionId: payload.internal_transaction_id,
-    transactionStatus
-  });
-
   const supportedCallbackTypes = new Set([
     'PAYMENT',
     'RECURRING',
@@ -1399,9 +1429,7 @@ export async function receivePaymentCallback(req: Request, res: Response) {
     if (callbackType === 'PAYMENT') {
       // resolveProcessingFeePaymentByProviderId is idempotent: once a transaction is
       // final it returns it without re-running membership/application side effects.
-      await resolveProcessingFeePaymentByProviderId(transactionId, transactionStatus, payload.observation);
-    } else {
-      console.log('[UrubutoPay Callback] Accepted non-payment event:', callbackType);
+      await resolveProcessingFeePaymentByProviderId(transactionId, transactionStatus, paymentFailureReason({ data: payload }));
     }
   } catch (err: any) {
     console.error('[UrubutoPay Callback] Failed to reconcile transaction:', err.message);

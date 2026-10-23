@@ -149,6 +149,22 @@ router.post('/verify', requireAuth, requireRoles(['admin', 'admin_assistant', 'f
  *       - Payments & Invoices
  *     parameters:
  *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           maxLength: 200
+ *         description: Case-insensitive search by member name, email, membership ID or transaction reference. Each word must match a searchable field.
+ *       - in: query
+ *         name: method
+ *         schema:
+ *           type: string
+ *           enum: [All, Online, Offline]
+ *       - in: query
+ *         name: txType
+ *         schema:
+ *           type: string
+ *           enum: [All, Processing_Fee, First_Year_Fee, Annual_Renewal, Stamp_Fee, APC_Fee]
+ *       - in: query
  *         name: status
  *         schema:
  *           type: string
@@ -164,9 +180,13 @@ router.post('/verify', requireAuth, requireRoles(['admin', 'admin_assistant', 'f
  *         schema:
  *           type: integer
  *           default: 20
+ *           minimum: 1
+ *           maximum: 100000
  *     responses:
  *       200:
  *         description: Retreived queue successfully
+ *       400:
+ *         description: Invalid pagination or filters
  *       401:
  *         description: Access Denied
  *       500:

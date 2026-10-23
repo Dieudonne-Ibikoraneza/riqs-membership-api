@@ -1,5 +1,6 @@
 /** UrubutoPay adapter kept behind the application's provider-neutral gateway surface. */
 import crypto from 'crypto';
+import { paymentFailureReason } from './paymentGatewayResult';
 
 const BASE_URL = (process.env.URUBUTOPAY_BASE_URL || '').replace(/\/+$/, '');
 const API_KEY = process.env.URUBUTOPAY_API_KEY || '';
@@ -36,9 +37,10 @@ function requireConfig() {
 
 async function postToGateway(path: string, body: Record<string, unknown>) {
   requireConfig();
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': authorizationValue() };
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: authorizationValue() },
+    headers,
     body: JSON.stringify(body)
   });
   const text = await response.text();
@@ -48,7 +50,7 @@ async function postToGateway(path: string, body: Record<string, unknown>) {
 }
 
 export async function requestPayment(params: UrubutoPaymentParams) {
-  const { httpStatus, raw } = await postToGateway('/v2/payment/initiate', {
+  const payload = {
     merchant_code: MERCHANT_CODE,
     service_code: SERVICE_CODE,
     payer_code: params.payerCode || params.requesttransactionid,
@@ -59,7 +61,8 @@ export async function requestPayment(params: UrubutoPaymentParams) {
     phone_number: String(params.mobilephone),
     transaction_id: params.requesttransactionid,
     ...(params.redirectionUrl ? { redirection_url: params.redirectionUrl } : {})
-  });
+  };
+  const { httpStatus, raw } = await postToGateway('/v2/payment/initiate', payload);
   return {
     httpStatus,
     data: {
@@ -67,6 +70,7 @@ export async function requestPayment(params: UrubutoPaymentParams) {
       responsecode: raw?.status,
       message: raw?.message || 'Payment request was sent to the customer.',
       status: raw?.data?.transaction_status || 'PENDING',
+      statusdesc: paymentFailureReason(raw),
       transaction_id: raw?.data?.external_transaction_ref_number || params.requesttransactionid,
       internal_transaction_id: raw?.data?.internal_transaction_ref_number,
       raw
@@ -86,8 +90,9 @@ export async function getTransactionStatus(params: { requesttransactionid: strin
       responsecode: raw?.status,
       message: raw?.message || 'Payment status retrieved.',
       status: raw?.data?.transaction_status,
-      statusdesc: raw?.message,
+      statusdesc: paymentFailureReason(raw),
       transaction_id: raw?.data?.transaction_id || params.requesttransactionid,
+      internal_transaction_id: raw?.data?.internal_transaction_id,
       raw
     }
   };
