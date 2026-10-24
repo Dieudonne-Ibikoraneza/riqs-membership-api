@@ -15,23 +15,27 @@ import { nextMembershipId } from './progressionController';
 // aborting the whole batch.
 const importRowSchema = z.object({
   sourceSheet: z.enum(['PROF_TECH', 'GRADUATE']),
-  fullName: z.string().min(1),
-  email: z.string().email(),
+  rawSourceRow: z.number().int().positive().optional(),
+  fullName: z.string().trim().min(1),
+  email: z.string().trim().toLowerCase().email(),
   phoneNumber: z.string().optional().nullable(),
-  categoryCode: z.string().min(1),
+  categoryCode: z.string().trim().min(1),
   membershipIdOverride: z.string().optional().nullable(),
-  registrationYear: z.number().int(),
-  membershipExpiresAt: z.string().min(1),
+  registrationYear: z.number().int().min(1000).max(9999),
+  membershipExpiresAt: z.string().date(),
 });
 
 const importRequestSchema = z.object({
-  rows: z.array(importRowSchema).min(1).max(500),
+  // Validate the envelope first, then each row independently so one malformed
+  // contact cannot prevent every other member from being imported.
+  rows: z.array(z.unknown()).min(1).max(500),
 });
 
 type ImportRow = z.infer<typeof importRowSchema>;
 
 interface ImportRowResult {
   rowIndex: number;
+  rawSourceRow?: number;
   fullName: string;
   email: string;
   status: 'created' | 'skipped' | 'failed';
@@ -133,16 +137,15 @@ async function importOneRow(row: ImportRow, actionByEmail: string): Promise<Impo
         },
       });
 
+      await tx.auditLog.create({
+        data: {
+          memberId: created.id,
+          actionByEmail,
+          actionType: 'Bulk_Imported_Member',
+          details: `Bulk-imported from legacy roster (${row.sourceSheet}): ${row.fullName} (${row.email}) as ${row.categoryCode}, membership ID ${membershipId}.`,
+        },
+      });
       return created;
-    });
-
-    await prisma.auditLog.create({
-      data: {
-        memberId: member.id,
-        actionByEmail,
-        actionType: 'Bulk_Imported_Member',
-        details: `Bulk-imported from legacy roster (${row.sourceSheet}): ${row.fullName} (${row.email}) as ${row.categoryCode}, membership ID ${membershipId}.`,
-      },
     });
 
     sendRawMail({
@@ -195,8 +198,22 @@ export async function bulkImportMembers(req: AuthenticatedRequest, res: Response
   const results: ImportRowResult[] = [];
 
   for (let i = 0; i < rows.length; i++) {
-    const result = await importOneRow(rows[i], req.user.email);
+    const row = importRowSchema.safeParse(rows[i]);
+    if (!row.success) {
+      const raw = rows[i] && typeof rows[i] === 'object' ? rows[i] as Record<string, unknown> : {};
+      results.push({
+        rowIndex: i,
+        rawSourceRow: typeof raw.rawSourceRow === 'number' ? raw.rawSourceRow : undefined,
+        fullName: typeof raw.fullName === 'string' ? raw.fullName : '',
+        email: typeof raw.email === 'string' ? raw.email : '',
+        status: 'failed',
+        reason: row.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '),
+      });
+      continue;
+    }
+    const result = await importOneRow(row.data, req.user.email);
     result.rowIndex = i;
+    result.rawSourceRow = row.data.rawSourceRow;
     results.push(result);
   }
 
