@@ -1,6 +1,6 @@
 /** UrubutoPay adapter kept behind the application's provider-neutral gateway surface. */
 import crypto from 'crypto';
-import { paymentFailureReason } from './paymentGatewayResult';
+import { paymentFailureReason, paymentOutcome, PAYMENT_RETRY_GUIDANCE } from './paymentGatewayResult';
 
 const BASE_URL = (process.env.URUBUTOPAY_BASE_URL || '').replace(/\/+$/, '');
 const API_KEY = process.env.URUBUTOPAY_API_KEY || '';
@@ -23,17 +23,6 @@ export function gatewayAuthHeader(): 'x-api-key' | 'Authorization' {
     throw new Error('URUBUTOPAY_ENVIRONMENT does not match URUBUTOPAY_BASE_URL');
   }
   return (environment || detected) === 'testing' ? 'x-api-key' : 'Authorization';
-}
-
-function logGateway(label: string, details: Record<string, unknown>) {
-  // Redact credentials even if the provider echoes them in its response body.
-  let serialized = JSON.stringify(details, (key, value) =>
-    /^(authorization|x-api-key|api[_-]?key)$/i.test(key) ? '[REDACTED]' : value
-  );
-  for (const secret of [authorizationValue(), API_KEY, API_KEY.replace(/^upg:/, '')]) {
-    if (secret) serialized = serialized.split(JSON.stringify(secret).slice(1, -1)).join('[REDACTED]');
-  }
-  console.log(label, JSON.stringify(JSON.parse(serialized), null, 2));
 }
 
 export type UrubutoPaymentParams = {
@@ -64,13 +53,7 @@ function requireConfig(needsService = false) {
 async function postToGateway(path: string, body: Record<string, unknown>) {
   requireConfig();
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json', [gatewayAuthHeader()]: authorizationValue() };
-  logGateway('UrubutoPay request:', {
-    url: `${BASE_URL}${path}`,
-    method: 'POST',
-    headers,
-    transactionId: body.transaction_id,
-    payload: body
-  });
+
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers,
@@ -81,13 +64,7 @@ async function postToGateway(path: string, body: Record<string, unknown>) {
   const text = await response.text();
   let raw: any;
   try { raw = JSON.parse(text); } catch { raw = { message: text }; }
-  logGateway('UrubutoPay response:', {
-    url: `${BASE_URL}${path}`,
-    transactionId: body.transaction_id,
-    httpStatus: response.status,
-    headers: Object.fromEntries(response.headers?.entries() || []),
-    payload: raw
-  });
+
   return { httpStatus: response.status, raw };
 }
 
@@ -116,6 +93,7 @@ export async function requestPayment(params: UrubutoPaymentParams) {
       message: raw?.message || 'Payment request was sent to the customer.',
       status: raw?.data?.transaction_status || 'PENDING',
       statusdesc: paymentFailureReason(raw),
+      guidance: httpStatus >= 400 || raw?.status !== 200 || paymentOutcome(raw?.data?.transaction_status) === 'failure' ? PAYMENT_RETRY_GUIDANCE : undefined,
       transaction_id: raw?.data?.external_transaction_ref_number || params.requesttransactionid,
       internal_transaction_id: raw?.data?.internal_transaction_ref_number,
       raw
@@ -138,6 +116,7 @@ export async function getTransactionStatus(params: { requesttransactionid: strin
       message: raw?.message || 'Payment status retrieved.',
       status: raw?.data?.transaction_status,
       statusdesc: paymentFailureReason(raw),
+      guidance: httpStatus >= 400 || raw?.status !== 200 || paymentOutcome(raw?.data?.transaction_status) === 'failure' ? PAYMENT_RETRY_GUIDANCE : undefined,
       transaction_id: raw?.data?.transaction_id || params.requesttransactionid,
       internal_transaction_id: raw?.data?.internal_transaction_id,
       raw

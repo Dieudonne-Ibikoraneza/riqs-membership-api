@@ -12,3 +12,5 @@ export function paymentFailureReason(raw: any): string | undefined {
     .find(value => typeof value === 'string' && value.trim());
   return reason?.trim() || 'Payment was not completed.';
 }
+
+export const PAYMENT_RETRY_GUIDANCE = 'Before retrying, check that you entered the correct MTN Mobile Money or Airtel Money number and that your wallet has enough funds to cover the payment and any applicable charges.';

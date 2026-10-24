@@ -62,6 +62,8 @@ test('an accepted initiation with FAILED is persisted as failed and can be retri
     assert.equal(res.body.status, 'Failed', type);
     assert.equal(res.body.transactionId, 'fee-1');
     assert.equal(res.body.error, 'Payment was not completed.');
+    assert.match(res.body.guidance, /enough funds/);
+    assert.match(res.body.guidance, /correct MTN Mobile Money or Airtel Money number/);
     assert.equal(tx.status, 'Failed');
     assert.equal(tx.rejectionReason, 'Payment was not completed.');
     assert.equal(finalized, 0);
@@ -118,6 +120,7 @@ test('polling follows the transaction state and does not interpret a Successful 
     await pollHandler(req, res);
     assert.equal(res.body.status, 'Failed');
     assert.equal(res.body.rejectionReason, 'Payment was not completed.');
+    assert.match(res.body.guidance, /enough funds/);
     assert.equal(receipts, 0);
   }
 });

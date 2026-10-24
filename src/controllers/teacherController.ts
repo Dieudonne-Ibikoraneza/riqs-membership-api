@@ -1,3 +1,5 @@
+import { PAYMENT_RETRY_GUIDANCE } from '../services/paymentGatewayResult';
+import { processingFeeSubmissionWhere } from '../services/processingFeeEligibility';
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import bcrypt from 'bcrypt';
@@ -223,12 +225,11 @@ export async function submitStudentApplication(req: AuthenticatedRequest, res: R
     }
 
     // Processing-Fee Payment Gate — mirrors applicantController.submitApplication's gate.
-    // Pending_Verification counts too (a manually-uploaded proof, verified alongside review),
-    // not just Paid — see that function's comment for why.
+    // An unpaid gateway request must never count as an uploaded manual receipt.
     const fee = Number(app.category.processingFee || 0);
     if (fee > 0) {
       const clearedFee = await prisma.financialTransaction.findFirst({
-        where: { applicationId, txType: 'Processing_Fee', status: { in: ['Paid', 'Pending_Verification'] }, amount: fee }
+        where: processingFeeSubmissionWhere(applicationId, fee)
       });
       if (!clearedFee) {
         return res.status(402).json({
@@ -308,10 +309,9 @@ export async function initiateStudentProcessingFeePayment(req: AuthenticatedRequ
       payerNames: application.member.fullName,
       payerEmail: application.member.email
     });
-    console.log('[Initiate Student Processing Fee Payment] Gateway response:', { requesttransactionid, mobilephone, amount: fee, data });
 
     if (!data?.success) {
-      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.', guidance: PAYMENT_RETRY_GUIDANCE });
     }
 
     const txData = {
@@ -373,7 +373,8 @@ export async function getStudentProcessingFeePaymentStatus(req: AuthenticatedReq
       status: transaction.status,
       transactionId: transaction.id,
       applicationId: transaction.applicationId,
-      rejectionReason: transaction.rejectionReason
+      rejectionReason: transaction.rejectionReason,
+      guidance: transaction.status === 'Failed' ? PAYMENT_RETRY_GUIDANCE : undefined
     });
   } catch (error: any) {
     console.error('[Student Processing Fee Status] Error:', error.message);

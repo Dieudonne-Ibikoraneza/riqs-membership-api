@@ -1,3 +1,4 @@
+import { processingFeeSubmissionWhere } from '../services/processingFeeEligibility';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { prisma } from '../config/db';
@@ -563,16 +564,10 @@ export async function submitApplication(req: AuthenticatedRequest, res: Response
       // Firm changing size tier) after paying for a cheaper one, that older payment doesn't
       // cover this category and shouldn't waive the gate.
       //
-      // Pending_Verification counts too, not just Paid — a manually-uploaded bank-transfer
-      // proof (see fileController.ts's payment-document upload) can never become Paid on its
-      // own; only a staff member clears it later. Requiring Paid here left the member with no
-      // way forward at all: the application stayed in Draft, invisible to reviewers, until
-      // someone happened to verify a payment proof attached to an application nobody could see
-      // yet. Letting a Pending_Verification proof through instead lets the application enter the
-      // review queue immediately, with the payment proof verified alongside it — the same
-      // "submit now, fee gets cleared later" shape Annual_Renewal/First_Year_Fee already use.
+      // Only uploaded manual receipts may await staff verification at submission.
+      // An initiated gateway payment remains unpaid until the provider confirms it.
       const clearedFee = await prisma.financialTransaction.findFirst({
-        where: { applicationId, txType: 'Processing_Fee', status: { in: ['Paid', 'Pending_Verification'] }, amount: processingFeeAmount }
+        where: processingFeeSubmissionWhere(applicationId, processingFeeAmount)
       });
       if (!clearedFee) {
         return res.status(402).json({

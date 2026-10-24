@@ -9,7 +9,7 @@ import { nextMembershipId } from './progressionController';
 import { finalizeApplicationSubmission } from './applicantController';
 import { finalizeStudentApplicationSubmission } from './teacherController';
 import * as paymentGateway from '../services/paymentGatewayService';
-import { paymentFailureReason, paymentOutcome } from '../services/paymentGatewayResult';
+import { paymentFailureReason, paymentOutcome, PAYMENT_RETRY_GUIDANCE } from '../services/paymentGatewayResult';
 import { processingFeeRequiresFailedRetry } from '../services/processingFeeEligibility';
 import { issuePaymentReceipt } from '../services/receiptService';
 
@@ -615,7 +615,7 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
     });
 
     if (!data?.success) {
-      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.', guidance: PAYMENT_RETRY_GUIDANCE });
     }
 
     const txData = {
@@ -680,7 +680,8 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
       status: transaction.status,
       transactionId: transaction.id,
       applicationId: transaction.applicationId,
-      rejectionReason: transaction.rejectionReason
+      rejectionReason: transaction.rejectionReason,
+      guidance: transaction.status === 'Failed' ? PAYMENT_RETRY_GUIDANCE : undefined
     });
   } catch (error: any) {
     console.error('[Processing Fee Status] Error:', error.message);
@@ -789,7 +790,8 @@ async function respondToGatewayInitiation(
       status: 'Failed',
       transactionId: updated.id,
       error: updated.rejectionReason || 'Payment was not completed.',
-      rejectionReason: updated.rejectionReason
+      rejectionReason: updated.rejectionReason,
+      guidance: PAYMENT_RETRY_GUIDANCE
     });
   }
 
@@ -1052,7 +1054,7 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
     });
 
     if (!data?.success) {
-      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.', guidance: PAYMENT_RETRY_GUIDANCE });
     }
 
     const gatewayFields = {
@@ -1119,6 +1121,7 @@ export async function getAnnualRenewalPaymentStatus(req: AuthenticatedRequest, r
       status: transaction.status,
       transactionId: transaction.id,
       rejectionReason: transaction.rejectionReason,
+      guidance: transaction.status === 'Failed' ? PAYMENT_RETRY_GUIDANCE : undefined,
       // The payment cleared through the gateway but this fee type always still needs an
       // Admin/Admin Assistant to confirm the member's CPD/Annual Report before the renewal
       // is complete — see applyGatewayFeeResult.
@@ -1180,7 +1183,7 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
     });
 
     if (!data?.success) {
-      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.' });
+      return res.status(422).json({ error: data?.message || 'Payment request was rejected by the mobile money gateway.', guidance: PAYMENT_RETRY_GUIDANCE });
     }
 
     const transaction = await prisma.financialTransaction.update({
@@ -1232,7 +1235,8 @@ export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, re
     return res.status(200).json({
       status: transaction.status,
       transactionId: transaction.id,
-      rejectionReason: transaction.rejectionReason
+      rejectionReason: transaction.rejectionReason,
+      guidance: transaction.status === 'Failed' ? PAYMENT_RETRY_GUIDANCE : undefined
     });
   } catch (error: any) {
     console.error('[First Year Fee Status] Error:', error.message);

@@ -193,7 +193,7 @@ test('gateway errors and non-JSON responses cannot be mistaken for successful pa
   } finally { global.fetch = originalFetch; }
 });
 
-test('initiation and status logs include headers and payloads without exposing API credentials', async () => {
+test('payment initiation and status do not log request or response details', async () => {
   const originalFetch = global.fetch;
   const originalLog = console.log;
   const logs = [];
@@ -203,24 +203,13 @@ test('initiation and status logs include headers and payloads without exposing A
     assert.equal(options.headers.Authorization, `upg:${key}`);
     return { status: 200, headers: new Headers({ 'content-type': 'application/json', 'x-api-key': key }), text: async () => JSON.stringify(raw) };
   };
-  console.log = (label, details) => logs.push([label, JSON.parse(details)]);
+  console.log = (...args) => logs.push(args);
   try {
     const adapter = loadAdapter();
     const result = await adapter.requestPayment({ amount: 5, mobilephone: '250788000000', requesttransactionid: 'logging-ref' });
     await adapter.getTransactionStatus({ requesttransactionid: 'logging-ref' });
-    assert.equal(logs.length, 4);
-    for (const index of [0, 2]) {
-      assert.equal(logs[index][1].headers.Authorization, '[REDACTED]');
-      assert.equal(logs[index][1].payload.transaction_id, 'logging-ref');
-    }
-    assert.equal(logs[0][1].payload.amount, 5);
-    for (const index of [1, 3]) {
-      assert.equal(logs[index][1].httpStatus, 200);
-      assert.equal(logs[index][1].headers['x-api-key'], '[REDACTED]');
-      assert.equal(logs[index][1].payload.data.transaction_status, 'PENDING');
-    }
-    assert.ok(!JSON.stringify(logs).includes(key));
-    assert.deepEqual(result.data.raw, raw, 'redacting logs must not alter the gateway response');
+    assert.equal(logs.length, 0);
+    assert.deepEqual(result.data.raw, raw, 'removing logs must not alter the gateway response');
   } finally {
     global.fetch = originalFetch;
     console.log = originalLog;
