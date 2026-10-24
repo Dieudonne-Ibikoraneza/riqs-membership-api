@@ -36,11 +36,32 @@ Quote passwords containing `#`, `;`, or spaces. SMTP `535` errors indicate rejec
 
 ## UrubutoPay setup
 
-Set `URUBUTOPAY_BASE_URL` to the BK-confirmed API base URL (including `/api` for the tested staging gateway, but without `/v2` or `/reference/`). Set `URUBUTOPAY_API_KEY` to the key as issued; outbound requests send it in the `Authorization` header with an `upg:` prefix. BK must also identify the `URUBUTOPAY_MERCHANT_CODE` and `URUBUTOPAY_SERVICE_CODE` assigned to your account. The [payment-status reference](https://developers.urubutopay.rw/reference/#/Payments/PaymentController_getPaymentStatus_v2) documents this header and the versioned path.
+Set `URUBUTOPAY_BASE_URL` to the BK-confirmed API base URL (including `/api` for the tested staging gateway, but without `/v2` or `/reference/`). Set `URUBUTOPAY_API_KEY` to the key as issued; outbound requests include the `upg:` prefix. Set `URUBUTOPAY_ENVIRONMENT=testing` to send it in `x-api-key`, or `URUBUTOPAY_ENVIRONMENT=live` to send it in `Authorization`. If omitted, the adapter infers Testing from `staging.urubutopay.rw` and Live from `urubutopay.rw`. Explicit settings that contradict the official gateway hostname are rejected. `NODE_ENV` does not select the payment environment. BK must also identify the `URUBUTOPAY_MERCHANT_CODE` and `URUBUTOPAY_SERVICE_CODE` assigned to your account. The [payment-status reference](https://developers.urubutopay.rw/reference/#/Payments/PaymentController_getPaymentStatus_v2) documents the versioned path; the overview authentication table lists support for each header by environment.
 
 Create strong, unique values for `URUBUTOPAY_WEBHOOK_USERNAME`, `URUBUTOPAY_WEBHOOK_PASSWORD`, and `URUBUTOPAY_WEBHOOK_JWT_SECRET` locally. Share only the webhook username/password and your public callback URLs with BK through an approved secure channel; keep the signing secret private. These are for BK's inbound authentication and callback flow, not additional BK-issued API credentials. Do not use the old `PAYMENT_GATEWAY_*` settings for UrubutoPay. Never commit real key material to this repository.
 
-Run `npm test` to check the outbound API-key header and configuration guard. A successful live payment still requires BK-issued values, an accessible callback URL, and a sandbox transaction with BK.
+The adapter uses a 30-second request timeout, normalizes local Rwanda phone numbers, and selects `AIRTEL_MONEY` for 072/073 numbers and `MOMO` for 078/079 numbers. `URUBUTOPAY_WALLET_ACCOUNT_ID` is optional unless your merchant owns multiple wallets. Credentials stay in the backend `.env`.
+
+Run `npm test` and `npm run build` for regression checks. Run the read-only curl smoke checks with:
+
+```bash
+npm run payments:check
+npm run payments:check -- --transaction <existing-transaction-reference>
+```
+
+The script loads `.env` without printing credentials. It checks wallet access and transaction lookup; it never initiates a collection. The adapter supports both documented wallet responses (`status: true`) and staging responses (`status: 200`).
+
+Register these public HTTPS endpoints with UrubutoPay:
+
+- Authentication: `/auth/authenticate` (accepts `user_name` and `password`; returns a 24-hour Bearer JWT).
+- Payer validation: `/payer/verify`.
+- Payment callback: `/v2/webhook/callback`.
+
+The `/api/v1/payments/callback` alias is also available. Configure URLs in UrubutoPay's merchant onboarding; `PAYMENT_CALLBACK_URL` is a legacy setting and is not sent with initiation. Localhost endpoints cannot receive external callbacks.
+
+The member flows cover Processing Fee, First Year Fee, and Annual Renewal. `INITIATED` and `PENDING` remain `Pending_Verification`; they do not confirm payment. Only a successful payment status clears funds. Annual Renewal then awaits CPD review. Duplicate callbacks after clearance do not issue another receipt. Invoice creation, recurring debit execution, and bulk disbursement APIs are outside these membership payment flows.
+
+On 23 October 2026, a staging curl payment of 5 RWF returned `INITIATED`, followed by `PENDING` on status lookup. Wallet access and the backend database connectivity check passed. This verifies initiation and polling; a completed debit and delivery to a public callback URL require separate verification.
 
 ## Build and start
 

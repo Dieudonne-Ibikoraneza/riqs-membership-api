@@ -8,7 +8,7 @@ function loadAdapter() {
   return require(modulePath);
 }
 
-test('payment initiation preserves the configured x-api-key header with the upg prefix', async () => {
+test('payment initiation uses the documented Authorization header with the upg prefix', async () => {
   process.env.URUBUTOPAY_BASE_URL = 'https://gateway.example.test/';
   process.env.URUBUTOPAY_API_KEY = 'test-key';
   process.env.URUBUTOPAY_MERCHANT_CODE = 'merchant-1';
@@ -17,8 +17,10 @@ test('payment initiation preserves the configured x-api-key header with the upg 
   const originalFetch = global.fetch;
   global.fetch = async (url, options) => {
     assert.equal(url, 'https://gateway.example.test/v2/payment/initiate');
-    assert.equal(options.headers['x-api-key'], 'upg:test-key');
-    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.headers.Authorization, 'upg:test-key');
+    assert.equal(options.headers['x-api-key'], undefined);
+    assert.ok(options.signal instanceof AbortSignal);
+    assert.equal(options.redirect, 'error');
     const body = JSON.parse(options.body);
     assert.equal(body.merchant_code, 'merchant-1');
     assert.equal(body.service_code, 'service-1');
@@ -119,5 +121,154 @@ test('a successful status lookup never supplies its API message as a payment rej
     assert.equal(result.data.statusdesc, 'Insufficient funds');
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test('wallet balance accepts the live staging envelope and the documented envelope', async () => {
+  const originalFetch = global.fetch;
+  const adapter = loadAdapter();
+  try {
+    for (const status of [200, true]) {
+      global.fetch = async (_url, options) => {
+        assert.deepEqual(JSON.parse(options.body), { wallet_account_id: 'wallet-1' });
+        return { status: 200, text: async () => JSON.stringify({ status, data: { balance: 0, currency: 'RWF' } }) };
+      };
+      const result = await adapter.getBalance('wallet-1');
+      assert.equal(result.data.success, true);
+      assert.equal(result.data.balance, 0);
+      assert.equal(result.data.currency, 'RWF');
+    }
+    global.fetch = async () => ({ status: 401, text: async () => '{"status":200}' });
+    assert.equal((await adapter.getBalance()).data.success, false);
+  } finally { global.fetch = originalFetch; }
+});
+
+test('normalizes local wallet numbers and selects the Airtel channel', async () => {
+  const originalFetch = global.fetch;
+  const adapter = loadAdapter();
+  try {
+    for (const [phone, normalized, channel] of [
+      ['0788000000', '250788000000', 'MOMO'],
+      ['+250 790 000 000', '250790000000', 'MOMO'],
+      ['0722000000', '250722000000', 'AIRTEL_MONEY'],
+      ['0733000000', '250733000000', 'AIRTEL_MONEY']
+    ]) {
+      global.fetch = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.phone_number, normalized);
+        assert.equal(body.channel_name, channel);
+        return { status: 200, text: async () => '{"status":200}' };
+      };
+      await adapter.requestPayment({ amount: 5, mobilephone: phone, requesttransactionid: 'ref' });
+    }
+  } finally { global.fetch = originalFetch; }
+});
+
+test('invalid payment data never reaches the gateway', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => { assert.fail('invalid input must not cause a collection'); };
+  const adapter = loadAdapter();
+  const valid = { amount: 5, mobilephone: '250788000000', requesttransactionid: 'ref' };
+  try {
+    for (const invalid of [
+      { amount: -1 }, { amount: 0 }, { amount: 'NaN' }, { amount: Infinity }, { amount: true },
+      { mobilephone: '123' }, { requesttransactionid: ' ' }, { channelName: 'OTHER' },
+      { channelName: 'CARD' }, { channelName: 'CARD', redirectionUrl: 'javascript:alert(1)' }
+    ]) {
+      await assert.rejects(adapter.requestPayment({ ...valid, ...invalid }), error => error.status === 400);
+    }
+  } finally { global.fetch = originalFetch; }
+});
+
+test('gateway errors and non-JSON responses cannot be mistaken for successful payments', async () => {
+  const originalFetch = global.fetch;
+  const adapter = loadAdapter();
+  try {
+    global.fetch = async () => ({ status: 502, text: async () => 'Bad gateway' });
+    const result = await adapter.getTransactionStatus({ requesttransactionid: 'ref' });
+    assert.equal(result.data.success, false);
+    assert.equal(result.data.message, 'Bad gateway');
+    global.fetch = async () => { throw new DOMException('Request timed out', 'TimeoutError'); };
+    await assert.rejects(adapter.getTransactionStatus({ requesttransactionid: 'ref' }), /timed out/);
+  } finally { global.fetch = originalFetch; }
+});
+
+test('initiation and status logs include headers and payloads without exposing API credentials', async () => {
+  const originalFetch = global.fetch;
+  const originalLog = console.log;
+  const logs = [];
+  const key = process.env.URUBUTOPAY_API_KEY;
+  const raw = { status: 200, data: { transaction_status: 'PENDING' }, message: `Echo upg:${key}`, api_key: key };
+  global.fetch = async (_url, options) => {
+    assert.equal(options.headers.Authorization, `upg:${key}`);
+    return { status: 200, headers: new Headers({ 'content-type': 'application/json', 'x-api-key': key }), text: async () => JSON.stringify(raw) };
+  };
+  console.log = (label, details) => logs.push([label, JSON.parse(details)]);
+  try {
+    const adapter = loadAdapter();
+    const result = await adapter.requestPayment({ amount: 5, mobilephone: '250788000000', requesttransactionid: 'logging-ref' });
+    await adapter.getTransactionStatus({ requesttransactionid: 'logging-ref' });
+    assert.equal(logs.length, 4);
+    for (const index of [0, 2]) {
+      assert.equal(logs[index][1].headers.Authorization, '[REDACTED]');
+      assert.equal(logs[index][1].payload.transaction_id, 'logging-ref');
+    }
+    assert.equal(logs[0][1].payload.amount, 5);
+    for (const index of [1, 3]) {
+      assert.equal(logs[index][1].httpStatus, 200);
+      assert.equal(logs[index][1].headers['x-api-key'], '[REDACTED]');
+      assert.equal(logs[index][1].payload.data.transaction_status, 'PENDING');
+    }
+    assert.ok(!JSON.stringify(logs).includes(key));
+    assert.deepEqual(result.data.raw, raw, 'redacting logs must not alter the gateway response');
+  } finally {
+    global.fetch = originalFetch;
+    console.log = originalLog;
+  }
+});
+
+test('payment initiation and status select their authentication header from the payment environment', async () => {
+  const originalFetch = global.fetch;
+  const saved = Object.fromEntries(['URUBUTOPAY_BASE_URL', 'URUBUTOPAY_ENVIRONMENT', 'URUBUTOPAY_API_KEY', 'NODE_ENV'].map(key => [key, process.env[key]]));
+  try {
+    for (const [base, environment, nodeEnvironment, expected] of [
+      ['https://staging.urubutopay.rw/api', undefined, 'production', 'x-api-key'],
+      ['https://urubutopay.rw/api', undefined, 'development', 'Authorization'],
+      ['https://staging.urubutopay.rw/api', 'testing', 'development', 'x-api-key'],
+      ['https://urubutopay.rw/api', 'live', 'production', 'Authorization']
+    ]) {
+      process.env.URUBUTOPAY_BASE_URL = base;
+      if (environment === undefined) delete process.env.URUBUTOPAY_ENVIRONMENT;
+      else process.env.URUBUTOPAY_ENVIRONMENT = environment;
+      process.env.NODE_ENV = nodeEnvironment;
+      process.env.URUBUTOPAY_API_KEY = 'upg:environment-test-key';
+      let calls = 0;
+      global.fetch = async (_url, options) => {
+        calls++;
+        assert.equal(options.headers[expected], 'upg:environment-test-key');
+        assert.equal(options.headers[expected === 'x-api-key' ? 'Authorization' : 'x-api-key'], undefined);
+        return { status: 200, text: async () => '{"status":200,"data":{"transaction_status":"PENDING"}}' };
+      };
+      const adapter = loadAdapter();
+      await adapter.requestPayment({ amount: 5, mobilephone: '250788000000', requesttransactionid: 'environment-ref' });
+      await adapter.getTransactionStatus({ requesttransactionid: 'environment-ref' });
+      assert.equal(calls, 2);
+    }
+    global.fetch = async () => { assert.fail('invalid environment must not send a request'); };
+    for (const [base, environment, error] of [
+      ['https://urubutopay.rw/api', 'testing', /does not match/],
+      ['https://staging.urubutopay.rw/api', 'live', /does not match/],
+      ['https://staging.urubutopay.rw/api', 'invalid', /must be testing or live/]
+    ]) {
+      process.env.URUBUTOPAY_BASE_URL = base;
+      process.env.URUBUTOPAY_ENVIRONMENT = environment;
+      await assert.rejects(loadAdapter().getTransactionStatus({ requesttransactionid: 'environment-ref' }), error);
+    }
+  } finally {
+    global.fetch = originalFetch;
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 });

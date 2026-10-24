@@ -641,6 +641,7 @@ export async function initiateProcessingFeePayment(req: AuthenticatedRequest, re
 
     return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
     console.error('[Initiate Processing Fee Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
   }
@@ -664,7 +665,7 @@ export async function getProcessingFeePaymentStatus(req: AuthenticatedRequest, r
       return res.status(404).json({ error: 'Transaction not found.' });
     }
 
-    if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
+    if (transaction.status === 'Pending_Verification' && !transaction.clearedAt && transaction.providerTransactionId) {
       try {
         const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
@@ -954,7 +955,7 @@ export async function resolveProcessingFeePaymentByProviderId(
 ) {
   const transaction = await prisma.financialTransaction.findUnique({ where: { providerTransactionId: requesttransactionid } });
   if (!transaction || !GATEWAY_ENABLED_TX_TYPES.includes(transaction.txType)) return null;
-  if (transaction.status !== 'Pending_Verification') return transaction;
+  if (transaction.status !== 'Pending_Verification' || transaction.clearedAt) return transaction;
   return applyGatewayFeeResult(transaction, gatewayStatus, gatewayStatusDesc);
 }
 
@@ -1078,6 +1079,7 @@ export async function initiateAnnualRenewalPayment(req: AuthenticatedRequest, re
 
     return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
     console.error('[Initiate Annual Renewal Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
   }
@@ -1194,6 +1196,7 @@ export async function initiateFirstYearFeePayment(req: AuthenticatedRequest, res
 
     return await respondToGatewayInitiation(res, transaction, data);
   } catch (err: any) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
     console.error('[Initiate First Year Fee Payment] Error:', err.message);
     return res.status(500).json({ error: 'Internal server error initiating payment.' });
   }
@@ -1215,7 +1218,7 @@ export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, re
       return res.status(404).json({ error: 'Transaction not found.' });
     }
 
-    if (transaction.status === 'Pending_Verification' && transaction.providerTransactionId) {
+    if (transaction.status === 'Pending_Verification' && !transaction.clearedAt && transaction.providerTransactionId) {
       try {
         const { data } = await paymentGateway.getTransactionStatus({ requesttransactionid: transaction.providerTransactionId });
         if (data?.success && data?.status) {
@@ -1242,7 +1245,7 @@ export async function getFirstYearFeePaymentStatus(req: AuthenticatedRequest, re
 export async function getBalance(req: AuthenticatedRequest, res: Response) {
   try {
     const { httpStatus, data } = await paymentGateway.getBalance();
-    return res.status(data?.success === true ? 200 : httpStatus || 502).json(data);
+    return res.status(data?.success === true ? 200 : httpStatus >= 400 ? httpStatus : 502).json(data);
   } catch (err: any) {
     console.error('[Payment Gateway Auth] Error:', err.message || err);
     return res.status(500).json({ error: 'Payment gateway unreachable or returned an unexpected error.' });
@@ -1288,6 +1291,7 @@ export async function requestGatewayPayment(req: AuthenticatedRequest, res: Resp
 
     return res.status(httpStatus >= 400 ? httpStatus : 502).json(data);
   } catch (err: any) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
     console.error('[Payment Gateway Request] Error:', err.message || err);
     return res.status(500).json({ error: 'Payment gateway unreachable or returned an unexpected error.' });
   }
@@ -1387,7 +1391,7 @@ function verifyUrubutoWebhookAuthorization(req: Request) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return false;
   try {
-    jwt.verify(header.slice(7), paymentGateway.webhookJwtSecret(), { audience: 'urubutopay' });
+    jwt.verify(header.slice(7), paymentGateway.webhookJwtSecret(), { audience: 'urubutopay', algorithms: ['HS256'] });
     return true;
   } catch {
     return false;
@@ -1416,8 +1420,8 @@ export async function receivePaymentCallback(req: Request, res: Response) {
     return res.status(400).json({ status: 400, message: 'Unsupported callback_type.' });
   }
 
-  if (callbackType === 'PAYMENT' && !transactionId) {
-    return res.status(400).json({ status: 400, message: 'PAYMENT callback transaction_id is required.' });
+  if (callbackType === 'PAYMENT' && (typeof transactionId !== 'string' || !transactionId.trim() || typeof transactionStatus !== 'string' || !transactionStatus.trim())) {
+    return res.status(400).json({ status: 400, message: 'PAYMENT callback transaction_id and transaction_status are required.' });
   }
 
   if (payload.merchant_code && process.env.URUBUTOPAY_MERCHANT_CODE

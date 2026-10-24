@@ -8,7 +8,8 @@
     "test": "node --test tests/*.test.js",
     "start": "node dist/index.js",
     "dev": "nodemon --watch src --ext ts,json --exec ts-node src/index.ts",
-    "migrate": "ts-node src/database/migrate.ts"
+    "migrate": "ts-node src/database/migrate.ts",
+    "payments:check": "node scripts/check-urubutopay.cjs"
   },
   "keywords": [
     "riqs",

@@ -11,6 +11,31 @@ function authorizationValue() {
   return API_KEY.startsWith('upg:') ? API_KEY : `upg:${API_KEY}`;
 }
 
+export function gatewayAuthHeader(): 'x-api-key' | 'Authorization' {
+  const environment = (process.env.URUBUTOPAY_ENVIRONMENT || '').trim().toLowerCase();
+  if (environment && !['testing', 'live'].includes(environment)) {
+    throw new Error('URUBUTOPAY_ENVIRONMENT must be testing or live');
+  }
+  const host = new URL(BASE_URL).hostname;
+  const detected = host === 'staging.urubutopay.rw' ? 'testing'
+    : host === 'urubutopay.rw' ? 'live' : undefined;
+  if (environment && detected && environment !== detected) {
+    throw new Error('URUBUTOPAY_ENVIRONMENT does not match URUBUTOPAY_BASE_URL');
+  }
+  return (environment || detected) === 'testing' ? 'x-api-key' : 'Authorization';
+}
+
+function logGateway(label: string, details: Record<string, unknown>) {
+  // Redact credentials even if the provider echoes them in its response body.
+  let serialized = JSON.stringify(details, (key, value) =>
+    /^(authorization|x-api-key|api[_-]?key)$/i.test(key) ? '[REDACTED]' : value
+  );
+  for (const secret of [authorizationValue(), API_KEY, API_KEY.replace(/^upg:/, '')]) {
+    if (secret) serialized = serialized.split(JSON.stringify(secret).slice(1, -1)).join('[REDACTED]');
+  }
+  console.log(label, JSON.stringify(JSON.parse(serialized), null, 2));
+}
+
 export type UrubutoPaymentParams = {
   amount: string | number;
   mobilephone: string | number;
@@ -22,34 +47,53 @@ export type UrubutoPaymentParams = {
   redirectionUrl?: string;
 };
 
-function requireConfig() {
+function requireConfig(needsService = false) {
   const missing = [
     !BASE_URL && 'URUBUTOPAY_BASE_URL',
     !API_KEY && 'URUBUTOPAY_API_KEY',
     !MERCHANT_CODE && 'URUBUTOPAY_MERCHANT_CODE',
-    !SERVICE_CODE && 'URUBUTOPAY_SERVICE_CODE'
+    needsService && !SERVICE_CODE && 'URUBUTOPAY_SERVICE_CODE'
   ].filter(Boolean);
   if (missing.length) throw new Error(`UrubutoPay configuration is incomplete: ${missing.join(', ')}`);
-  if (/\/(?:v2|reference)$/i.test(BASE_URL)) {
+  if (/\/(?:v2|reference)(?:\/|$)/i.test(BASE_URL)) {
     throw new Error('URUBUTOPAY_BASE_URL must exclude /v2 and /reference');
   }
+  if (new URL(BASE_URL).protocol !== 'https:') throw new Error('URUBUTOPAY_BASE_URL must use HTTPS');
 }
 
 async function postToGateway(path: string, body: Record<string, unknown>) {
   requireConfig();
-  const headers = { 'Content-Type': 'application/json', 'x-api-key': authorizationValue() };
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json', [gatewayAuthHeader()]: authorizationValue() };
+  logGateway('UrubutoPay request:', {
+    url: `${BASE_URL}${path}`,
+    method: 'POST',
+    headers,
+    transactionId: body.transaction_id,
+    payload: body
+  });
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+    redirect: 'error'
   });
   const text = await response.text();
   let raw: any;
   try { raw = JSON.parse(text); } catch { raw = { message: text }; }
+  logGateway('UrubutoPay response:', {
+    url: `${BASE_URL}${path}`,
+    transactionId: body.transaction_id,
+    httpStatus: response.status,
+    headers: Object.fromEntries(response.headers?.entries() || []),
+    payload: raw
+  });
   return { httpStatus: response.status, raw };
 }
 
 export async function requestPayment(params: UrubutoPaymentParams) {
+  requireConfig(true);
+  const { phone, channel } = validatePaymentInput(params);
   const payload = {
     merchant_code: MERCHANT_CODE,
     service_code: SERVICE_CODE,
@@ -57,11 +101,12 @@ export async function requestPayment(params: UrubutoPaymentParams) {
     payer_names: params.payerNames || 'RIQS Member',
     payer_email: params.payerEmail || process.env.URUBUTOPAY_DEFAULT_PAYER_EMAIL || 'payments@riqs.org.rw',
     amount: Number(params.amount),
-    channel_name: params.channelName || 'MOMO',
-    phone_number: String(params.mobilephone),
+    channel_name: channel,
+    phone_number: phone,
     transaction_id: params.requesttransactionid,
     ...(params.redirectionUrl ? { redirection_url: params.redirectionUrl } : {})
   };
+
   const { httpStatus, raw } = await postToGateway('/v2/payment/initiate', payload);
   return {
     httpStatus,
@@ -76,13 +121,15 @@ export async function requestPayment(params: UrubutoPaymentParams) {
       raw
     }
   };
+
 }
 
 export async function getTransactionStatus(params: { requesttransactionid: string; transactionid?: string }) {
-  const { httpStatus, raw } = await postToGateway('/v2/payment/transaction/status', {
+  const payload = {
     merchant_code: MERCHANT_CODE,
     transaction_id: params.transactionid || params.requesttransactionid
-  });
+  };
+  const { httpStatus, raw } = await postToGateway('/v2/payment/transaction/status', payload);
   return {
     httpStatus,
     data: {
@@ -98,12 +145,12 @@ export async function getTransactionStatus(params: { requesttransactionid: strin
   };
 }
 
-export async function getBalance() {
-  const { httpStatus, raw } = await postToGateway('/v2/wallet/balance', {});
+export async function getBalance(walletAccountId = process.env.URUBUTOPAY_WALLET_ACCOUNT_ID) {
+  const { httpStatus, raw } = await postToGateway('/v2/wallet/balance', walletAccountId ? { wallet_account_id: walletAccountId } : {});
   return {
     httpStatus,
     data: {
-      success: httpStatus >= 200 && httpStatus < 300 && raw?.status === true,
+      success: httpStatus >= 200 && httpStatus < 300 && (raw?.status === true || raw?.status === 200),
       responsecode: raw?.code,
       message: raw?.message || 'Wallet balance retrieved.',
       balance: raw?.data?.balance,
@@ -118,6 +165,32 @@ export function normalizePhoneNumber(phone: string | number) {
   if (digits.startsWith('07')) return `250${digits.slice(1)}`;
   if (digits.startsWith('7')) return `250${digits}`;
   return digits;
+}
+
+export class PaymentInputError extends Error {
+  readonly status = 400;
+}
+
+export function validatePaymentInput(params: UrubutoPaymentParams) {
+  if (!['string', 'number'].includes(typeof params.amount) || !Number.isFinite(Number(params.amount)) || Number(params.amount) <= 0) {
+    throw new PaymentInputError('Payment amount must be a positive number.');
+  }
+  if (typeof params.requesttransactionid !== 'string' || !params.requesttransactionid.trim()) {
+    throw new PaymentInputError('A transaction reference is required.');
+  }
+  const phone = normalizePhoneNumber(params.mobilephone);
+  const channel = params.channelName || (phone.startsWith('25072') || phone.startsWith('25073') ? 'AIRTEL_MONEY' : 'MOMO');
+  if (!['MOMO', 'AIRTEL_MONEY', 'CARD'].includes(channel)) throw new PaymentInputError('Unsupported payment channel.');
+  if (channel !== 'CARD' && !/^2507[2389]\d{7}$/.test(phone)) {
+    throw new PaymentInputError('A valid Rwandan mobile money number is required.');
+  }
+  if (channel === 'CARD') {
+    if (!/^\d{8,15}$/.test(phone)) throw new PaymentInputError('A valid phone number is required.');
+    try {
+      if (!['https:', 'http:'].includes(new URL(params.redirectionUrl || '').protocol)) throw new Error();
+    } catch { throw new PaymentInputError('Card payments require a valid redirection URL.'); }
+  }
+  return { phone, channel };
 }
 
 export function timingSafeEqualText(left: string, right: string) {

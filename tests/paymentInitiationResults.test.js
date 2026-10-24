@@ -135,3 +135,34 @@ test('a failure callback uses the explicit reason rather than the generic paymen
   assert.equal(tx.status, 'Failed');
   assert.equal(tx.rejectionReason, 'Insufficient funds');
 });
+
+test('duplicate renewal callbacks preserve the original clearance and issue one receipt', async () => {
+  await initiate('Annual_Renewal', controller.initiateAnnualRenewalPayment, 'INITIATED');
+  await controller.resolveProcessingFeePaymentByProviderId(tx.providerTransactionId, 'VALID');
+  const clearedAt = tx.clearedAt;
+  await controller.resolveProcessingFeePaymentByProviderId(tx.providerTransactionId, 'VALID');
+  await controller.resolveProcessingFeePaymentByProviderId(tx.providerTransactionId, 'FAILED');
+  assert.equal(tx.status, 'Pending_Verification');
+  assert.equal(tx.clearedAt, clearedAt);
+  assert.equal(receipts, 1);
+});
+
+test('callbacks reject missing, expired, or wrong-audience tokens and malformed payment events', async () => {
+  const jwt = require('jsonwebtoken');
+  const response = () => ({ status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
+  for (const authorization of [undefined, 'Bearer invalid',
+    `Bearer ${jwt.sign({}, 'webhook-test-secret', { audience: 'other' })}`,
+    `Bearer ${jwt.sign({}, 'webhook-test-secret', { audience: 'urubutopay', expiresIn: -1 })}`
+  ]) {
+    const res = response();
+    await controller.receivePaymentCallback({ headers: { authorization }, body: {} }, res);
+    assert.equal(res.statusCode, 401);
+  }
+  const authorization = `Bearer ${jwt.sign({}, 'webhook-test-secret', { audience: 'urubutopay' })}`;
+  for (const body of [{}, { callback_type: 'PAYMENT' }, { callback_type: 'PAYMENT', transaction_id: 'ref' },
+    { callback_type: 'PAYMENT', transaction_id: {}, transaction_status: 'VALID' }]) {
+    const res = response();
+    await controller.receivePaymentCallback({ headers: { authorization }, body }, res);
+    assert.equal(res.statusCode, 400);
+  }
+});
