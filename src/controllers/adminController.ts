@@ -1241,6 +1241,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         fullName: m.fullName,
         email: m.email,
         membershipId: m.membershipId,
+        phoneNumber: m.phoneNumber,
         category: app?.category?.categoryName || m.membershipClass || 'N/A',
         categoryId: app?.category?.id || null,
         practiceLocation: app?.practiceLocation || 'Rwandan',
@@ -1249,6 +1250,7 @@ export async function getMembersRegistry(req: AuthenticatedRequest, res: Respons
         expiresAt: m.membershipExpiresAt
           ? m.membershipExpiresAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
           : 'N/A',
+        expiresAtIso: m.membershipExpiresAt?.toISOString() ?? null,
         photoId: app?.uploadedDocuments?.[0]?.id,
         isFellow: m.isFellow,
         isLocked: Boolean(m.isLocked && (!m.lockedUntil || m.lockedUntil > new Date())),

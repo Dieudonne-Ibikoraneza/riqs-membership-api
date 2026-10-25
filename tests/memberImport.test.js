@@ -50,7 +50,18 @@ test('normalizes email before validation and skips duplicate accounts', async ()
   const res = await submit({ rows: [row({ email: ' TEST@EXAMPLE.COM ' }), row()] });
   assert.deepEqual(res.body.summary, { total: 2, created: 1, skipped: 1, failed: 0 });
   assert.equal(created[0].email, 'test@example.com');
+  assert.equal(mails.length, 1);
   assert.equal(mails[0].to, 'test@example.com');
+});
+
+test('successful graduate and professional imports each send a welcome email', async () => {
+  const res = await submit({ rows: [row(), row({ sourceSheet: 'PROF_TECH', categoryCode: 'PrQS', email: 'professional@example.com' })] });
+  assert.equal(res.body.summary.created, 2);
+  assert.equal(created.length, 2);
+  assert.ok(created.every(member => member.passwordHash && member.resetPasswordOtp === 'CHANGE'));
+  assert.equal(mails.length, 2);
+  assert.deepEqual(mails.map(mail => mail.to), ['test@example.com', 'professional@example.com']);
+  assert.ok(mails.every(mail => mail.html.includes('Temporary Password:')));
 });
 
 test('invalid dates, years and malformed rows do not reach persistence', async () => {

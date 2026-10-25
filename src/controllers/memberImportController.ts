@@ -8,6 +8,9 @@ import { z } from 'zod';
 import { deriveMemberClass, getCertificateCode } from '../utils/membershipUtils';
 import { nextMembershipId } from './progressionController';
 
+// Re-enabled at the user's request after import testing was completed.
+const SEND_BULK_IMPORT_WELCOME_EMAILS = true;
+
 // Bulk-onboards real, already-registered members from the legacy Excel roster. Unlike every
 // other admin member-creation path this can create dozens/hundreds of real login credentials
 // and send that many real emails in one request, so each row is handled independently — one
@@ -148,36 +151,38 @@ async function importOneRow(row: ImportRow, actionByEmail: string): Promise<Impo
       return created;
     });
 
-    sendRawMail({
-      to: row.email,
-      subject: 'Welcome to RIQS — Your Member Portal Account',
-      html: `
-        <div style="font-family: sans-serif; color: #333;">
-          <h2>Welcome to the RIQS Member Portal</h2>
-          <p>Dear ${row.fullName},</p>
-          <p>Your RIQS membership record has been migrated into the new online member portal. Your membership ID is <strong>${membershipId}</strong>.</p>
-          <p>Your login details are:</p>
-          <ul>
-            <li><strong>Email:</strong> ${row.email}</li>
-            <li><strong>Temporary Password:</strong> ${tempPassword}</li>
-          </ul>
-          <p>You will be asked to set a new password the first time you log in.</p>
-          <br/>
-          <p>Best regards,</p>
-          <p>RIQS Administration</p>
-        </div>
-      `,
-    }).catch((err: any) => {
-      console.error(`[Bulk Import] Failed to send welcome email to ${row.email}:`, err.message);
-      prisma.auditLog.create({
-        data: {
-          memberId: member.id,
-          actionByEmail: 'system@riqs.rw',
-          actionType: 'EMAIL_SEND_FAILED',
-          details: `Failed to send the bulk-import welcome email to ${row.email}: ${err.message}`,
-        },
-      }).catch(() => {});
-    });
+    if (SEND_BULK_IMPORT_WELCOME_EMAILS) {
+      sendRawMail({
+        to: row.email,
+        subject: 'Welcome to RIQS — Your Member Portal Account',
+        html: `
+          <div style="font-family: sans-serif; color: #333;">
+            <h2>Welcome to the RIQS Member Portal</h2>
+            <p>Dear ${row.fullName},</p>
+            <p>Your RIQS membership record has been migrated into the new online member portal. Your membership ID is <strong>${membershipId}</strong>.</p>
+            <p>Your login details are:</p>
+            <ul>
+              <li><strong>Email:</strong> ${row.email}</li>
+              <li><strong>Temporary Password:</strong> ${tempPassword}</li>
+            </ul>
+            <p>You will be asked to set a new password the first time you log in.</p>
+            <br/>
+            <p>Best regards,</p>
+            <p>RIQS Administration</p>
+          </div>
+        `,
+      }).catch((err: any) => {
+        console.error(`[Bulk Import] Failed to send welcome email to ${row.email}:`, err.message);
+        prisma.auditLog.create({
+          data: {
+            memberId: member.id,
+            actionByEmail: 'system@riqs.rw',
+            actionType: 'EMAIL_SEND_FAILED',
+            details: `Failed to send the bulk-import welcome email to ${row.email}: ${err.message}`,
+          },
+        }).catch(() => {});
+      });
+    }
 
     return { ...base, status: 'created', membershipId };
   } catch (error: any) {
