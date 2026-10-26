@@ -6,10 +6,12 @@ import { MemberClass } from '@prisma/client';
 
 export async function getPublicMembersDirectory(req: Request, res: Response) {
   try {
-    const { search, category, page = 1, limit = 10, mentorsOnly } = req.query;
+    const { search, category, page = 1, limit = 10, mentorsOnly, sortKey = 'name', sortDir = 'asc' } = req.query;
 
     const skip = (Number(page) - 1) * Number(limit);
     const take = Number(limit);
+    const direction = sortDir === 'desc' ? 'desc' : 'asc';
+    const sortField = sortKey === 'id' ? 'membershipId' : sortKey === 'category' ? 'membershipClass' : 'fullName';
 
     const whereClause: any = {
       membershipId: { not: null }, // Only show fully approved members
@@ -48,7 +50,8 @@ export async function getPublicMembersDirectory(req: Request, res: Response) {
         where: whereClause,
         skip,
         take,
-        orderBy: { fullName: 'asc' },
+        // Apply sorting before pagination and break ties consistently across pages.
+        orderBy: [{ [sortField]: direction }, { id: 'asc' }],
         select: {
           id: true,
           membershipId: true,

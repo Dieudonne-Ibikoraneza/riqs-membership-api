@@ -89,6 +89,18 @@ router.get('/mentor-application', requireAuth, getMyMentorApplication);
  *           type: string
  *         description: Filter by membership class
  *       - in: query
+ *         name: sortKey
+ *         schema:
+ *           type: string
+ *           enum: [name, id, category]
+ *           default: name
+ *       - in: query
+ *         name: sortDir
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: asc
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
